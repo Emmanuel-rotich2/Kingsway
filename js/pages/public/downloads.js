@@ -48,6 +48,14 @@
       this.generatedByKey = {};
       this.generatedItems.forEach((item) => { this.generatedByKey[item.key] = item; });
 
+      // Intro line written by the school on the website workspace.
+      const intro = document.getElementById('dl-intro');
+      if (intro) {
+        const text = String(data?.intro || '').trim();
+        intro.textContent = text;
+        intro.style.display = text ? '' : 'none';
+      }
+
       const selectorWrap = document.getElementById('dl-year-selector');
       const selector = document.getElementById('dlAcademicYear');
       const years = Array.isArray(data?.academic_years) ? data.academic_years : [];

@@ -265,16 +265,17 @@ class ControllerRouter
             \App\API\Services\Logger::legacyError('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->abort(500, 'An internal error occurred.');
         } catch (\InvalidArgumentException $e) {
-            \App\API\Services\Logger::legacyError('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            $this->logRejectedRequest($e);
             return $this->abort(400, $e->getMessage());
         } catch (\RuntimeException $e) {
-            \App\API\Services\Logger::legacyError('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             if (stripos($e->getMessage(), 'SQLSTATE') !== false) {
                 // A wrapped database error: same rule, never echo it.
+                \App\API\Services\Logger::legacyError('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
                 return $this->abort(500, 'An internal error occurred.');
             }
             $code = (int) $e->getCode();
             if ($code === 404) {
+                $this->logRejectedRequest($e);
                 return $this->abort(404, $e->getMessage());
             }
             // Service unavailable errors should return 503, not 400
@@ -285,13 +286,30 @@ class ControllerRouter
                 stripos($e->getMessage(), 'unavailable') !== false ||
                 stripos($e->getMessage(), 'not configured') !== false
             ) {
+                \App\API\Services\Logger::legacyError('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
                 return $this->abort(503, $e->getMessage());
             }
+            $this->logRejectedRequest($e);
             return $this->abort(400, $e->getMessage());
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->abort(500, 'An internal error occurred.');
         }
+    }
+
+    /**
+     * A business rule turned the request away (duplicate code, record not
+     * found, account not linked). The user got a 4xx with the reason, so this
+     * is a warning, not an application error for the on-call log monitor.
+     */
+    private function logRejectedRequest(\Throwable $e): void
+    {
+        \App\API\Services\Logger::warning('errors', '[ControllerRouter] ' . $e->getMessage(), [
+            'type' => 'request_rejected',
+            'exception' => get_class($e),
+            'source_file' => basename($e->getFile()),
+            'source_line' => $e->getLine(),
+        ]);
     }
 
     /**

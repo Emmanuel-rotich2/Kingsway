@@ -1,565 +1,807 @@
 <?php
-/* Website Management — partial page served inside home.php app shell.
-   Tabs shown/hidden by JS based on AuthContext permissions. */
-
+/* Website workspace — partial page served inside the home.php app shell.
+   Sections are shown by js/pages/manage_website.js from the signed-in
+   user's website_* permissions. No SQL here. */
 ?>
 
 <style>
-.ws-tab-btn { border:none;background:none;padding:8px 16px;border-radius:8px;font-weight:500;font-size:.88rem;color:#64748b;cursor:pointer;white-space:nowrap;transition:all .18s; }
-.ws-tab-btn.active,.ws-tab-btn:hover { background:#198754;color:#fff; }
-.ws-stat-card { background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;display:flex;align-items:center;gap:16px; }
-.ws-stat-icon { width:48px;height:48px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0; }
-.ws-badge { display:inline-block;padding:2px 10px;border-radius:20px;font-size:.72rem;font-weight:600; }
-.ws-table td,.ws-table th { vertical-align:middle;font-size:.85rem; }
-.ws-img-thumb { width:56px;height:40px;object-fit:cover;border-radius:6px; }
-.ws-tag-chip { display:inline-block;padding:2px 8px;border-radius:12px;font-size:.72rem;font-weight:600;border:1px solid; }
-.ws-form-group label { font-size:.82rem;font-weight:600;color:#374151;margin-bottom:4px;display:block; }
-.ws-form-group input,.ws-form-group select,.ws-form-group textarea { width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:.88rem;outline:none;transition:border-color .15s; }
-.ws-form-group input:focus,.ws-form-group select:focus,.ws-form-group textarea:focus { border-color:#198754;box-shadow:0 0 0 3px rgba(25,135,84,.1); }
-.ws-gallery-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px; }
-.ws-gallery-item { position:relative;border-radius:10px;overflow:hidden;background:#f1f5f9; }
-.ws-gallery-item img { width:100%;aspect-ratio:16/9;object-fit:cover;display:block; }
-.ws-gallery-item .ws-overlay { position:absolute;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;gap:8px;opacity:0;transition:opacity .2s; }
-.ws-gallery-item:hover .ws-overlay { opacity:1; }
-.ws-gallery-item .caption { font-size:.72rem;padding:4px 8px;background:#f8fafc;color:#374151;border-top:1px solid #e2e8f0; }
-.ws-settings-row { display:grid;grid-template-columns:1fr 2fr;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9; }
-.ws-settings-key { font-size:.8rem;font-weight:600;color:#374151;word-break:break-word; }
-.ws-settings-label { font-size:.75rem;color:#94a3b8; }
+.kw-web {
+  --web-ink: #1B2620;
+  --web-muted: #5E6B64;
+  --web-line: #E3E9E4;
+  --web-paper: #F7F9F6;
+  --web-card: #FFFFFF;
+  --web-green: #155C3B;
+  --web-leaf: #2E8B57;
+  --web-leaf-tint: #E7F2EC;
+  --web-maize: #E0A526;
+  --web-maize-tint: #FBF3DE;
+  --web-danger: #B4362B;
+  color: var(--web-ink);
+  background: var(--web-paper);
+  border-radius: 18px;
+  padding: 22px;
+}
+/* The hidden attribute always wins over component display rules. */
+.kw-web [hidden], .kw-web-modal [hidden] { display: none !important; }
+.kw-web h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -.01em; margin: 0; }
+.kw-web h2 { font-size: 1.125rem; font-weight: 650; margin: 0; }
+.kw-web h3 { font-size: .95rem; font-weight: 650; margin: 0; }
+.kw-web .web-sub { color: var(--web-muted); font-size: .875rem; margin: 4px 0 0; max-width: 62ch; }
+.kw-web .web-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+.kw-web .web-head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.kw-web .btn-web { background: var(--web-green); color: #fff; border: 0; border-radius: 10px; font-weight: 600; font-size: .875rem; padding: 8px 14px; }
+.kw-web .btn-web:hover, .kw-web .btn-web:focus-visible { background: #0F4A2F; color: #fff; }
+.kw-web .btn-web-quiet { background: var(--web-card); color: var(--web-ink); border: 1px solid var(--web-line); border-radius: 10px; font-weight: 600; font-size: .875rem; padding: 8px 14px; }
+.kw-web .btn-web-quiet:hover { border-color: var(--web-leaf); color: var(--web-green); }
+.kw-web .btn-icon { border: 1px solid var(--web-line); background: var(--web-card); border-radius: 8px; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; color: var(--web-muted); }
+.kw-web .btn-icon:hover { color: var(--web-green); border-color: var(--web-leaf); }
+.kw-web .btn-icon.danger:hover { color: var(--web-danger); border-color: var(--web-danger); }
+.kw-web :focus-visible { outline: 3px solid rgba(46,139,87,.45); outline-offset: 2px; }
+
+/* Desk: rail | canvas | up next. With the app sidebar open, three columns
+   only fit on wide screens; below that "Up next" sits above the canvas. */
+.kw-web .web-desk { display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; grid-template-areas: "rail canvas next"; gap: 20px; align-items: start; }
+.kw-web .web-rail { grid-area: rail; }
+.kw-web .web-canvas { grid-area: canvas; min-width: 0; }
+.kw-web .web-next { grid-area: next; }
+@media (max-width: 1699.98px) {
+  .kw-web .web-desk { grid-template-columns: 210px minmax(0, 1fr); grid-template-areas: "rail next" "rail canvas"; }
+  .kw-web .web-next { position: static; }
+  .kw-web .web-next .web-next-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); align-items: stretch; }
+  .kw-web .web-next:not(.is-expanded) .web-next-item:nth-child(n+4) { display: none; }
+  .kw-web .web-next-more:not([hidden]) { display: inline-block; }
+}
+.kw-web .web-next-more { display: none; background: none; border: 0; color: #6B5A33; font-size: .8125rem; font-weight: 600; padding: 6px 0 0; text-decoration: underline; }
+@media (max-width: 991.98px) {
+  .kw-web .web-desk { grid-template-columns: 1fr; grid-template-areas: "rail" "next" "canvas"; }
+  .kw-web { padding: 14px; }
+}
+
+.kw-web .web-rail { position: sticky; top: 76px; display: flex; flex-direction: column; gap: 14px; align-self: start; }
+@media (max-width: 991.98px) {
+  .kw-web .web-rail { position: static; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding-bottom: 6px; scrollbar-width: thin; }
+  .kw-web .web-rail .web-rail-group { display: contents; }
+  .kw-web .web-rail .web-rail-group-label { display: none; }
+  .kw-web .web-rail .web-rail-group button { width: auto; flex: 0 0 auto; border: 1px solid var(--web-line); background: var(--web-card); }
+  .kw-web .web-rail .web-rail-group button[aria-current="page"] { background: var(--web-green); border-color: var(--web-green); }
+}
+.kw-web .web-rail-group { display: flex; flex-direction: column; gap: 2px; }
+.kw-web .web-rail-group-label { font-size: .75rem; font-weight: 600; color: var(--web-muted); padding: 0 10px 4px; }
+.kw-web .web-rail button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; background: transparent; color: var(--web-ink); border-radius: 10px; padding: 8px 10px; font-size: .9rem; font-weight: 500; white-space: nowrap; }
+.kw-web .web-rail button i { color: var(--web-muted); font-size: 1rem; }
+.kw-web .web-rail button:hover { background: var(--web-leaf-tint); }
+.kw-web .web-rail button[aria-current="page"] { background: var(--web-green); color: #fff; }
+.kw-web .web-rail button[aria-current="page"] i { color: #fff; }
+.kw-web .web-rail .web-count { margin-left: auto; font-size: .75rem; background: var(--web-maize); color: #3B2A05; border-radius: 999px; padding: 0 7px; font-weight: 700; }
+
+.kw-web .web-panel { background: var(--web-card); border: 1px solid var(--web-line); border-radius: 16px; padding: 18px; min-height: 420px; }
+.kw-web .web-panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.kw-web .web-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.kw-web .web-tools .form-control, .kw-web .web-tools .form-select { font-size: .875rem; border-radius: 9px; border-color: var(--web-line); }
+.kw-web .web-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.kw-web .web-chip { border: 1px solid var(--web-line); background: var(--web-card); border-radius: 999px; padding: 4px 12px; font-size: .8125rem; color: var(--web-muted); }
+.kw-web .web-chip[aria-pressed="true"] { background: var(--web-leaf-tint); border-color: var(--web-leaf); color: var(--web-green); font-weight: 600; }
+
+/* Post list: media-led rows, not identical cards */
+.kw-web .web-list { display: flex; flex-direction: column; }
+.kw-web .web-row { display: grid; grid-template-columns: 88px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 12px 4px; border-top: 1px solid var(--web-line); }
+.kw-web .web-row:first-child { border-top: 0; }
+.kw-web .web-row-media { width: 88px; height: 60px; border-radius: 10px; object-fit: cover; background: var(--web-leaf-tint); display: block; }
+.kw-web .web-row-media.ph { display: flex; align-items: center; justify-content: center; color: var(--web-leaf); font-size: 1.3rem; }
+.kw-web .web-row-title { font-weight: 600; font-size: .95rem; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kw-web .web-row-meta { font-size: .8125rem; color: var(--web-muted); margin-top: 2px; }
+.kw-web .web-row-actions { display: flex; gap: 6px; }
+.kw-web .web-state { font-size: .75rem; font-weight: 600; border-radius: 999px; padding: 1px 9px; margin-right: 6px; display: inline-block; }
+.kw-web .web-state.live { background: var(--web-leaf-tint); color: var(--web-green); }
+.kw-web .web-state.draft { background: #EEF0EF; color: var(--web-muted); }
+.kw-web .web-state.off { background: #FBE9E7; color: var(--web-danger); }
+@media (max-width: 575.98px) { .kw-web .web-row { grid-template-columns: 64px minmax(0,1fr); } .kw-web .web-row-media { width: 64px; height: 48px; } .kw-web .web-row-actions { grid-column: 1 / -1; justify-content: flex-end; } }
+
+.kw-web .web-empty { text-align: center; padding: 46px 16px; color: var(--web-muted); }
+.kw-web .web-empty i { font-size: 2rem; color: var(--web-leaf); display: block; margin-bottom: 8px; }
+.kw-web .web-empty p { margin: 0 auto 14px; max-width: 46ch; }
+
+/* Gallery wall */
+.kw-web .web-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.kw-web .web-tile { position: relative; border-radius: 12px; overflow: hidden; background: var(--web-leaf-tint); border: 1px solid var(--web-line); }
+.kw-web .web-tile img, .kw-web .web-tile video { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; }
+.kw-web .web-tile figcaption { font-size: .8125rem; padding: 7px 9px; display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+.kw-web .web-tile .web-tile-kind { position: absolute; top: 8px; left: 8px; background: rgba(27,38,32,.75); color: #fff; border-radius: 6px; font-size: .7rem; padding: 1px 6px; }
+.kw-web .web-tile.is-hidden img, .kw-web .web-tile.is-hidden video { opacity: .45; }
+
+/* Up next */
+.kw-web .web-next { position: sticky; top: 76px; }
+.kw-web .web-next-card { background: var(--web-maize-tint); border: 1px solid #EFD9A0; border-radius: 16px; padding: 16px; }
+.kw-web .web-next-card h2 { display: flex; align-items: center; gap: 8px; }
+.kw-web .web-next-card h2 i { color: #A87410; }
+.kw-web .web-next-list { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 10px; }
+.kw-web .web-next-item { background: #FFFDF7; border: 1px solid #F1E2B9; border-left: 4px solid var(--web-maize); border-radius: 10px; padding: 10px 12px; }
+.kw-web .web-next-item.p1 { border-left-color: #C7861A; }
+.kw-web .web-next-item h3 { font-size: .9rem; }
+.kw-web .web-next-item p { font-size: .8125rem; color: #6B5A33; margin: 3px 0 8px; }
+.kw-web .web-next-item .web-next-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.kw-web .web-next-item .btn { font-size: .78rem; padding: 3px 10px; border-radius: 8px; }
+.kw-web .web-next-go { background: var(--web-green); color: #fff; border: 0; }
+.kw-web .web-next-go:hover { background: #0F4A2F; color: #fff; }
+.kw-web .web-next-ai { background: transparent; border: 1px solid #D9BE77; color: #6B5A33; }
+
+/* Forms */
+.kw-web-modal .form-label, .kw-web .form-label { font-size: .8125rem; font-weight: 600; color: #2D3A33; margin-bottom: 4px; }
+.kw-web-modal .form-control, .kw-web-modal .form-select { border-radius: 9px; border-color: #D5DED8; font-size: .9rem; }
+.kw-web-modal .form-control:focus, .kw-web-modal .form-select:focus, .kw-web .form-control:focus, .kw-web .form-select:focus { border-color: #2E8B57; box-shadow: 0 0 0 3px rgba(46,139,87,.15); }
+.kw-web-modal .form-hint { font-size: .78rem; color: #5E6B64; margin-top: 3px; }
+.kw-web-modal .modal-content { border: 0; border-radius: 18px; }
+.kw-web-modal .modal-header { border-bottom: 1px solid #E3E9E4; }
+.kw-web-modal .modal-footer { border-top: 1px solid #E3E9E4; }
+.kw-web-modal .btn-web { background: #155C3B; color: #fff; border: 0; border-radius: 10px; font-weight: 600; padding: 8px 16px; }
+.kw-web-modal .btn-web:hover { background: #0F4A2F; color: #fff; }
+.kw-web-modal .btn-web-quiet { background: #fff; color: #1B2620; border: 1px solid #E3E9E4; border-radius: 10px; font-weight: 600; padding: 8px 16px; }
+.kw-web-modal .web-seg { display: inline-flex; border: 1px solid #D5DED8; border-radius: 10px; overflow: hidden; }
+.kw-web-modal .web-seg button { border: 0; background: #fff; padding: 6px 14px; font-size: .85rem; font-weight: 600; color: #5E6B64; }
+.kw-web-modal .web-seg button[aria-pressed="true"] { background: #155C3B; color: #fff; }
+
+/* Drop zone */
+.web-drop { border: 2px dashed #B9CBBF; border-radius: 14px; background: #F5FAF6; padding: 18px; text-align: center; color: #3F4D45; cursor: pointer; transition: border-color .15s, background .15s; }
+.web-drop:hover, .web-drop.is-over { border-color: #2E8B57; background: #E7F2EC; }
+.web-drop i { font-size: 1.6rem; color: #2E8B57; display: block; margin-bottom: 4px; }
+.web-drop small { color: #5E6B64; display: block; margin-top: 2px; }
+.web-drop-current { position: relative; margin-top: 10px; }
+.web-drop-current img, .web-drop-current video { width: 100%; max-height: 220px; object-fit: cover; border-radius: 12px; display: block; }
+.web-drop-current .btn-icon { position: absolute; top: 8px; right: 8px; background: #fff; }
+.web-queue { list-style: none; padding: 0; margin: 12px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.web-queue li { border: 1px solid #E3E9E4; border-radius: 12px; overflow: hidden; background: #fff; font-size: .8rem; }
+.web-queue img, .web-queue video { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; background: #E7F2EC; }
+.web-queue .web-q-body { padding: 6px 8px; }
+.web-queue input { font-size: .8rem; padding: 3px 6px; }
+.web-queue .web-q-state { font-size: .75rem; color: #5E6B64; }
+.web-queue .web-q-state.err { color: #B4362B; }
+.web-queue .web-q-state.ok { color: #155C3B; font-weight: 600; }
+
+/* Live preview of a news card, as the public site renders it */
+.web-live { position: sticky; top: 0; }
+.web-live-label { font-size: .8125rem; font-weight: 600; color: #5E6B64; margin-bottom: 8px; }
+.web-live-card { border-radius: 16px; overflow: hidden; background: #fff; box-shadow: 0 6px 24px rgba(21,92,59,.12); border: 1px solid #E3E9E4; }
+.web-live-card img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; background: #E7F2EC; }
+.web-live-card .web-live-body { padding: 14px 16px 16px; }
+.web-live-card .web-live-cat { display: inline-block; font-size: .72rem; font-weight: 700; color: #155C3B; background: #E7F2EC; border-radius: 999px; padding: 1px 9px; }
+.web-live-card h4 { font-size: 1.05rem; font-weight: 700; margin: 8px 0 6px; line-height: 1.3; }
+.web-live-card p { font-size: .875rem; color: #5E6B64; margin: 0; }
+.web-live-card .web-live-date { font-size: .75rem; color: #7C8982; margin-top: 10px; }
+
+/* Settings groups */
+.kw-web .web-set-group { border: 1px solid var(--web-line); border-radius: 14px; padding: 14px 16px; margin-bottom: 14px; }
+.kw-web .web-set-group header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
+.kw-web .web-set-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px 16px; }
+.kw-web .web-set-field small { color: var(--web-muted); font-size: .75rem; }
+.kw-web .web-set-field.is-dirty .form-control { border-color: var(--web-maize); background: #FFFDF5; }
+
+/* Downloads config */
+.kw-web .web-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+@media (max-width: 1199.98px) { .kw-web .web-split { grid-template-columns: 1fr; } }
+.kw-web .web-box { border: 1px solid var(--web-line); border-radius: 14px; padding: 14px 16px; }
+.kw-web .web-box + .web-box { margin-top: 14px; }
+.kw-web .web-checks { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.kw-web .web-checks .form-check { font-size: .875rem; }
+.kw-web .web-dl-row { display: grid; grid-template-columns: 34px minmax(0,1fr) auto; gap: 10px; align-items: center; padding: 9px 2px; border-top: 1px solid var(--web-line); }
+.kw-web .web-dl-row:first-child { border-top: 0; }
+.kw-web .web-dl-row i.web-dl-ico { font-size: 1.3rem; }
+.kw-web .web-dl-row.is-hidden .web-row-title { color: var(--web-muted); text-decoration: line-through; }
+
+/* Kept sections (page text, about the school, leadership) */
+.kw-web .ws-stat-card { background: var(--web-card); border: 1px solid var(--web-line); border-radius: 12px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
+.kw-web .ws-stat-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+.kw-web .ws-table td, .kw-web .ws-table th { vertical-align: middle; font-size: .85rem; }
+.kw-web .ws-tag-chip { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .75rem; font-weight: 600; border: 1px solid; }
+.kw-web .ws-form-group label { font-size: .8125rem; font-weight: 600; color: #2D3A33; margin-bottom: 3px; display: block; }
+.kw-web .ws-settings-row { display: grid; grid-template-columns: minmax(140px, 1fr) 2fr; gap: 12px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--web-line); }
+.kw-web .ws-settings-key { font-size: .8125rem; font-weight: 600; word-break: break-word; }
+@media (max-width: 575.98px) { .kw-web .ws-settings-row { grid-template-columns: 1fr; } }
+
+/* Preview frame */
+.web-preview-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.web-preview-stage { background: #E9EEEA; flex: 1; display: flex; justify-content: center; overflow: auto; padding: 16px; }
+.web-preview-stage iframe { border: 0; background: #fff; width: 100%; height: calc(100vh - 110px); min-height: 480px; border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.12); transition: width .2s; }
+.web-preview-stage.is-phone iframe { width: 390px; }
+@media (prefers-reduced-motion: reduce) { .web-preview-stage iframe, .web-drop { transition: none; } }
 </style>
 
-<div class="container-fluid px-4 py-4">
+<div class="container-fluid px-3 px-lg-4 py-3">
+<div class="kw-web" id="kwWeb">
 
-  <!-- Page Header -->
-  <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
+  <header class="web-head">
     <div>
-      <h4 class="fw-bold mb-0"><i class="bi bi-globe2 text-success me-2"></i>Website Management</h4>
-      <p class="text-muted small mb-0 mt-1">Manage all public website content — news, events, gallery, settings and more.</p>
+      <h1>Website</h1>
+      <p class="web-sub">Publish news, photos, events and documents to the school's public website, and answer families who get in touch.</p>
     </div>
-    <a href="<?= $appBase ?>/" target="_blank" class="btn btn-sm btn-outline-success rounded-pill px-3">
-      <i class="bi bi-box-arrow-up-right me-1"></i>View Public Site
-    </a>
-  </div>
-
-  <!-- Stats Row -->
-  <div class="row g-3 mb-4" id="wsStatsRow">
-    <div class="col-6 col-lg-3"><div class="ws-stat-card">
-      <div class="ws-stat-icon" style="background:#e8f5e9"><i class="bi bi-newspaper text-success"></i></div>
-      <div><div class="fw-bold fs-5 mb-0" id="statNews">—</div><div class="text-muted small">News Articles</div></div>
-    </div></div>
-    <div class="col-6 col-lg-3"><div class="ws-stat-card">
-      <div class="ws-stat-icon" style="background:#e3f2fd"><i class="bi bi-calendar-event text-primary"></i></div>
-      <div><div class="fw-bold fs-5 mb-0" id="statEvents">—</div><div class="text-muted small">Events Scheduled</div></div>
-    </div></div>
-    <div class="col-6 col-lg-3"><div class="ws-stat-card">
-      <div class="ws-stat-icon" style="background:#fff8e1"><i class="bi bi-briefcase text-warning"></i></div>
-      <div><div class="fw-bold fs-5 mb-0" id="statJobs">—</div><div class="text-muted small">Open Vacancies</div></div>
-    </div></div>
-    <div class="col-6 col-lg-3"><div class="ws-stat-card">
-      <div class="ws-stat-icon" style="background:#fce4ec"><i class="bi bi-inbox-fill text-danger"></i></div>
-      <div><div class="fw-bold fs-5 mb-0" id="statApps">—</div><div class="text-muted small">New Applications</div></div>
-    </div></div>
-  </div>
-
-  <!-- Tab Navigation -->
-  <div class="bg-white border rounded-3 p-2 mb-4 d-flex flex-wrap gap-1" id="wsTabs" role="tablist">
-    <button class="ws-tab-btn active" data-tab="news"     data-perm="website_news_manage"><i class="bi bi-newspaper me-1"></i>News</button>
-    <button class="ws-tab-btn"        data-tab="events"   data-perm="website_events_manage"><i class="bi bi-calendar-event me-1"></i>Events</button>
-    <button class="ws-tab-btn"        data-tab="gallery"  data-perm="website_gallery_manage"><i class="bi bi-images me-1"></i>Gallery</button>
-    <button class="ws-tab-btn"        data-tab="downloads" data-perm="website_downloads_manage"><i class="bi bi-cloud-download me-1"></i>Downloads</button>
-    <button class="ws-tab-btn"        data-tab="jobs"     data-perm="website_jobs_manage"><i class="bi bi-briefcase me-1"></i>Vacancies</button>
-    <button class="ws-tab-btn"        data-tab="applications" data-perm="website_applications_view"><i class="bi bi-inbox-fill me-1"></i>Applications</button>
-    <button class="ws-tab-btn"        data-tab="inquiries" data-perm="website_inquiries_view"><i class="bi bi-envelope-open me-1"></i>Inquiries</button>
-    <button class="ws-tab-btn"        data-tab="content"  data-perm="website_content_manage"><i class="bi bi-file-richtext me-1"></i>Content</button>
-    <button class="ws-tab-btn"        data-tab="static"   data-perm="website_content_manage"><i class="bi bi-grid-1x2 me-1"></i>Static Content</button>
-    <button class="ws-tab-btn"        data-tab="settings" data-perm="website_settings_manage"><i class="bi bi-gear me-1"></i>Settings</button>
-  </div>
-
-  <!-- ── TAB: NEWS ─────────────────────────────────────────────────────────── -->
-  <div id="tab-news" class="ws-tab-panel">
-    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-      <div class="d-flex gap-2 flex-wrap">
-        <input type="text" id="newsSearch" class="form-control form-control-sm" placeholder="Search articles…" style="width:200px">
-        <select id="newsCatFilter" class="form-select form-select-sm" style="width:160px">
-          <option value="">All categories</option>
-        </select>
-        <select id="newsStatusFilter" class="form-select form-select-sm" style="width:140px">
-          <option value="">All statuses</option>
-          <option value="published">Published</option>
-          <option value="draft">Draft</option>
-          <option value="archived">Archived</option>
-        </select>
-      </div>
-      <button class="btn btn-success btn-sm rounded-pill px-3" data-kw-onclick="wsOpenNewsModal()">
-        <i class="bi bi-plus-lg me-1"></i>New Article
+    <div class="web-head-actions">
+      <button type="button" class="btn btn-web-quiet" data-action="preview" data-preview-page="">
+        <i class="bi bi-eye me-1"></i>Preview site
       </button>
+      <a class="btn btn-web-quiet" href="<?= htmlspecialchars($appBase, ENT_QUOTES) ?>/" target="_blank" rel="noopener">
+        <i class="bi bi-box-arrow-up-right me-1"></i>Open in new tab
+      </a>
     </div>
-    <div class="bg-white border rounded-3 overflow-hidden">
-      <table class="table table-hover ws-table mb-0">
-        <thead class="table-light"><tr>
-          <th scope="col">Image</th><th scope="col">Title</th><th scope="col">Category</th><th scope="col">Status</th><th scope="col">Views</th><th scope="col">Date</th><th class="text-end">Actions</th>
-        </tr></thead>
-        <tbody id="newsTableBody"><tr><td colspan="7" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
-      </table>
-    </div>
-  </div>
+  </header>
 
-  <!-- ── TAB: EVENTS ───────────────────────────────────────────────────────── -->
-  <div id="tab-events" class="ws-tab-panel" style="display:none">
-    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-      <div class="d-flex gap-2">
-        <label class="d-flex align-items-center gap-2 small"><input type="checkbox" id="eventsUpcomingOnly"> Upcoming only</label>
+  <div class="web-desk">
+
+    <!-- Rail: grouped by the job, not by the database table -->
+    <nav class="web-rail" aria-label="Website sections" id="webRail">
+      <div class="web-rail-group">
+        <div class="web-rail-group-label">Publish</div>
+        <button type="button" data-tab="news" data-perm="website_news_manage"><i class="bi bi-megaphone"></i>News &amp; announcements</button>
+        <button type="button" data-tab="events" data-perm="website_events_manage"><i class="bi bi-calendar-event"></i>Events</button>
+        <button type="button" data-tab="gallery" data-perm="website_gallery_manage"><i class="bi bi-images"></i>Photos &amp; videos</button>
+        <button type="button" data-tab="downloads" data-perm="website_downloads_manage"><i class="bi bi-file-earmark-arrow-down"></i>Downloads</button>
       </div>
-      <button class="btn btn-success btn-sm rounded-pill px-3" data-kw-onclick="wsOpenEventModal()">
-        <i class="bi bi-plus-lg me-1"></i>New Event
-      </button>
-    </div>
-    <div class="bg-white border rounded-3 overflow-hidden">
-      <table class="table table-hover ws-table mb-0">
-        <thead class="table-light"><tr>
-          <th scope="col">Date</th><th scope="col">Title</th><th scope="col">Category</th><th scope="col">Location</th><th scope="col">Status</th><th class="text-end">Actions</th>
-        </tr></thead>
-        <tbody id="eventsTableBody"><tr><td colspan="6" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- ── TAB: GALLERY ──────────────────────────────────────────────────────── -->
-  <div id="tab-gallery" class="ws-tab-panel" style="display:none">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <p class="text-muted small mb-0">Add image URLs (Unsplash, school CDN, etc.) to display in the homepage gallery.</p>
-      <button class="btn btn-success btn-sm rounded-pill px-3" data-kw-onclick="wsOpenGalleryModal()">
-        <i class="bi bi-plus-lg me-1"></i>Add Image
-      </button>
-    </div>
-    <div class="ws-gallery-grid" id="galleryGrid">
-      <div class="text-muted small p-3"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</div>
-    </div>
-  </div>
-
-  <!-- ── TAB: DOWNLOADS ────────────────────────────────────────────────────── -->
-  <div id="tab-downloads" class="ws-tab-panel" style="display:none">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <p class="text-muted small mb-0">Manage downloadable files shown on the public Downloads page.</p>
-      <button class="btn btn-success btn-sm rounded-pill px-3" data-kw-onclick="wsOpenDownloadModal()">
-        <i class="bi bi-plus-lg me-1"></i>Add File
-      </button>
-    </div>
-    <div class="bg-white border rounded-3 overflow-hidden">
-      <table class="table table-hover ws-table mb-0">
-        <thead class="table-light"><tr>
-          <th scope="col">Title</th><th scope="col">Category</th><th scope="col">Type</th><th scope="col">Size</th><th scope="col">Active</th><th class="text-end">Actions</th>
-        </tr></thead>
-        <tbody id="downloadsTableBody"><tr><td colspan="6" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- ── TAB: JOB VACANCIES ────────────────────────────────────────────────── -->
-  <div id="tab-jobs" class="ws-tab-panel" style="display:none">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <p class="text-muted small mb-0">Post and manage job vacancies shown on the public Careers page.</p>
-      <button class="btn btn-success btn-sm rounded-pill px-3" data-kw-onclick="wsOpenJobModal()">
-        <i class="bi bi-plus-lg me-1"></i>Post Vacancy
-      </button>
-    </div>
-    <div class="bg-white border rounded-3 overflow-hidden">
-      <table class="table table-hover ws-table mb-0">
-        <thead class="table-light"><tr>
-          <th scope="col">Title</th><th scope="col">Department</th><th scope="col">Type</th><th scope="col">Deadline</th><th scope="col">Status</th><th class="text-end">Actions</th>
-        </tr></thead>
-        <tbody id="jobsTableBody"><tr><td colspan="6" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- ── TAB: APPLICATIONS ─────────────────────────────────────────────────── -->
-  <div id="tab-applications" class="ws-tab-panel" style="display:none">
-    <ul class="nav nav-tabs mb-3" id="appsSubTab">
-      <li class="nav-item"><button class="nav-link active" data-apps-tab="admission">Admission Applications</button></li>
-      <li class="nav-item"><button class="nav-link" data-apps-tab="jobs">Job Applications</button></li>
-    </ul>
-    <div id="admissionAppsPanel">
-      <div class="d-flex gap-2 mb-3">
-        <select id="appStatusFilter" class="form-select form-select-sm" style="width:180px">
-          <option value="">All statuses</option>
-          <option value="submitted">Submitted</option>
-          <option value="documents_pending">Documents Pending</option>
-          <option value="documents_verified">Documents Verified</option>
-          <option value="placement_offered">Placement Offered</option>
-          <option value="fees_pending">Fees Pending</option>
-          <option value="placement_test_required">Placement Test Required</option>
-          <option value="waitlisted">Waitlisted</option>
-          <option value="enrolled">Enrolled</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
-        <button class="btn btn-outline-success btn-sm" data-kw-onclick="wsLoadApplications()">
-          <i class="bi bi-arrow-clockwise"></i>
-        </button>
+      <div class="web-rail-group">
+        <div class="web-rail-group-label">Careers</div>
+        <button type="button" data-tab="jobs" data-perm="website_jobs_manage"><i class="bi bi-briefcase"></i>Vacancies</button>
+        <button type="button" data-tab="applications" data-perm="website_applications_view"><i class="bi bi-person-lines-fill"></i>Applications</button>
       </div>
-      <div class="bg-white border rounded-3 overflow-hidden">
-        <table class="table table-hover ws-table mb-0">
-          <thead class="table-light"><tr>
-            <th scope="col">Ref</th><th scope="col">Child</th><th scope="col">Grade</th><th scope="col">Parent</th><th scope="col">Phone</th><th scope="col">Boarding</th><th scope="col">Status</th><th scope="col">Date</th><th class="text-end">Actions</th>
-          </tr></thead>
-          <tbody id="appsTableBody"><tr><td colspan="9" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
-        </table>
+      <div class="web-rail-group">
+        <div class="web-rail-group-label">Inbox</div>
+        <button type="button" data-tab="inquiries" data-perm="website_inquiries_view"><i class="bi bi-envelope"></i>Enquiries <span class="web-count d-none" id="webInboxCount"></span></button>
       </div>
-    </div>
-    <div id="jobAppsPanel" style="display:none">
-      <div class="bg-white border rounded-3 overflow-hidden">
-        <table class="table table-hover ws-table mb-0">
-          <thead class="table-light"><tr>
-            <th scope="col">Name</th><th scope="col">Position</th><th scope="col">Email</th><th scope="col">Phone</th><th scope="col">TSC No.</th><th scope="col">Status</th><th scope="col">Date</th>
-          </tr></thead>
-          <tbody id="jobAppsTableBody"><tr><td colspan="7" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
-        </table>
+      <div class="web-rail-group">
+        <div class="web-rail-group-label">Site</div>
+        <button type="button" data-tab="content" data-perm="website_content_manage"><i class="bi bi-text-paragraph"></i>Page text</button>
+        <button type="button" data-tab="static" data-perm="website_content_manage"><i class="bi bi-building"></i>About the school</button>
+        <button type="button" data-tab="settings" data-perm="website_settings_manage"><i class="bi bi-telephone"></i>School details</button>
       </div>
-    </div>
-  </div>
+    </nav>
 
-  <!-- ── TAB: INQUIRIES ────────────────────────────────────────────────────── -->
-  <div id="tab-inquiries" class="ws-tab-panel" style="display:none">
-    <div class="bg-white border rounded-3 overflow-hidden">
-      <table class="table table-hover ws-table mb-0">
-        <thead class="table-light"><tr>
-          <th scope="col">Name</th><th scope="col">Email</th><th scope="col">Phone</th><th scope="col">Subject</th><th scope="col">Message</th><th scope="col">Status</th><th scope="col">Date</th><th class="text-end">Actions</th>
-        </tr></thead>
-        <tbody id="inquiriesTableBody"><tr><td colspan="8" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
-      </table>
-    </div>
-  </div>
+    <main class="web-canvas">
 
-  <!-- ── TAB: PAGE CONTENT ─────────────────────────────────────────────────── -->
-  <div id="tab-content" class="ws-tab-panel" style="display:none">
-    <div class="row g-4">
-      <div class="col-lg-6">
-        <div class="bg-white border rounded-3 p-4">
-          <h6 class="fw-bold mb-3"><i class="bi bi-text-paragraph text-success me-2"></i>Text Content Blocks</h6>
-          <div id="contentBlocksList"><div class="text-muted small"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</div></div>
-        </div>
-      </div>
-      <div class="col-lg-6">
-        <div class="bg-white border rounded-3 p-4">
-          <h6 class="fw-bold mb-3"><i class="bi bi-list-ul text-success me-2"></i>News Categories</h6>
-          <div id="categoriesList"></div>
-          <button class="btn btn-outline-success btn-sm mt-3 w-100" data-kw-onclick="wsAddCategory()">
-            <i class="bi bi-plus me-1"></i>Add Category
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── TAB: SETTINGS ─────────────────────────────────────────────────────── -->
-  <div id="tab-settings" class="ws-tab-panel" style="display:none">
-    <div class="row g-4">
-      <div class="col-lg-8">
-        <div class="bg-white border rounded-3 p-4">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <h6 class="fw-bold mb-0"><i class="bi bi-sliders text-success me-2"></i>School Settings</h6>
-            <input type="text" id="settingsSearch" class="form-control form-control-sm" placeholder="Filter settings…" style="width:200px">
+      <!-- NEWS & ANNOUNCEMENTS -->
+      <section class="web-panel" id="tab-news" data-panel hidden>
+        <div class="web-panel-head">
+          <div>
+            <h2>News &amp; announcements</h2>
+            <p class="web-sub">Announcements reach families quickly; news articles tell the longer story with photos.</p>
           </div>
-          <div id="settingsList"><div class="text-muted small"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</div></div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-web-quiet" data-action="compose-news" data-kind="announcement"><i class="bi bi-megaphone me-1"></i>New announcement</button>
+            <button type="button" class="btn btn-web" data-action="compose-news" data-kind="news"><i class="bi bi-plus-lg me-1"></i>New article</button>
+          </div>
         </div>
-      </div>
-      <div class="col-lg-4">
-        <div class="bg-light border rounded-3 p-4">
-          <h6 class="fw-bold mb-3"><i class="bi bi-info-circle text-success me-2"></i>How Settings Work</h6>
-          <p class="text-muted small">Every setting here maps to a key that drives content on the public website — phone numbers, addresses, stats, office hours, and more.</p>
-          <p class="text-muted small">Click any value to edit it inline. Changes take effect immediately on the public site.</p>
-          <p class="text-muted small mb-0">Settings with <span class="badge bg-success">stat_</span> prefix control homepage counter numbers.</p>
+        <div class="web-tools">
+          <div class="web-chips" role="group" aria-label="Filter by state" id="newsStateChips">
+            <button type="button" class="web-chip" data-news-status="" aria-pressed="true">All</button>
+            <button type="button" class="web-chip" data-news-status="published" aria-pressed="false">On the website</button>
+            <button type="button" class="web-chip" data-news-status="draft" aria-pressed="false">Drafts</button>
+            <button type="button" class="web-chip" data-news-status="archived" aria-pressed="false">Archived</button>
+          </div>
+          <select id="newsCatFilter" class="form-select form-select-sm" style="max-width:190px" aria-label="Category"><option value="">All categories</option></select>
+          <input type="search" id="newsSearch" class="form-control form-control-sm" style="max-width:240px" placeholder="Search titles" aria-label="Search titles">
         </div>
-      </div>
-    </div>
-  </div>
+        <div class="web-list" id="newsList"></div>
+      </section>
 
-  <!-- ── TAB: STATIC CONTENT (9 generic tables) ─────────────────────────── -->
-  <div id="tab-static" class="ws-tab-panel" style="display:none">
-    <p class="text-muted small mt-1 mb-3">School values, history, programs, facilities, departments, benefits &amp; testimonials. Each row is editable inline; changes appear on the public site immediately. Leadership hierarchy is managed in its own section below.</p>
-    <div class="row g-4" id="staticTablesWrap">
-      <div id="staticCard-values"    class="col-xl-6"></div>
-      <div id="staticCard-history"   class="col-xl-6"></div>
-      <div id="staticCard-programs"   class="col-xl-6"></div>
-      <div id="staticCard-facilities" class="col-xl-6"></div>
-      <div id="staticCard-departments"class="col-xl-6"></div>
-      <div id="staticCard-benefits"   class="col-xl-6"></div>
-      <div id="staticCard-testimonials" class="col-xl-6"></div>
-    </div>
-    <div class="bg-white border rounded-3 p-4 mt-3">
-      <div class="d-flex align-items-center justify-content-between mb-3">
-        <h6 class="fw-bold mb-0"><i class="bi bi-people-fill text-success me-2"></i>Leadership Team</h6>
-      </div>
-      <div id="leadershipPanel"><div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div></div>
-    </div>
-  </div>
+      <!-- EVENTS -->
+      <section class="web-panel" id="tab-events" data-panel hidden>
+        <div class="web-panel-head">
+          <div>
+            <h2>Events</h2>
+            <p class="web-sub">Events from the school calendar appear here automatically. Add the ones families should know about, such as sports day or a prize-giving.</p>
+          </div>
+          <button type="button" class="btn btn-web" data-action="compose-event"><i class="bi bi-plus-lg me-1"></i>New event</button>
+        </div>
+        <div class="web-tools">
+          <div class="web-chips" role="group" aria-label="Which events" id="eventScopeChips">
+            <button type="button" class="web-chip" data-event-scope="1" aria-pressed="true">Coming up</button>
+            <button type="button" class="web-chip" data-event-scope="0" aria-pressed="false">All events</button>
+          </div>
+        </div>
+        <div class="web-list" id="eventsList"></div>
+      </section>
 
+      <!-- GALLERY -->
+      <section class="web-panel" id="tab-gallery" data-panel hidden>
+        <div class="web-panel-head">
+          <div>
+            <h2>Photos &amp; videos</h2>
+            <p class="web-sub">Upload straight from this computer or phone. Several files at once is fine.</p>
+          </div>
+          <button type="button" class="btn btn-web" data-action="compose-gallery"><i class="bi bi-cloud-arrow-up me-1"></i>Upload photos or videos</button>
+        </div>
+        <div class="web-tools">
+          <div class="web-chips" role="group" aria-label="Which items" id="galleryScopeChips">
+            <button type="button" class="web-chip" data-gallery-scope="0" aria-pressed="true">Everything</button>
+            <button type="button" class="web-chip" data-gallery-scope="1" aria-pressed="false">On the website</button>
+          </div>
+        </div>
+        <div class="web-wall" id="galleryWall"></div>
+      </section>
+
+      <!-- DOWNLOADS -->
+      <section class="web-panel" id="tab-downloads" data-panel hidden>
+        <div class="web-panel-head">
+          <div>
+            <h2>Downloads</h2>
+            <p class="web-sub">Choose exactly what families can download: documents you upload, and the fee structures and calendar the system produces.</p>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-web-quiet" data-action="preview" data-preview-page="downloads"><i class="bi bi-eye me-1"></i>Preview page</button>
+            <button type="button" class="btn btn-web" data-action="compose-download"><i class="bi bi-cloud-arrow-up me-1"></i>Upload a document</button>
+          </div>
+        </div>
+        <div class="web-split">
+          <div>
+            <div class="web-box">
+              <h3 class="mb-1">Documents you uploaded</h3>
+              <p class="web-sub mb-2">Hide a file to take it off the page without deleting it. Use the arrows to change the order within its group.</p>
+              <div id="downloadsList"></div>
+            </div>
+          </div>
+          <div>
+            <form class="web-box" id="dlConfigForm" novalidate>
+              <h3 class="mb-1">Documents the system produces</h3>
+              <p class="web-sub mb-3">Built from the fee structures and the school calendar, always up to date.</p>
+
+              <label class="form-label">Academic years families can choose</label>
+              <div class="web-checks mb-1" id="dlYears"></div>
+              <div class="form-hint text-muted small mb-3">Leave all unticked to offer only the current year.</div>
+
+              <label class="form-label" for="dlDefaultYear">Year shown first</label>
+              <select class="form-select form-select-sm mb-3" id="dlDefaultYear" style="max-width:260px"></select>
+
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" id="dlCalendar" role="switch">
+                <label class="form-check-label" for="dlCalendar">Academic year calendar</label>
+              </div>
+
+              <fieldset class="mb-2">
+                <legend class="form-label mb-1">Fee structures</legend>
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="dlFeeWhole" role="switch">
+                  <label class="form-check-label" for="dlFeeWhole">Whole school</label>
+                </div>
+                <div class="web-checks mt-1 mb-1" id="dlSections"></div>
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="dlFeeClass" role="switch">
+                  <label class="form-check-label" for="dlFeeClass">One for each class</label>
+                </div>
+              </fieldset>
+
+              <label class="form-label mt-2">Show fee structures for</label>
+              <div class="web-checks mb-3" id="dlTypes"></div>
+
+              <label class="form-label" for="dlIntro">Note at the top of the downloads page</label>
+              <textarea class="form-control form-control-sm mb-3" id="dlIntro" rows="2" maxlength="400" placeholder="For example: Fee structures for next year are published in December."></textarea>
+
+              <div class="d-flex gap-2 align-items-center">
+                <button type="submit" class="btn btn-web" id="dlConfigSave">Save downloads page</button>
+                <span class="small text-muted" id="dlConfigState"></span>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- VACANCIES -->
+      <section class="web-panel" id="tab-jobs" data-panel hidden>
+        <div class="web-panel-head">
+          <div>
+            <h2>Vacancies</h2>
+            <p class="web-sub">Open vacancies appear on the Careers page until you close them or the deadline passes.</p>
+          </div>
+          <button type="button" class="btn btn-web" data-action="compose-job"><i class="bi bi-plus-lg me-1"></i>Post a vacancy</button>
+        </div>
+        <div class="web-list" id="jobsList"></div>
+      </section>
+
+      <!-- APPLICATIONS (kept) -->
+      <section class="web-panel" id="tab-applications" data-panel hidden>
+        <div class="web-panel-head"><div><h2>Applications</h2><p class="web-sub">Admission and job applications sent through the website.</p></div></div>
+        <ul class="nav nav-tabs mb-3" id="appsSubTab">
+          <li class="nav-item"><button class="nav-link active" data-apps-tab="admission">Admissions</button></li>
+          <li class="nav-item"><button class="nav-link" data-apps-tab="jobs">Jobs</button></li>
+        </ul>
+        <div id="admissionAppsPanel">
+          <div class="d-flex gap-2 mb-3">
+            <select id="appStatusFilter" class="form-select form-select-sm" style="width:200px" aria-label="Application status">
+              <option value="">All statuses</option>
+              <option value="submitted">Submitted</option>
+              <option value="documents_pending">Documents pending</option>
+              <option value="documents_verified">Documents verified</option>
+              <option value="placement_offered">Placement offered</option>
+              <option value="fees_pending">Fees pending</option>
+              <option value="placement_test_required">Placement test required</option>
+              <option value="waitlisted">Waitlisted</option>
+              <option value="enrolled">Enrolled</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+          <div class="table-responsive"><table class="table table-hover align-middle small mb-0">
+            <thead><tr><th>Ref</th><th>Child</th><th>Grade</th><th>Parent</th><th>Phone</th><th>Boarding</th><th>Status</th><th>Date</th><th class="text-end">Change status</th></tr></thead>
+            <tbody id="appsTableBody"></tbody>
+          </table></div>
+        </div>
+        <div id="jobAppsPanel" style="display:none">
+          <div class="table-responsive"><table class="table table-hover align-middle small mb-0">
+            <thead><tr><th>Name</th><th>Position</th><th>Email</th><th>Phone</th><th>TSC no.</th><th>Status</th><th>Date</th></tr></thead>
+            <tbody id="jobAppsTableBody"></tbody>
+          </table></div>
+        </div>
+      </section>
+
+      <!-- ENQUIRIES (kept) -->
+      <section class="web-panel" id="tab-inquiries" data-panel hidden>
+        <div class="web-panel-head"><div><h2>Enquiries</h2><p class="web-sub">Messages families sent through the contact form. Mark them read once handled.</p></div></div>
+        <div class="table-responsive"><table class="table table-hover align-middle small mb-0">
+          <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Subject</th><th>Message</th><th>Status</th><th>Date</th><th class="text-end">Actions</th></tr></thead>
+          <tbody id="inquiriesTableBody"></tbody>
+        </table></div>
+      </section>
+
+      <!-- PAGE TEXT (kept) -->
+      <section class="web-panel" id="tab-content" data-panel hidden>
+        <div class="web-panel-head"><div><h2>Page text</h2><p class="web-sub">Wording used across the public pages. Changes save when you leave a box.</p></div></div>
+        <div class="row g-4">
+          <div class="col-xl-7"><div id="contentBlocksList"></div></div>
+          <div class="col-xl-5">
+            <div class="web-box">
+              <h3 class="mb-2">News categories</h3>
+              <div id="categoriesList"></div>
+              <button class="btn btn-web-quiet btn-sm mt-2 w-100" data-kw-onclick="wsAddCategory()"><i class="bi bi-plus me-1"></i>Add a category</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ABOUT THE SCHOOL (kept) -->
+      <section class="web-panel" id="tab-static" data-panel hidden>
+        <div class="web-panel-head"><div><h2>About the school</h2><p class="web-sub">Values, history, programmes, facilities, departments, careers benefits, testimonials and leadership.</p></div></div>
+        <div class="row g-4" id="staticTablesWrap">
+          <div id="staticCard-values" class="col-xxl-6"></div>
+          <div id="staticCard-history" class="col-xxl-6"></div>
+          <div id="staticCard-programs" class="col-xxl-6"></div>
+          <div id="staticCard-facilities" class="col-xxl-6"></div>
+          <div id="staticCard-departments" class="col-xxl-6"></div>
+          <div id="staticCard-benefits" class="col-xxl-6"></div>
+          <div id="staticCard-testimonials" class="col-xxl-6"></div>
+        </div>
+        <div class="web-box mt-3">
+          <h3 class="mb-2">Leadership team</h3>
+          <div id="leadershipPanel"></div>
+        </div>
+      </section>
+
+      <!-- SCHOOL DETAILS -->
+      <section class="web-panel" id="tab-settings" data-panel hidden>
+        <div class="web-panel-head">
+          <div>
+            <h2>School details</h2>
+            <p class="web-sub">Contact details, office hours, social media and the numbers on the homepage. Edit a group, then save it.</p>
+          </div>
+          <input type="search" id="settingsSearch" class="form-control form-control-sm" style="max-width:240px" placeholder="Find a detail" aria-label="Find a detail">
+        </div>
+        <div id="settingsGroups"></div>
+      </section>
+
+    </main>
+
+    <!-- Up next: grounded posting suggestions -->
+    <aside class="web-next" aria-labelledby="webNextTitle">
+      <div class="web-next-card">
+        <div class="d-flex justify-content-between align-items-center">
+          <h2 id="webNextTitle"><i class="bi bi-lightbulb"></i>Up next</h2>
+          <button type="button" class="btn-icon" data-action="refresh-next" title="Check again" aria-label="Check again"><i class="bi bi-arrow-clockwise"></i></button>
+        </div>
+        <p class="small mb-0" style="color:#6B5A33">Worth posting, based on the school calendar and your website.</p>
+        <ul class="web-next-list" id="webNextList"></ul>
+        <button type="button" class="web-next-more" id="webNextMore" data-action="toggle-next" hidden>Show all suggestions</button>
+      </div>
+    </aside>
+
+  </div>
+</div>
 </div>
 
-<!-- ═══ MODALS ════════════════════════════════════════════════════════════════ -->
+<!-- ═══ COMPOSERS ═══════════════════════════════════════════════════════════ -->
 
-<!-- News Modal -->
-<div class="modal fade" id="wsNewsModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
-    <div class="modal-header border-0 pb-0">
-      <h5 class="modal-title fw-bold" id="wsNewsModalTitle">New Article</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+<!-- News / announcement composer -->
+<div class="modal fade kw-web-modal" id="wsNewsModal" tabindex="-1" aria-labelledby="wsNewsModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title fw-bold" id="wsNewsModalTitle">New article</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="newsEditId">
-      <div class="row g-3">
-        <div class="col-12 ws-form-group"><label>Title *</label><input type="text" id="newsTitle" placeholder="Article headline"></div>
-        <div class="col-md-6 ws-form-group">
-          <label>Category *</label>
-          <select id="newsCategory">
-            <option value="Announcement">Announcement</option>
-            <option value="Academic">Academic</option>
-            <option value="Sports">Sports</option>
-            <option value="Arts">Arts</option>
-            <option value="Infrastructure">Infrastructure</option>
-            <option value="Community">Community</option>
-          </select>
+      <div class="row g-4">
+        <div class="col-lg-7">
+          <div class="web-seg mb-3" role="group" aria-label="Post type" id="newsKindSeg">
+            <button type="button" data-news-kind="news" aria-pressed="true">News article</button>
+            <button type="button" data-news-kind="announcement" aria-pressed="false">Announcement</button>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="newsTitle">Headline</label>
+            <input type="text" class="form-control" id="newsTitle" maxlength="255" placeholder="Grade 6 learners visit the Kericho tea farms">
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="newsExcerpt">Summary</label>
+            <textarea class="form-control" id="newsExcerpt" rows="2" maxlength="600" placeholder="One or two sentences families will read first."></textarea>
+            <div class="form-hint"><span id="newsExcerptCount">0</span>/600</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="newsContent">Full story</label>
+            <textarea class="form-control" id="newsContent" rows="8" placeholder="Write the details. Keep learners' full names out unless parents have agreed."></textarea>
+          </div>
+          <div class="mb-3">
+            <span class="form-label d-block">Cover photo</span>
+            <div class="web-drop" data-drop="news" tabindex="0" role="button" aria-label="Choose a cover photo from this device">
+              <i class="bi bi-image"></i>
+              <strong>Drop a photo here or choose one from this device</strong>
+              <small id="newsDropHint">JPG, PNG, WebP or GIF</small>
+            </div>
+            <input type="file" id="newsFile" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
+            <div class="web-drop-current" id="newsImgCurrent" hidden>
+              <img id="newsImgPreview" alt="Cover photo">
+              <button type="button" class="btn-icon danger" data-action="clear-news-image" aria-label="Remove the cover photo"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <input type="hidden" id="newsImageUrl">
+            <details class="mt-2"><summary class="small text-muted">Use a photo link instead</summary>
+              <input type="url" class="form-control form-control-sm mt-2" id="newsImageLink" placeholder="https://…">
+            </details>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label" for="newsCategory">Category</label>
+              <select class="form-select" id="newsCategory"></select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="newsAuthor">Written by</label>
+              <input type="text" class="form-control" id="newsAuthor" placeholder="School office">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="newsStatus">When saved</label>
+              <select class="form-select" id="newsStatus">
+                <option value="published">Publish on the website</option>
+                <option value="draft">Keep as a draft</option>
+                <option value="archived">Archive</option>
+              </select>
+            </div>
+          </div>
         </div>
-        <div class="col-md-6 ws-form-group">
-          <label>Status</label>
-          <select id="newsStatus"><option value="published">Published</option><option value="draft">Draft</option><option value="archived">Archived</option></select>
+        <div class="col-lg-5">
+          <div class="web-live">
+            <div class="web-live-label">How it will look on the website</div>
+            <article class="web-live-card" aria-live="polite">
+              <img id="newsLiveImg" alt="" src="https://placehold.co/800x450/E7F2EC/155C3B?text=Cover+photo">
+              <div class="web-live-body">
+                <span class="web-live-cat" id="newsLiveCat">Announcement</span>
+                <h4 id="newsLiveTitle">Your headline</h4>
+                <p id="newsLiveExcerpt">The summary appears here.</p>
+                <div class="web-live-date" id="newsLiveDate"></div>
+              </div>
+            </article>
+            <button type="button" class="btn btn-web-quiet w-100 mt-3" data-action="ai-draft-news"><i class="bi bi-stars me-1"></i>Ask the assistant to draft this</button>
+            <p class="form-hint mt-2">The assistant writes a draft for you to check. Nothing is published until you save.</p>
+          </div>
         </div>
-        <div class="col-12 ws-form-group"><label>Image URL</label><input type="url" id="newsImageUrl" placeholder="https://images.unsplash.com/..."></div>
-        <div id="newsImgPreviewWrap" style="display:none" class="col-12">
-          <img id="newsImgPreview" class="rounded-3" style="height:140px;width:100%;object-fit:cover">
-        </div>
-        <div class="col-12 ws-form-group"><label>Excerpt (short summary)</label><textarea id="newsExcerpt" rows="2" placeholder="2–3 sentence summary shown on listing page…"></textarea></div>
-        <div class="col-12 ws-form-group"><label>Author</label><input type="text" id="newsAuthor" placeholder="Author name or department"></div>
-        <div class="col-12 ws-form-group"><label>Full Content (HTML allowed) *</label><textarea id="newsContent" rows="8" placeholder="Full article HTML content…"></textarea></div>
       </div>
     </div>
-    <div class="modal-footer border-0">
-      <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" id="newsSubmitBtn" data-kw-onclick="wsSaveNews()">
-        <i class="bi bi-send-fill me-1"></i>Publish Article
-      </button>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-web-quiet" data-bs-dismiss="modal">Cancel</button>
+      <button type="button" class="btn btn-web" id="newsSubmitBtn" data-action="save-news">Publish</button>
     </div>
   </div></div>
 </div>
 
-<!-- Event Modal -->
-<div class="modal fade" id="wsEventModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
-    <div class="modal-header border-0 pb-0">
-      <h5 class="modal-title fw-bold" id="wsEventModalTitle">New Event</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+<!-- Gallery uploader -->
+<div class="modal fade kw-web-modal" id="wsGalleryModal" tabindex="-1" aria-labelledby="wsGalleryModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title fw-bold" id="wsGalleryModalTitle">Upload photos or videos</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
     </div>
+    <div class="modal-body">
+      <div class="web-drop" data-drop="gallery" tabindex="0" role="button" aria-label="Choose photos or videos from this device">
+        <i class="bi bi-cloud-arrow-up"></i>
+        <strong>Drop photos and videos here or choose them from this device</strong>
+        <small id="galleryDropHint">Photos: JPG, PNG, WebP, GIF. Videos: MP4, WebM, MOV.</small>
+      </div>
+      <input type="file" id="galleryFiles" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" multiple hidden>
+      <ul class="web-queue" id="galleryQueue"></ul>
+      <div class="row g-3 mt-1">
+        <div class="col-md-6">
+          <label class="form-label" for="galleryCategory">Album</label>
+          <select class="form-select" id="galleryCategory">
+            <option>General</option><option>Events</option><option>Sports</option><option>Academics</option>
+            <option>Worship</option><option>Farm &amp; vocational</option><option>Campus</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="galleryCaptionAll">Caption for all (optional)</label>
+          <input type="text" class="form-control" id="galleryCaptionAll" maxlength="200" placeholder="Prize-giving day 2026">
+        </div>
+      </div>
+      <details class="mt-3"><summary class="small text-muted">Add a YouTube or video link instead</summary>
+        <div class="row g-2 mt-1">
+          <div class="col-md-8"><input type="url" class="form-control form-control-sm" id="galleryVideoLink" placeholder="https://www.youtube.com/watch?v=…"></div>
+          <div class="col-md-4"><input type="text" class="form-control form-control-sm" id="galleryVideoCaption" maxlength="200" placeholder="Caption"></div>
+        </div>
+      </details>
+    </div>
+    <div class="modal-footer">
+      <span class="small text-muted me-auto" id="galleryUploadState"></span>
+      <button type="button" class="btn btn-web-quiet" data-bs-dismiss="modal">Close</button>
+      <button type="button" class="btn btn-web" id="galleryUploadBtn" data-action="save-gallery">Add to the website</button>
+    </div>
+  </div></div>
+</div>
+
+<!-- Gallery item edit -->
+<div class="modal fade kw-web-modal" id="wsGalleryEditModal" tabindex="-1" aria-labelledby="wsGalleryEditTitle" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title fw-bold" id="wsGalleryEditTitle">Edit photo</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body">
+      <input type="hidden" id="galleryEditId">
+      <div class="mb-3"><label class="form-label" for="galleryEditCaption">Caption</label><input type="text" class="form-control" id="galleryEditCaption" maxlength="200"></div>
+      <div class="mb-3"><label class="form-label" for="galleryEditCategory">Album</label><input type="text" class="form-control" id="galleryEditCategory" maxlength="50"></div>
+      <div class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" id="galleryEditActive"><label class="form-check-label" for="galleryEditActive">Show on the website</label></div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-web-quiet" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-web" data-action="save-gallery-edit">Save</button></div>
+  </div></div>
+</div>
+
+<!-- Event composer -->
+<div class="modal fade kw-web-modal" id="wsEventModal" tabindex="-1" aria-labelledby="wsEventModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title fw-bold" id="wsEventModalTitle">New event</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
     <div class="modal-body">
       <input type="hidden" id="eventEditId">
       <div class="row g-3">
-        <div class="col-12 ws-form-group"><label>Event Title *</label><input type="text" id="eventTitle" placeholder="Event name"></div>
-        <div class="col-md-6 ws-form-group"><label>Date *</label><input type="date" id="eventDate"></div>
-        <div class="col-md-6 ws-form-group"><label>Time</label><input type="time" id="eventTime"></div>
-        <div class="col-md-6 ws-form-group"><label>End Date</label><input type="date" id="eventEndDate"></div>
-        <div class="col-md-6 ws-form-group">
-          <label>Category *</label>
-          <select id="eventCategory">
-            <option value="Academic">Academic</option>
-            <option value="Sports">Sports</option>
-            <option value="Ceremony">Ceremony</option>
-            <option value="Meeting">Meeting</option>
-            <option value="Community">Community</option>
-            <option value="Cultural">Cultural</option>
-          </select>
-        </div>
-        <div class="col-12 ws-form-group"><label>Location</label><input type="text" id="eventLocation" placeholder="e.g. School Assembly Ground"></div>
-        <div class="col-12 ws-form-group"><label>Description</label><textarea id="eventDescription" rows="4" placeholder="Full event details…"></textarea></div>
-        <div class="col-md-6 ws-form-group">
-          <label>Status</label>
-          <select id="eventStatus"><option value="upcoming">Upcoming</option><option value="ongoing">Ongoing</option><option value="past">Past</option><option value="cancelled">Cancelled</option></select>
-        </div>
+        <div class="col-12"><label class="form-label" for="eventTitle">Event name</label><input type="text" class="form-control" id="eventTitle" placeholder="Inter-house athletics"></div>
+        <div class="col-md-4"><label class="form-label" for="eventDate">Date</label><input type="date" class="form-control" id="eventDate"></div>
+        <div class="col-md-4"><label class="form-label" for="eventTime">Starts at</label><input type="time" class="form-control" id="eventTime"></div>
+        <div class="col-md-4"><label class="form-label" for="eventEndDate">Ends on</label><input type="date" class="form-control" id="eventEndDate"></div>
+        <div class="col-md-6"><label class="form-label" for="eventCategory">Kind of event</label>
+          <select class="form-select" id="eventCategory">
+            <option>Academic</option><option>Sports</option><option>Ceremony</option><option>Meeting</option><option>Community</option><option>Cultural</option><option>Worship</option>
+          </select></div>
+        <div class="col-md-6"><label class="form-label" for="eventStatus">Status</label>
+          <select class="form-select" id="eventStatus"><option value="upcoming">Coming up</option><option value="ongoing">Happening now</option><option value="past">Finished</option><option value="cancelled">Cancelled</option></select></div>
+        <div class="col-12"><label class="form-label" for="eventLocation">Where</label><input type="text" class="form-control" id="eventLocation" placeholder="School field"></div>
+        <div class="col-12"><label class="form-label" for="eventDescription">What families should know</label><textarea class="form-control" id="eventDescription" rows="4"></textarea></div>
       </div>
     </div>
-    <div class="modal-footer border-0">
-      <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" data-kw-onclick="wsSaveEvent()"><i class="bi bi-calendar-check me-1"></i>Save Event</button>
-    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-web-quiet" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-web" data-action="save-event">Save event</button></div>
   </div></div>
 </div>
 
-<!-- Gallery Modal -->
-<div class="modal fade" id="wsGalleryModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
-    <div class="modal-header border-0 pb-0">
-      <h5 class="modal-title fw-bold">Add Gallery Image</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-    </div>
-    <div class="modal-body">
-      <div class="row g-3">
-        <div class="col-12 ws-form-group">
-          <label>Image URL *</label>
-          <input type="url" id="galleryUrl" placeholder="https://images.unsplash.com/photo-...?w=600&q=80">
-          <div class="mt-2 text-muted" style="font-size:.75rem">Use Unsplash, school server, or any direct image link. Recommended size: 600×400px.</div>
-        </div>
-        <div id="galleryImgPreviewWrap" style="display:none" class="col-12">
-          <img id="galleryImgPreview" class="rounded-3 w-100" style="height:140px;object-fit:cover">
-        </div>
-        <div class="col-12 ws-form-group"><label>Caption</label><input type="text" id="galleryCaption" placeholder="e.g. Students in computer lab"></div>
-        <div class="col-12 ws-form-group">
-          <label>Category</label>
-          <select id="galleryCategory">
-            <option value="General">General</option><option value="Academic">Academic</option>
-            <option value="Sports">Sports</option><option value="Arts">Arts</option>
-            <option value="Facilities">Facilities</option><option value="Community">Community</option>
-          </select>
-        </div>
-      </div>
-    </div>
-    <div class="modal-footer border-0">
-      <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" data-kw-onclick="wsSaveGallery()"><i class="bi bi-images me-1"></i>Add to Gallery</button>
-    </div>
-  </div></div>
-</div>
-
-<!-- Download Modal -->
-<div class="modal fade" id="wsDownloadModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
-    <div class="modal-header border-0 pb-0">
-      <h5 class="modal-title fw-bold" id="wsDownloadModalTitle">Add Download</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-    </div>
+<!-- Download upload / edit -->
+<div class="modal fade kw-web-modal" id="wsDownloadModal" tabindex="-1" aria-labelledby="wsDownloadModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title fw-bold" id="wsDownloadModalTitle">Upload a document</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
     <div class="modal-body">
       <input type="hidden" id="dlEditId">
-      <div class="row g-3">
-        <div class="col-12 ws-form-group"><label>File Title *</label><input type="text" id="dlTitle" placeholder="e.g. Term 2 Exam Timetable"></div>
-        <div class="col-md-6 ws-form-group">
-          <label>Category</label>
-          <select id="dlCategory">
-            <option value="Admissions">Admissions</option><option value="Academic">Academic</option>
-            <option value="Finance">Finance</option><option value="Boarding">Boarding</option>
-            <option value="Policies">Policies</option><option value="General">General</option>
-          </select>
-        </div>
-        <div class="col-md-6 ws-form-group"><label>File Type</label>
-          <select id="dlType"><option value="PDF">PDF</option><option value="DOCX">DOCX</option><option value="XLSX">XLSX</option><option value="PPT">PPT</option></select>
-        </div>
-        <div class="col-12 ws-form-group">
-          <label>Upload File (stored at uploads/school_assets/documents)</label>
-          <input type="file" class="form-control" id="dlFile" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx">
-          <small class="text-muted">Leave empty to keep the existing file. The admin uploads fees structures, admission letters, etc. here.</small>
-        </div>
-        <div class="col-12 ws-form-group"><label>Description</label><textarea id="dlDesc" rows="2" class="form-control" placeholder="Short description of this document"></textarea></div>
-        <div class="col-md-6 ws-form-group"><label>File Size (display)</label><input type="text" id="dlSize" placeholder="e.g. 245 KB"></div>
+      <div class="web-drop" data-drop="download" tabindex="0" role="button" aria-label="Choose a document from this device">
+        <i class="bi bi-file-earmark-arrow-up"></i>
+        <strong id="dlDropLabel">Drop a document here or choose one from this device</strong>
+        <small>PDF, Word, Excel or PowerPoint, up to 25 MB</small>
+      </div>
+      <input type="file" id="dlFile" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" hidden>
+      <div class="row g-3 mt-1">
+        <div class="col-md-8"><label class="form-label" for="dlTitle">Title families will see</label><input type="text" class="form-control" id="dlTitle" maxlength="200" placeholder="Term 1 book list"></div>
+        <div class="col-md-4"><label class="form-label" for="dlCategory">Group</label><input type="text" class="form-control" id="dlCategory" list="dlCategoryOptions" maxlength="50" value="General"><datalist id="dlCategoryOptions"></datalist></div>
+        <div class="col-12"><label class="form-label" for="dlDesc">Short description</label><input type="text" class="form-control" id="dlDesc" maxlength="400"></div>
+        <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" id="dlActive" checked><label class="form-check-label" for="dlActive">Show on the downloads page</label></div></div>
       </div>
     </div>
-    <div class="modal-footer border-0">
-      <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" data-kw-onclick="wsSaveDownload()"><i class="bi bi-cloud-download me-1"></i>Save</button>
-    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-web-quiet" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-web" id="dlSaveBtn" data-action="save-download">Save document</button></div>
   </div></div>
 </div>
 
-<!-- Job Modal -->
-<div class="modal fade" id="wsJobModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
-    <div class="modal-header border-0 pb-0">
-      <h5 class="modal-title fw-bold" id="wsJobModalTitle">Post Vacancy</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-    </div>
+<!-- Vacancy composer -->
+<div class="modal fade kw-web-modal" id="wsJobModal" tabindex="-1" aria-labelledby="wsJobModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title fw-bold" id="wsJobModalTitle">Post a vacancy</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
     <div class="modal-body">
       <input type="hidden" id="jobEditId">
       <div class="row g-3">
-        <div class="col-md-8 ws-form-group"><label>Job Title *</label><input type="text" id="jobTitle" placeholder="e.g. Class Teacher — Grade 5"></div>
-        <div class="col-md-4 ws-form-group">
-          <label>Status</label>
-          <select id="jobStatus"><option value="open">Open</option><option value="closed">Closed</option><option value="filled">Filled</option></select>
-        </div>
-        <div class="col-md-4 ws-form-group"><label>Department</label><input type="text" id="jobDepartment" placeholder="e.g. Teaching"></div>
-        <div class="col-md-4 ws-form-group">
-          <label>Job Type</label>
-          <select id="jobType"><option value="Full-Time">Full-Time</option><option value="Part-Time">Part-Time</option><option value="Contract">Contract</option></select>
-        </div>
-        <div class="col-md-4 ws-form-group"><label>Deadline *</label><input type="date" id="jobDeadline"></div>
-        <div class="col-12 ws-form-group"><label>Location</label><input type="text" id="jobLocation" value="Londiani, Kenya"></div>
-        <div class="col-12 ws-form-group"><label>Description *</label><textarea id="jobDescription" rows="4" placeholder="Role description…"></textarea></div>
-        <div class="col-12 ws-form-group"><label>Requirements (one per line)</label><textarea id="jobRequirements" rows="4" placeholder="P1 or B.Ed (Primary Education)&#10;TSC Registration&#10;2+ years experience"></textarea></div>
-        <div class="col-12 ws-form-group"><label>Responsibilities (one per line)</label><textarea id="jobResponsibilities" rows="4" placeholder="Deliver CBC-aligned lessons&#10;Maintain class registers"></textarea></div>
+        <div class="col-md-8"><label class="form-label" for="jobTitle">Job title</label><input type="text" class="form-control" id="jobTitle" placeholder="Class teacher, Grade 5"></div>
+        <div class="col-md-4"><label class="form-label" for="jobDepartment">Department</label><select class="form-select" id="jobDepartment"></select></div>
+        <div class="col-md-4"><label class="form-label" for="jobType">Terms</label><select class="form-select" id="jobType"><option>Full-Time</option><option>Part-Time</option><option>Contract</option></select></div>
+        <div class="col-md-4"><label class="form-label" for="jobDeadline">Apply by</label><input type="date" class="form-control" id="jobDeadline"></div>
+        <div class="col-md-4"><label class="form-label" for="jobStatus">Status</label><select class="form-select" id="jobStatus"><option value="open">Open for applications</option><option value="closed">Closed</option><option value="filled">Filled</option></select></div>
+        <div class="col-12"><label class="form-label" for="jobLocation">Location</label><input type="text" class="form-control" id="jobLocation" value="Londiani, Kenya"></div>
+        <div class="col-12"><label class="form-label" for="jobDescription">About the role</label><textarea class="form-control" id="jobDescription" rows="4"></textarea></div>
+        <div class="col-md-6"><label class="form-label" for="jobRequirements">Requirements</label><textarea class="form-control" id="jobRequirements" rows="5" placeholder="One per line&#10;P1 or B.Ed (Primary)&#10;TSC registration"></textarea></div>
+        <div class="col-md-6"><label class="form-label" for="jobResponsibilities">Responsibilities</label><textarea class="form-control" id="jobResponsibilities" rows="5" placeholder="One per line&#10;Teach CBC lessons&#10;Keep class registers"></textarea></div>
       </div>
     </div>
-    <div class="modal-footer border-0">
-      <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" data-kw-onclick="wsSaveJob()"><i class="bi bi-briefcase me-1"></i>Post Vacancy</button>
+    <div class="modal-footer"><button type="button" class="btn btn-web-quiet" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-web" data-action="save-job">Post vacancy</button></div>
+  </div></div>
+</div>
+
+<!-- Site preview, inside the workspace -->
+<div class="modal fade kw-web-modal" id="wsPreviewModal" tabindex="-1" aria-labelledby="wsPreviewTitle" aria-hidden="true">
+  <div class="modal-dialog modal-fullscreen"><div class="modal-content" style="border-radius:0">
+    <div class="modal-header">
+      <div class="web-preview-bar flex-grow-1">
+        <h5 class="modal-title fw-bold me-2" id="wsPreviewTitle">Preview</h5>
+        <select class="form-select form-select-sm" id="previewPage" style="max-width:200px" aria-label="Page to preview">
+          <option value="">Home</option><option value="news">News</option><option value="events">Events</option>
+          <option value="gallery">Gallery</option><option value="downloads">Downloads</option><option value="careers">Careers</option>
+          <option value="admissions">Admissions</option><option value="about">About</option><option value="contact">Contact</option>
+        </select>
+        <div class="web-seg" role="group" aria-label="Screen size" id="previewDevice">
+          <button type="button" data-device="desktop" aria-pressed="true"><i class="bi bi-display me-1"></i>Computer</button>
+          <button type="button" data-device="phone" aria-pressed="false"><i class="bi bi-phone me-1"></i>Phone</button>
+        </div>
+        <button type="button" class="btn-icon" data-action="preview-reload" title="Reload" aria-label="Reload the preview"><i class="bi bi-arrow-clockwise"></i></button>
+      </div>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close the preview"></button>
+    </div>
+    <div class="modal-body p-0 d-flex">
+      <div class="web-preview-stage" id="previewStage"><iframe id="previewFrame" title="Public website preview" referrerpolicy="same-origin"></iframe></div>
     </div>
   </div></div>
 </div>
 
-<!-- Image Preview Modal -->
-<div class="modal fade" id="wsImgViewModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-scrollable modal-lg modal-dialog-centered"><div class="modal-content bg-transparent border-0">
+<!-- Image viewer -->
+<div class="modal fade" id="wsImgViewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content bg-transparent border-0">
     <div class="modal-body p-0 text-center">
-      <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-3" data-bs-dismiss="modal"></button>
-      <img id="wsImgViewSrc" class="img-fluid rounded-4 shadow-lg" style="max-height:80vh">
+      <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-3" data-bs-dismiss="modal" aria-label="Close"></button>
+      <img id="wsImgViewSrc" class="img-fluid rounded-4 shadow-lg" style="max-height:80vh" alt="">
     </div>
   </div></div>
 </div>
 
-<!-- Leadership Modal -->
-<div class="modal fade" id="wsLeadershipModal" tabindex="-1">
+<!-- Leadership member (kept) -->
+<div class="modal fade kw-web-modal" id="wsLeadershipModal" tabindex="-1" aria-labelledby="wsLeadershipModalTitle" aria-hidden="true">
   <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
-    <div class="modal-header border-0 pb-0">
-      <h5 class="modal-title fw-bold" id="wsLeadershipModalTitle">Add Member</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    <div class="modal-header">
+      <h5 class="modal-title fw-bold" id="wsLeadershipModalTitle">Add member</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="leadEditId">
       <input type="hidden" id="leadCategoryId">
       <div class="row g-3">
-        <div class="col-12 ws-form-group">
-          <label>Position *</label>
-          <select id="leadPosition" class="form-select"><option value="">Loading...</option></select>
+        <div class="col-12">
+          <label class="form-label" for="leadPosition">Position</label>
+          <select id="leadPosition" class="form-select"><option value="">Loading…</option></select>
         </div>
         <div class="col-12">
-          <label class="form-label fw-semibold mb-2">Person *</label>
+          <span class="form-label d-block">Person</span>
           <div class="d-flex gap-3 mb-2">
             <div class="form-check">
               <input class="form-check-input" type="radio" name="leadPersonMode" id="leadPersonExisting" value="existing" checked data-kw-onchange="wsLeadershipPersonMode('existing')">
-              <label class="form-check-label" for="leadPersonExisting">Existing Staff / Student</label>
+              <label class="form-check-label" for="leadPersonExisting">Someone already in the system</label>
             </div>
             <div class="form-check">
               <input class="form-check-input" type="radio" name="leadPersonMode" id="leadPersonNew" value="new" data-kw-onchange="wsLeadershipPersonMode('new')">
-              <label class="form-check-label" for="leadPersonNew">New External Person</label>
+              <label class="form-check-label" for="leadPersonNew">Someone new</label>
             </div>
           </div>
           <div id="leadPersonSearchWrap">
-            <input type="text" id="leadPersonSearch" class="form-control form-control-sm" placeholder="Search by name..." autocomplete="off" data-kw-oninput="wsLeadershipPersonSearch(this.value)">
+            <input type="text" id="leadPersonSearch" class="form-control form-control-sm" placeholder="Search by name" autocomplete="off" data-kw-oninput="wsLeadershipPersonSearch(this.value)">
             <input type="hidden" id="leadPersonId">
             <div id="leadPersonSearchResults" class="list-group mt-1" style="max-height:180px;overflow-y:auto;display:none"></div>
-            <div id="leadPersonSelected" class="d-none mt-1">
-              <span class="badge bg-success fs-6" id="leadPersonSelectedName"></span>
-            </div>
+            <div id="leadPersonSelected" class="d-none mt-1"><span class="badge bg-success fs-6" id="leadPersonSelectedName"></span></div>
           </div>
           <div id="leadPersonNewWrap" class="d-none">
             <div class="row g-2">
-              <div class="col-md-6 ws-form-group"><label>First Name *</label><input type="text" id="leadFirstName" class="form-control form-control-sm" placeholder="e.g. James"></div>
-              <div class="col-md-6 ws-form-group"><label>Last Name *</label><input type="text" id="leadLastName" class="form-control form-control-sm" placeholder="e.g. Mwangi"></div>
+              <div class="col-md-6"><label class="form-label" for="leadFirstName">First name</label><input type="text" id="leadFirstName" class="form-control form-control-sm"></div>
+              <div class="col-md-6"><label class="form-label" for="leadLastName">Last name</label><input type="text" id="leadLastName" class="form-control form-control-sm"></div>
             </div>
-            <small class="text-muted">A new person record will be created in the system.</small>
           </div>
         </div>
-        <div class="col-12 ws-form-group">
-          <label>Public Bio</label>
-          <textarea id="leadBio" rows="3" class="form-control" placeholder="Brief biography shown on the public website..."></textarea>
-        </div>
-        <div class="col-md-8 ws-form-group">
-          <label>Photo URL</label>
-          <input type="url" id="leadPhotoUrl" class="form-control form-control-sm" placeholder="https://...">
-        </div>
-        <div class="col-md-4 ws-form-group">
-          <label>Display Order</label>
-          <input type="number" id="leadDisplayOrder" class="form-control form-control-sm" value="0">
-        </div>
+        <div class="col-12"><label class="form-label" for="leadBio">Short biography</label><textarea id="leadBio" rows="3" class="form-control"></textarea></div>
+        <div class="col-md-8"><label class="form-label" for="leadPhotoUrl">Photo link</label><input type="url" id="leadPhotoUrl" class="form-control form-control-sm" placeholder="https://…"></div>
+        <div class="col-md-4"><label class="form-label" for="leadDisplayOrder">Order</label><input type="number" id="leadDisplayOrder" class="form-control form-control-sm" value="0"></div>
       </div>
     </div>
-    <div class="modal-footer border-0">
-      <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" id="leadSubmitBtn" data-kw-onclick="wsSaveLeadership()">
-        <i class="bi bi-check-lg me-1"></i>Save
-      </button>
+    <div class="modal-footer">
+      <button class="btn btn-web-quiet" data-bs-dismiss="modal">Cancel</button>
+      <button class="btn btn-web" id="leadSubmitBtn" data-kw-onclick="wsSaveLeadership()">Save</button>
     </div>
   </div></div>
 </div>

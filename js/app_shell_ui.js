@@ -2275,6 +2275,11 @@
   //     tab is hidden, or an answer is streaming;
   //   * never a claim - the server sends a question offer, not a figure.
   const PROACTIVE_IDLE_MS = 30000;
+  // Each empty or failed answer doubles the wait (30 s -> 15 min). An idle
+  // tab asked the AI engine every 30 s forever, which kept it busy enough
+  // that interactive assistant calls timed out.
+  const PROACTIVE_MAX_BACKOFF_MS = 15 * 60 * 1000;
+  let proactiveBackoffMs = PROACTIVE_IDLE_MS;
   const PROACTIVE_SCROLL_SETTLE_MS = 2500;
   const PROACTIVE_MIN_SCROLL = 500;
   const PROACTIVE_SEEN_KEY = "kw_assistant_nudge_seen";
@@ -2367,6 +2372,12 @@
     }, 420);
   }
 
+  // Page workspaces (e.g. website management) hand the assistant a drafting
+  // request through this one entry point instead of reaching into its DOM.
+  window.KingswayAssistant = Object.assign(window.KingswayAssistant || {}, {
+    ask: (question) => openAssistantWith(String(question || "").slice(0, 600)),
+  });
+
   function renderProactiveNudge(suggestion, signature) {
     hideProactiveNudge();
     const title = String(suggestion?.title || "").trim().slice(0, 120);
@@ -2407,6 +2418,7 @@
   }
 
   async function requestProactiveNudge() {
+    if (document.hidden) return;
     if (proactiveBlocked()) return;
     const suggest = window.API?.dashboard?.agentSuggest;
     if (typeof suggest !== "function") return;
@@ -2420,7 +2432,11 @@
       const payload = response?.data ?? response ?? {};
       const suggestions = Array.isArray(payload.suggestions) ? payload.suggestions : [];
       const signature = String(payload.signature || "");
-      if (!suggestions.length) return;
+      if (!suggestions.length) {
+        proactiveBackoffMs = Math.min(proactiveBackoffMs * 2, PROACTIVE_MAX_BACKOFF_MS);
+        return;
+      }
+      proactiveBackoffMs = PROACTIVE_IDLE_MS;
       if (signature && proactiveSeen().has(signature)) return;
       if (proactiveBlocked()) return;
       const first = suggestions.find((item) => item && item.title && item.prompt);
@@ -2428,19 +2444,20 @@
       renderProactiveNudge(first, signature);
     } catch {
       /* a nudge is never worth surfacing an error */
+      proactiveBackoffMs = Math.min(proactiveBackoffMs * 2, PROACTIVE_MAX_BACKOFF_MS);
     } finally {
       proactiveInFlight = false;
     }
   }
 
-  function scheduleProactiveNudge(delay = PROACTIVE_IDLE_MS) {
+  function scheduleProactiveNudge(delay = proactiveBackoffMs) {
     window.clearTimeout(proactiveIdleTimer);
     if (proactiveDisabled()) return;
     proactiveIdleTimer = window.setTimeout(() => {
       void requestProactiveNudge();
       // If the moment was not right (a modal, a selection), try once more
       // after a full idle window rather than on a tight loop.
-      scheduleProactiveNudge();
+      scheduleProactiveNudge(proactiveBackoffMs);
     }, Math.max(5000, delay));
   }
 
@@ -2451,6 +2468,7 @@
     // A hint belongs to the page it was offered on. Navigation clears it and
     // restarts the idle clock on the new workspace.
     const resetForPage = () => {
+      proactiveBackoffMs = PROACTIVE_IDLE_MS;
       hideProactiveNudge();
       scheduleProactiveNudge();
     };

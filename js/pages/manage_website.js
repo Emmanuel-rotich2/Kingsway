@@ -1,13 +1,33 @@
 /**
- * manage_website.js — Website Content Management Controller
- * Handles all tabs: news, events, gallery, downloads, jobs, applications, inquiries, settings, content.
+ * manage_website.js — Website workspace controller.
+ *
+ * Sections: news & announcements, events, photos & videos, downloads
+ * (uploaded files + system documents), vacancies, applications, enquiries,
+ * page text, about the school, school details; "Up next" posting
+ * suggestions and an in-place preview of the public site.
+ *
+ * All calls go through window.callAPI. GET filters are passed as query
+ * parameters (the 4th argument): a GET body is never sent.
+ * Uploaded media is saved as a path relative to the uploads root; the API
+ * returns full URLs for display.
  */
 const manageWebsiteController = {
   state: {
-    currentTab: 'news',
+    currentTab: null,
     newsItems: [],
     newsCats: [],
+    newsStatus: '',
+    newsKind: 'news',
+    eventsUpcoming: '1',
+    galleryActiveOnly: '0',
+    galleryItems: [],
+    downloads: [],
+    dlConfig: null,
+    dlOptions: null,
+    departments: [],
     allSettings: [],
+    mediaLimits: null,
+    galleryQueue: [],
     leadershipCategories: [],
     leadershipData: [],
     leadershipPositions: [],
@@ -18,539 +38,884 @@ const manageWebsiteController = {
   API: (method, endpoint, data, params, opts) =>
     window.callAPI(endpoint, method, data, params, opts),
 
-  /* ── Permission helpers ──────────────────────────────────────────────────── */
+  /* ── Small helpers ───────────────────────────────────────────────────────── */
   can(perm) {
     const ctx = window.AuthContext;
     if (!ctx) return false;
-    return ctx.hasPermission(perm) || ctx.hasPermission(perm.replace(/_/g,'.'));
+    return ctx.hasPermission(perm) || ctx.hasPermission(perm.replace(/_/g, '.'));
+  },
+  $(id) { return document.getElementById(id); },
+  esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); },
+  notify(msg, type = 'success') {
+    if (window.showNotification) { window.showNotification(msg, type); return; }
+    console.info(msg);
+  },
+  fmtDate(d) {
+    if (!d) return '';
+    const date = new Date(String(d).replace(' ', 'T'));
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' });
+  },
+  fmtBytes(n) { return n >= 1048576 ? `${Math.round(n / 1048576)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`; },
+  modal(id) { return bootstrap.Modal.getOrCreateInstance(this.$(id)); },
+  busy(btn, on, label) {
+    if (!btn) return;
+    if (on) { btn.dataset.label = btn.innerHTML; btn.disabled = true; btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>${label || 'Saving…'}`; }
+    else { btn.disabled = false; if (btn.dataset.label) btn.innerHTML = btn.dataset.label; }
+  },
+  empty(icon, text, actionHtml = '') {
+    return `<div class="web-empty"><i class="bi bi-${icon}" aria-hidden="true"></i><p>${text}</p>${actionHtml}</div>`;
+  },
+  badgeStatus(s) {
+    const colors = { published: 'success', draft: 'secondary', archived: 'dark', open: 'success', closed: 'danger', filled: 'primary',
+      upcoming: 'success', past: 'secondary', cancelled: 'danger', ongoing: 'warning', received: 'primary', reviewing: 'warning',
+      enrolled: 'success', declined: 'danger', new: 'primary', read: 'secondary', replied: 'success', waitlisted: 'info',
+      offer_sent: 'info', assessment_scheduled: 'warning', submitted: 'primary', documents_pending: 'warning',
+      documents_verified: 'info', placement_offered: 'success', fees_pending: 'warning', placement_test_required: 'warning' };
+    return `<span class="badge bg-${colors[s] || 'secondary'}">${this.esc(String(s || '').replace(/_/g, ' ') || '—')}</span>`;
+  },
+  loading() { return '<div class="web-empty"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span><p class="mt-2">Loading…</p></div>'; },
+  failed(e) { return `<div class="web-empty"><i class="bi bi-exclamation-circle" aria-hidden="true"></i><p>${this.esc(e?.message || 'This could not be loaded.')} Try again in a moment.</p></div>`; },
+
+  /* ── Sections ────────────────────────────────────────────────────────────── */
+  TAB_PERMS: {
+    news: 'website_news_manage', events: 'website_events_manage', gallery: 'website_gallery_manage',
+    downloads: 'website_downloads_manage', jobs: 'website_jobs_manage', applications: 'website_applications_view',
+    inquiries: 'website_inquiries_view', content: 'website_content_manage', static: 'website_content_manage',
+    settings: 'website_settings_manage',
   },
 
-  /* ── Tab routing ─────────────────────────────────────────────────────────── */
   initTabs() {
-    // Hide tabs the user has no permission for
-    document.querySelectorAll('.ws-tab-btn[data-perm]').forEach(btn => {
-      const perm = btn.dataset.perm;
-      // 'website_view' covers read-only tabs; manage perms cover write tabs
-      const hasAccess = this.can('website_view') && (
-        !perm || perm === 'website_view' || this.can(perm) ||
-        /* applications/inquiries */   ['website_applications_view','website_inquiries_view'].includes(perm) && this.can(perm) ||
-        /* settings tab */             perm === 'website_settings_manage' && this.can(perm) ||
-        /* any manage permission means view all */
-        this.can('website_news_manage') || this.can('website_events_manage') || this.can('website_gallery_manage')
-      );
-      if (!this.can('website_view')) { btn.style.display = 'none'; return; }
-      // Hide tabs where the user has no specific permission
-      const tabPermMap = {
-        gallery:      'website_gallery_manage',
-        downloads:    'website_downloads_manage',
-        jobs:         'website_jobs_manage',
-        applications: 'website_applications_view',
-        inquiries:    'website_inquiries_view',
-        content:      'website_content_manage',
-        static:       'website_content_manage',
-        settings:     'website_settings_manage',
-      };
-      const tab = btn.dataset.tab;
-      if (tabPermMap[tab] && !this.can(tabPermMap[tab])) {
-        btn.style.display = 'none';
-      }
-    });
-
-    // Click handler
-    document.querySelectorAll('.ws-tab-btn').forEach(btn => {
+    const rail = this.$('webRail');
+    const allowed = (tab) => this.can('website_view') && (this.can(this.TAB_PERMS[tab]) || this.can('website_settings_manage'));
+    rail.querySelectorAll('button[data-tab]').forEach((btn) => {
+      btn.hidden = !allowed(btn.dataset.tab);
       btn.addEventListener('click', () => this.switchTab(btn.dataset.tab));
     });
-
-    // Activate first visible tab
-    const firstVisible = document.querySelector('.ws-tab-btn:not([style*="display: none"])');
-    if (firstVisible) this.switchTab(firstVisible.dataset.tab);
+    rail.querySelectorAll('.web-rail-group').forEach((group) => {
+      group.hidden = !group.querySelector('button[data-tab]:not([hidden])');
+    });
+    const fromHash = (window.location.hash || '').replace('#', '');
+    const first = rail.querySelector(`button[data-tab="${fromHash}"]:not([hidden])`) || rail.querySelector('button[data-tab]:not([hidden])');
+    if (first) this.switchTab(first.dataset.tab);
+    else this.$('kwWeb').querySelector('.web-canvas').innerHTML = this.empty('lock', 'Your account cannot manage the website. Ask the school administrator for website access.');
   },
 
   switchTab(tab) {
+    if (!this.$('tab-' + tab)) return;
     this.state.currentTab = tab;
-    document.querySelectorAll('.ws-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-    document.querySelectorAll('.ws-tab-panel').forEach(p => p.style.display = 'none');
-    const panel = document.getElementById('tab-' + tab);
-    if (panel) panel.style.display = '';
+    this.$('webRail').querySelectorAll('button[data-tab]').forEach((b) => {
+      if (b.dataset.tab === tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+    });
+    document.querySelectorAll('[data-panel]').forEach((p) => { p.hidden = p.id !== 'tab-' + tab; });
+    try { history.replaceState(history.state, '', `${location.pathname}${location.search}#${tab}`); } catch (_) { /* sandboxed */ }
     this.loadTab(tab);
   },
 
   loadTab(tab) {
     const loaders = {
-      news:         () => this.loadNews(),
-      events:       () => this.loadEvents(),
-      gallery:      () => this.loadGallery(),
-      downloads:    () => this.loadDownloads(),
-      jobs:         () => this.loadJobs(),
-      applications: () => this.loadApplications(),
-      inquiries:    () => this.loadInquiries(),
-      content:      () => this.loadContent(),
-      static:       () => this.loadStaticTables(),
-      settings:     () => this.loadSettings(),
+      news: () => this.loadNews(), events: () => this.loadEvents(), gallery: () => this.loadGallery(),
+      downloads: () => this.loadDownloadsTab(), jobs: () => this.loadJobs(), applications: () => this.loadApplications(),
+      inquiries: () => this.loadInquiries(), content: () => this.loadContent(), static: () => this.loadStaticTables(),
+      settings: () => this.loadSettings(),
     };
-    if (loaders[tab]) loaders[tab]();
+    loaders[tab]?.();
   },
 
-  /* ── Notifications ───────────────────────────────────────────────────────── */
-  notify(msg, type = 'success') {
-    if (window.showNotification) { showNotification(msg, type); return; }
-    const el = document.createElement('div');
-    el.className = `alert alert-${type} position-fixed top-0 end-0 m-3 shadow`;
-    el.style.zIndex = 99999;
-    el.textContent = msg;
-    document.body.appendChild(el);
-    setTimeout(() => el.remove(), 3000);
-  },
-
-  fmtDate(d) { return d ? new Date(d).toLocaleDateString('en-KE',{day:'2-digit',month:'short',year:'numeric'}) : '\u2014'; },
-  badgeStatus(s, map) {
-    const colors = {published:'success',draft:'secondary',archived:'dark',
-                    open:'success',closed:'danger',filled:'primary',
-                    upcoming:'success',past:'secondary',cancelled:'danger',ongoing:'warning',
-                    received:'primary',reviewing:'warning',enrolled:'success',declined:'danger',
-                    new:'primary',read:'secondary',replied:'success',waitlisted:'info',
-                    offer_sent:'info',assessment_scheduled:'warning',submitted:'primary',
-                    documents_pending:'warning',documents_verified:'info',placement_offered:'success',
-                    fees_pending:'warning',placement_test_required:'warning'};
-    const c = colors[s] || 'secondary';
-    return `<span class="badge bg-${c}">${(map&&map[s])||s||'\u2014'}</span>`;
-  },
-  esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); },
-
-  /* ════════════════════════════════════════════════════════════════════════════
-     STATS
-  ════════════════════════════════════════════════════════════════════════════ */
-  async loadStats() {
+  /* ════════════════════════════════════════════════════════════════════════
+     UP NEXT
+  ════════════════════════════════════════════════════════════════════════ */
+  async loadSuggestions() {
+    const list = this.$('webNextList');
+    if (!list) return;
+    list.innerHTML = '<li class="small" style="color:#6B5A33">Checking the calendar…</li>';
     try {
-      const d = await this.API('GET', 'website/stats');
-      if (d && typeof d === 'object') {
-        document.getElementById('statNews').textContent   = d.news   ?? '\u2014';
-        document.getElementById('statEvents').textContent = d.events  ?? '\u2014';
-        document.getElementById('statJobs').textContent   = d.jobs    ?? '\u2014';
-        document.getElementById('statApps').textContent   = (d.applications||0) + (d.job_apps||0);
-      }
-    } catch(_) {}
-  },
-
-  /* ════════════════════════════════════════════════════════════════════════════
-     NEWS
-  ════════════════════════════════════════════════════════════════════════════ */
-  async loadNews() {
-    const body = document.getElementById('newsTableBody');
-    body.innerHTML = '<tr><td colspan="7" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
-    try {
-      // Load categories for filter
-      if (this.state.newsCats.length === 0) {
-        const cr = await this.API('GET','website/categories');
-        this.state.newsCats = cr?.items || [];
-        const sel = document.getElementById('newsCategory');
-        const filterSel = document.getElementById('newsCatFilter');
-        this.state.newsCats.forEach(c => {
-          if (!sel.querySelector(`option[value="${c.name}"]`)) sel.innerHTML += `<option value="${this.esc(c.name)}">${this.esc(c.name)}</option>`;
-          filterSel.innerHTML += `<option value="${this.esc(c.name)}">${this.esc(c.name)}</option>`;
-        });
-      }
-      const cat    = document.getElementById('newsCatFilter').value;
-      const status = document.getElementById('newsStatusFilter').value;
-      const search = document.getElementById('newsSearch').value;
-      const r = await this.API('GET','website/news', {category:cat, status, search, limit:100});
-      this.state.newsItems = r?.items || [];
-      this.renderNewsTable();
-    } catch(e) {
-      body.innerHTML = `<tr><td colspan="7" class="text-center py-3 text-danger">${this.esc(e.message||'Load failed')}</td></tr>`;
-    }
-  },
-
-  renderNewsTable() {
-    const body = document.getElementById('newsTableBody');
-    if (!this.state.newsItems.length) { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No articles found.</td></tr>'; return; }
-    body.innerHTML = this.state.newsItems.map(n => `
-      <tr>
-        <td><img src="${this.esc(n.image_url||'')}" class="ws-img-thumb" data-kw-onerror="this.src='https://placehold.co/80x50/198754/fff?text=News'"></td>
-        <td><div class="fw-semibold small" style="max-width:260px">${this.esc(n.title)}</div><div class="text-muted" style="font-size:.72rem">${this.esc(n.author||'')}</div></td>
-        <td><span class="ws-tag-chip" style="background:${this.catColor(n.category)}22;color:${this.catColor(n.category)};border-color:${this.catColor(n.category)}44">${this.esc(n.category)}</span></td>
-        <td>${this.badgeStatus(n.status)}</td>
-        <td class="text-muted small">${n.views||0}</td>
-        <td class="text-muted small">${this.fmtDate(n.created_at)}</td>
-        <td class="text-end">
-          <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" title="Edit" data-kw-onclick="wsOpenNewsModal(${n.id})"><i class="bi bi-pencil"></i></button>
-          <button class="btn btn-sm btn-outline-danger rounded-pill px-2" title="Delete" data-kw-onclick="wsDeleteNews(${n.id},'${this.esc(n.title).replace(/'/g,'')}')"><i class="bi bi-trash"></i></button>
-        </td>
-      </tr>`).join('');
-  },
-
-  catColor(cat) {
-    const m = {Sports:'#198754',Academic:'#1976d2',Infrastructure:'#e91e63',Announcement:'#f9a825',Arts:'#9c27b0',Community:'#00695c'};
-    return m[cat] || '#198754';
-  },
-
-  async wsOpenNewsModal(id = null) {
-    document.getElementById('newsEditId').value = id || '';
-    document.getElementById('wsNewsModalTitle').textContent = id ? 'Edit Article' : 'New Article';
-    document.getElementById('newsTitle').value       = '';
-    document.getElementById('newsExcerpt').value     = '';
-    document.getElementById('newsContent').value     = '';
-    document.getElementById('newsAuthor').value      = '';
-    document.getElementById('newsImageUrl').value    = '';
-    document.getElementById('newsImgPreviewWrap').style.display = 'none';
-    document.getElementById('newsStatus').value      = 'published';
-    document.getElementById('newsCategory').value    = 'Announcement';
-    if (id) {
-      const r = await this.API('GET', `website/news/${id}`);
-      const a = r;
-      if (a) {
-        document.getElementById('newsTitle').value     = a.title || '';
-        document.getElementById('newsExcerpt').value   = a.excerpt || '';
-        document.getElementById('newsContent').value   = a.content || '';
-        document.getElementById('newsAuthor').value    = a.author || '';
-        document.getElementById('newsImageUrl').value  = a.image_url || '';
-        document.getElementById('newsStatus').value    = a.status || 'published';
-        document.getElementById('newsCategory').value  = a.category || 'Announcement';
-        this.previewNewsImg(a.image_url);
-      }
-    }
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsNewsModal')).show();
-  },
-
-  previewNewsImg(url) {
-    const wrap = document.getElementById('newsImgPreviewWrap');
-    const img  = document.getElementById('newsImgPreview');
-    if (url) { img.src = url; wrap.style.display = ''; }
-    else { wrap.style.display = 'none'; }
-  },
-
-  async wsSaveNews() {
-    const id = document.getElementById('newsEditId').value;
-    const payload = {
-      title:     document.getElementById('newsTitle').value.trim(),
-      excerpt:   document.getElementById('newsExcerpt').value.trim(),
-      content:   document.getElementById('newsContent').value.trim(),
-      author:    document.getElementById('newsAuthor').value.trim(),
-      image_url: document.getElementById('newsImageUrl').value.trim(),
-      category:  document.getElementById('newsCategory').value,
-      status:    document.getElementById('newsStatus').value,
-    };
-    if (!payload.title || !payload.content) return this.notify('Title and content are required.','warning');
-    const btn = document.getElementById('newsSubmitBtn');
-    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving\u2026';
-    try {
-      id
-        ? await this.API('PUT',  `website/news/${id}`, payload)
-        : await this.API('POST', 'website/news',        payload);
-      this.notify(id ? 'Article updated' : 'Article published');
-      bootstrap.Modal.getInstance(document.getElementById('wsNewsModal')).hide();
-      this.loadNews(); this.loadStats();
-    } catch(e) { this.notify(e.message || 'Error', 'danger'); }
-    finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-send-fill me-1"></i>Publish Article'; }
-  },
-
-  async wsDeleteNews(id, title) {
-    if (!(await window.confirmAction('Confirm Deletion', `Delete "${title}"? This cannot be undone.`, { confirmText: 'Delete', danger: true }))) return;
-    try {
-      await this.API('DELETE', `website/news/${id}`);
-      this.notify('Article deleted'); this.loadNews(); this.loadStats();
-    } catch(e) { this.notify(e.message,'danger'); }
-  },
-
-  /* ════════════════════════════════════════════════════════════════════════════
-     EVENTS
-  ════════════════════════════════════════════════════════════════════════════ */
-  async loadEvents() {
-    const body = document.getElementById('eventsTableBody');
-    body.innerHTML = '<tr><td colspan="6" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
-    try {
-      const upcoming = document.getElementById('eventsUpcomingOnly')?.checked ? '1' : '';
-      const r = await this.API('GET','website/events',{upcoming});
+      const r = await this.API('GET', 'website/posting-suggestions');
       const items = r?.items || [];
-      if (!items.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No events found.</td></tr>'; return; }
-      body.innerHTML = items.map(ev => `
-        <tr>
-          <td class="fw-semibold small">${this.fmtDate(ev.event_date)}</td>
-          <td>${this.esc(ev.title)}<div class="text-muted" style="font-size:.72rem">${this.esc(ev.event_time||'')}</div></td>
-          <td>${this.badgeStatus(ev.category||'Academic')}</td>
-          <td class="text-muted small">${this.esc(ev.location||'\u2014')}</td>
-          <td>${this.badgeStatus(ev.status)}</td>
-          <td class="text-end">
-            <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" data-kw-onclick="wsOpenEventModal(${ev.id})"><i class="bi bi-pencil"></i></button>
-            <button class="btn btn-sm btn-outline-danger rounded-pill px-2" data-kw-onclick="wsDeleteEvent(${ev.id},'${this.esc(ev.title).replace(/'/g,'')}')"><i class="bi bi-trash"></i></button>
-          </td>
-        </tr>`).join('');
-    } catch(e) { body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${this.esc(e.message)}</td></tr>`; }
-  },
-
-  async wsOpenEventModal(id = null) {
-    document.getElementById('eventEditId').value = id || '';
-    document.getElementById('wsEventModalTitle').textContent = id ? 'Edit Event' : 'New Event';
-    ['eventTitle','eventDate','eventTime','eventEndDate','eventLocation','eventDescription'].forEach(f => {
-      const el = document.getElementById(f); if (el) el.value = '';
-    });
-    document.getElementById('eventStatus').value   = 'upcoming';
-    document.getElementById('eventCategory').value = 'Academic';
-    if (id) {
-      const r = await this.API('GET',`website/events/${id}`);
-      const ev = r;
-      if (ev) {
-        document.getElementById('eventTitle').value       = ev.title || '';
-        document.getElementById('eventDate').value        = ev.event_date?.split('T')[0] || '';
-        document.getElementById('eventTime').value        = ev.event_time || '';
-        document.getElementById('eventEndDate').value     = ev.end_date?.split('T')[0] || '';
-        document.getElementById('eventLocation').value    = ev.location || '';
-        document.getElementById('eventDescription').value = ev.description || '';
-        document.getElementById('eventStatus').value      = ev.status || 'upcoming';
-        document.getElementById('eventCategory').value    = ev.category || 'Academic';
+      this.state.suggestions = items;
+      const inbox = items.find((i) => i.kind === 'reply');
+      const badge = this.$('webInboxCount');
+      if (badge) {
+        const n = inbox ? parseInt(inbox.title.replace(/\D+/g, ''), 10) : 0;
+        badge.textContent = n ? String(n) : '';
+        badge.classList.toggle('d-none', !n);
       }
-    }
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsEventModal')).show();
-  },
-
-  async wsSaveEvent() {
-    const id = document.getElementById('eventEditId').value;
-    const payload = {
-      title:       document.getElementById('eventTitle').value.trim(),
-      event_date:  document.getElementById('eventDate').value,
-      event_time:  document.getElementById('eventTime').value || null,
-      end_date:    document.getElementById('eventEndDate').value || null,
-      location:    document.getElementById('eventLocation').value.trim(),
-      description: document.getElementById('eventDescription').value.trim(),
-      category:    document.getElementById('eventCategory').value,
-      status:      document.getElementById('eventStatus').value,
-    };
-    if (!payload.title || !payload.event_date) return this.notify('Title and date are required.','warning');
-    try {
-      id ? await this.API('PUT',`website/events/${id}`,payload) : await this.API('POST','website/events',payload);
-      this.notify(id ? 'Event updated' : 'Event created');
-      bootstrap.Modal.getInstance(document.getElementById('wsEventModal')).hide();
-      this.loadEvents(); this.loadStats();
-    } catch(e) { this.notify(e.message,'danger'); }
-  },
-
-  async wsDeleteEvent(id, title) {
-    if (!(await window.confirmAction('Confirm Deletion', `Delete event "${title}"?`, { confirmText: 'Delete', danger: true }))) return;
-    try { await this.API('DELETE',`website/events/${id}`); this.notify('Event deleted'); this.loadEvents(); this.loadStats(); }
-    catch(e) { this.notify(e.message,'danger'); }
-  },
-
-  /* ════════════════════════════════════════════════════════════════════════════
-     GALLERY
-  ════════════════════════════════════════════════════════════════════════════ */
-  async loadGallery() {
-    const grid = document.getElementById('galleryGrid');
-    grid.innerHTML = '<div class="text-muted small p-3"><div class="spinner-border spinner-border-sm me-2"></div>Loading\u2026</div>';
-    try {
-      const r = await this.API('GET','website/gallery');
-      const items = r?.items || [];
-      if (!items.length) { grid.innerHTML = '<div class="text-muted small p-3">No images in gallery yet. Add one above.</div>'; return; }
-      grid.innerHTML = items.map(g => `
-        <div class="ws-gallery-item">
-          <img src="${this.esc(g.image_url)}" alt="${this.esc(g.caption||'')}"
-               data-kw-onerror="this.src='https://placehold.co/300x200/198754/fff?text=Image'"
-               data-kw-onclick="wsViewImg('${this.esc(g.image_url)}')" style="cursor:pointer">
-          <div class="ws-overlay">
-            <button class="btn btn-sm btn-danger rounded-circle" style="width:32px;height:32px;padding:0" data-kw-onclick="wsDeleteGallery(${g.id})" title="Remove"><i class="bi bi-trash-fill"></i></button>
+      if (!items.length) {
+        list.innerHTML = '<li class="small" style="color:#6B5A33">Nothing is waiting. The website is up to date with the school calendar.</li>';
+        return;
+      }
+      const more = this.$('webNextMore');
+      if (more) { more.hidden = items.length <= 3; more.textContent = `Show all ${items.length} suggestions`; }
+      list.innerHTML = items.map((s, i) => {
+        const label = { announce: 'Write it', reminder: 'Write it', recap: 'Upload photos', refresh: 'Write an update', reply: 'Open enquiries', tidy: 'Review vacancies', downloads: 'Open downloads' }[s.kind] || 'Open';
+        const canDraft = !!s.action?.compose && ['announce', 'reminder', 'refresh'].includes(s.kind);
+        return `<li class="web-next-item ${s.priority === 1 ? 'p1' : ''}">
+          <h3>${this.esc(s.title)}</h3>
+          <p>${this.esc(s.reason)}</p>
+          <div class="web-next-actions">
+            <button type="button" class="btn web-next-go" data-action="next-go" data-index="${i}">${label}</button>
+            ${canDraft ? `<button type="button" class="btn web-next-ai" data-action="next-ai" data-index="${i}"><i class="bi bi-stars me-1"></i>Draft with the assistant</button>` : ''}
           </div>
-          <div class="caption">${this.esc(g.caption||'\u2014')} <span class="text-muted">(${this.esc(g.category||'')})</span></div>
-        </div>`).join('');
-    } catch(e) { grid.innerHTML = `<div class="text-danger small p-3">${this.esc(e.message)}</div>`; }
-  },
-
-  wsViewImg(url) {
-    document.getElementById('wsImgViewSrc').src = url;
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsImgViewModal')).show();
-  },
-
-  wsOpenGalleryModal() {
-    document.getElementById('galleryUrl').value     = '';
-    document.getElementById('galleryCaption').value = '';
-    document.getElementById('galleryCategory').value= 'General';
-    document.getElementById('galleryImgPreviewWrap').style.display = 'none';
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsGalleryModal')).show();
-  },
-
-  previewGalleryImg(url) {
-    const wrap = document.getElementById('galleryImgPreviewWrap');
-    const img  = document.getElementById('galleryImgPreview');
-    if (url) { img.src = url; wrap.style.display = ''; }
-    else { wrap.style.display = 'none'; }
-  },
-
-  async wsSaveGallery() {
-    const url = document.getElementById('galleryUrl').value.trim();
-    if (!url) return this.notify('Image URL is required.','warning');
-    try {
-      await this.API('POST','website/gallery',{
-        image_url: url,
-        caption:  document.getElementById('galleryCaption').value.trim(),
-        category: document.getElementById('galleryCategory').value,
-      });
-      this.notify('Image added to gallery');
-      bootstrap.Modal.getInstance(document.getElementById('wsGalleryModal')).hide();
-      this.loadGallery();
-    } catch(e) { this.notify(e.message,'danger'); }
-  },
-
-  async wsDeleteGallery(id) {
-    if (!(await window.confirmAction('Confirm Deletion', 'Remove this image from the gallery?', { confirmText: 'Delete', danger: true }))) return;
-    try { await this.API('DELETE',`website/gallery/${id}`); this.notify('Image removed'); this.loadGallery(); }
-    catch(e) { this.notify(e.message,'danger'); }
-  },
-
-  /* ════════════════════════════════════════════════════════════════════════════
-     DOWNLOADS
-  ════════════════════════════════════════════════════════════════════════════ */
-  async loadDownloads() {
-    const body = document.getElementById('downloadsTableBody');
-    body.innerHTML = '<tr><td colspan="6" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
-    try {
-      const r = await this.API('GET','website/downloads');
-      const items = r?.items || [];
-      if (!items.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No downloads configured.</td></tr>'; return; }
-      body.innerHTML = items.map(d => `
-        <tr>
-          <td><i class="bi ${this.esc(d.icon)} me-2" style="color:${this.esc(d.color)}"></i>${this.esc(d.title)}</td>
-          <td class="text-muted small">${this.esc(d.category)}</td>
-          <td><span class="badge bg-secondary">${this.esc(d.file_type)}</span></td>
-          <td class="text-muted small">${this.esc(d.file_size||'\u2014')}</td>
-          <td>${d.is_active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Hidden</span>'}</td>
-          <td class="text-end">
-            <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" data-kw-onclick="wsOpenDownloadModal(${d.id})"><i class="bi bi-pencil"></i></button>
-            <button class="btn btn-sm btn-outline-danger rounded-pill px-2" data-kw-onclick="wsDeleteDownload(${d.id})"><i class="bi bi-eye-slash"></i></button>
-          </td>
-        </tr>`).join('');
-    } catch(e) { body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${this.esc(e.message)}</td></tr>`; }
-  },
-
-  async wsOpenDownloadModal(id = null) {
-    document.getElementById('dlEditId').value = id || '';
-    document.getElementById('wsDownloadModalTitle').textContent = id ? 'Edit Download' : 'Add Download';
-    ['dlTitle','dlDesc','dlSize'].forEach(f => { const el=document.getElementById(f); if(el) el.value=''; });
-    document.getElementById('dlCategory').value = 'General';
-    document.getElementById('dlType').value = 'PDF';
-    const fileInput = document.getElementById('dlFile'); if (fileInput) fileInput.value = '';
-    if (id) {
-      const r = await this.API('GET','website/downloads');
-      const item = (r?.items||[]).find(d => d.id == id);
-      if (item) {
-        document.getElementById('dlTitle').value    = item.title||'';
-        document.getElementById('dlDesc').value     = item.description||'';
-        document.getElementById('dlSize').value     = item.file_size||'';
-        document.getElementById('dlCategory').value = item.category||'General';
-        document.getElementById('dlType').value     = item.file_type||'PDF';
-      }
+        </li>`;
+      }).join('');
+    } catch (e) {
+      list.innerHTML = '<li class="small" style="color:#6B5A33">Suggestions are unavailable right now. Your sections still work.</li>';
     }
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsDownloadModal')).show();
   },
 
-  async wsSaveDownload() {
-    const id = document.getElementById('dlEditId').value;
-    const title = document.getElementById('dlTitle').value.trim();
-    if (!title) return this.notify('Title is required.','warning');
-    const fileInput = document.getElementById('dlFile');
-    const hasFile = fileInput && fileInput.files && fileInput.files.length > 0;
-    if (!id && !hasFile) return this.notify('Choose a school document to upload.','warning');
+  runSuggestion(index, withAssistant) {
+    const s = this.state.suggestions?.[index];
+    if (!s) return;
+    const tab = s.action?.tab;
+    if (tab) this.switchTab(tab);
+    const compose = s.action?.compose;
+    if (tab === 'news' && compose) {
+      this.openNewsComposer(null, { kind: compose.category === 'Announcement' ? 'announcement' : 'news', ...compose });
+      if (withAssistant) this.askAssistantForNews();
+    } else if (tab === 'gallery' && compose) {
+      this.openGalleryUploader({ caption: compose.caption, category: compose.category });
+    }
+  },
 
-    // Build multipart so the backend stores the upload under uploads/school_assets/documents.
+  /* ════════════════════════════════════════════════════════════════════════
+     MEDIA UPLOAD (device → uploads root, returns a portable path)
+  ════════════════════════════════════════════════════════════════════════ */
+  async mediaLimits() {
+    if (this.state.mediaLimits) return this.state.mediaLimits;
+    try { this.state.mediaLimits = await this.API('GET', 'website/media-limits'); }
+    catch (_) { this.state.mediaLimits = { image_max_bytes: 10485760, video_max_bytes: 41943040 }; }
+    return this.state.mediaLimits;
+  },
+
+  async checkMediaFile(file) {
+    const limits = await this.mediaLimits();
+    const isVideo = /^video\//.test(file.type) || /\.(mp4|webm|mov)$/i.test(file.name);
+    const isImage = /^image\/(jpeg|png|webp|gif)$/.test(file.type) || /\.(jpe?g|png|webp|gif)$/i.test(file.name);
+    if (!isVideo && !isImage) return `${file.name}: only photos (JPG, PNG, WebP, GIF) and videos (MP4, WebM, MOV) can go on the website.`;
+    const max = isVideo ? limits.video_max_bytes : limits.image_max_bytes;
+    if (max && file.size > max) return `${file.name} is ${this.fmtBytes(file.size)}. The limit for ${isVideo ? 'videos' : 'photos'} is ${this.fmtBytes(max)}.`;
+    return null;
+  },
+
+  async uploadMedia(file) {
+    const problem = await this.checkMediaFile(file);
+    if (problem) throw new Error(problem);
     const fd = new FormData();
-    fd.append('title', title);
-    fd.append('description', document.getElementById('dlDesc').value.trim());
-    fd.append('category', document.getElementById('dlCategory').value);
-    fd.append('file_type', document.getElementById('dlType').value);
-    if (document.getElementById('dlSize').value.trim()) fd.append('file_size', document.getElementById('dlSize').value.trim());
-    if (hasFile) fd.append('file', fileInput.files[0]);
+    fd.append('file', file);
+    return this.API('POST', 'website/media', fd, {}, { isFile: true });
+  },
+
+  bindDropZone(zone, input, onFiles) {
+    if (!zone || !input || zone.dataset.bound) return;
+    zone.dataset.bound = '1';
+    const open = () => input.click();
+    zone.addEventListener('click', open);
+    zone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+    ['dragenter', 'dragover'].forEach((t) => zone.addEventListener(t, (e) => { e.preventDefault(); zone.classList.add('is-over'); }));
+    ['dragleave', 'drop'].forEach((t) => zone.addEventListener(t, (e) => { e.preventDefault(); zone.classList.remove('is-over'); }));
+    zone.addEventListener('drop', (e) => { const files = [...(e.dataTransfer?.files || [])]; if (files.length) onFiles(files); });
+    input.addEventListener('change', () => { const files = [...(input.files || [])]; if (files.length) onFiles(files); input.value = ''; });
+  },
+
+  /* ════════════════════════════════════════════════════════════════════════
+     NEWS & ANNOUNCEMENTS
+  ════════════════════════════════════════════════════════════════════════ */
+  async ensureNewsCategories() {
+    if (this.state.newsCats.length) return;
     try {
-      id ? await this.API('PUT',`website/downloads/${id}`, fd, {}, { isFile: true }) : await this.API('POST','website/downloads', fd, {}, { isFile: true });
-      this.notify(id ? 'Download updated' : 'Download added');
-      bootstrap.Modal.getInstance(document.getElementById('wsDownloadModal')).hide();
-      this.loadDownloads();
-    } catch(e) { this.notify(e.message,'danger'); }
+      const cr = await this.API('GET', 'website/categories');
+      this.state.newsCats = cr?.items || [];
+    } catch (_) { this.state.newsCats = []; }
+    const names = this.state.newsCats.map((c) => c.name);
+    if (!names.includes('Announcement')) names.unshift('Announcement');
+    const opts = names.map((n) => `<option value="${this.esc(n)}">${this.esc(n)}</option>`).join('');
+    this.$('newsCategory').innerHTML = opts;
+    this.$('newsCatFilter').innerHTML = '<option value="">All categories</option>' + opts;
   },
 
-  async wsDeleteDownload(id) {
-    if (!(await window.confirmAction('Confirm', 'Hide this download from the public site?'))) return;
-    try { await this.API('DELETE',`website/downloads/${id}`); this.notify('Download hidden'); this.loadDownloads(); }
-    catch(e) { this.notify(e.message,'danger'); }
-  },
-
-  /* ════════════════════════════════════════════════════════════════════════════
-     JOB VACANCIES
-  ════════════════════════════════════════════════════════════════════════════ */
-  async loadJobs() {
-    const body = document.getElementById('jobsTableBody');
-    body.innerHTML = '<tr><td colspan="6" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
+  async loadNews() {
+    const list = this.$('newsList');
+    list.innerHTML = this.loading();
     try {
-      const r = await this.API('GET','website/jobs');
-      const items = r?.items || [];
-      if (!items.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No job vacancies posted.</td></tr>'; return; }
-      body.innerHTML = items.map(j => `
-        <tr>
-          <td class="fw-semibold small">${this.esc(j.title)}</td>
-          <td class="text-muted small">${this.esc(j.department)}</td>
-          <td><span class="badge bg-light text-dark border">${this.esc(j.job_type)}</span></td>
-          <td class="text-muted small">${this.fmtDate(j.deadline)}</td>
-          <td>${this.badgeStatus(j.status)}</td>
-          <td class="text-end">
-            <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" data-kw-onclick="wsOpenJobModal(${j.id})"><i class="bi bi-pencil"></i></button>
-            <button class="btn btn-sm btn-outline-danger rounded-pill px-2" data-kw-onclick="wsCloseJob(${j.id},'${this.esc(j.title).replace(/'/g,'')}')"><i class="bi bi-x-circle"></i></button>
-          </td>
-        </tr>`).join('');
-    } catch(e) { body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${this.esc(e.message)}</td></tr>`; }
+      await this.ensureNewsCategories();
+      const r = await this.API('GET', 'website/news', null, {
+        status: this.state.newsStatus,
+        category: this.$('newsCatFilter').value,
+        search: this.$('newsSearch').value.trim(),
+        limit: 100,
+      });
+      this.state.newsItems = r?.items || [];
+      this.renderNews();
+    } catch (e) { list.innerHTML = this.failed(e); }
   },
 
-  async wsOpenJobModal(id = null) {
-    document.getElementById('jobEditId').value = id || '';
-    document.getElementById('wsJobModalTitle').textContent = id ? 'Edit Vacancy' : 'Post Vacancy';
-    ['jobTitle','jobDepartment','jobLocation','jobDescription','jobRequirements','jobResponsibilities','jobDeadline'].forEach(f => {
-      const el=document.getElementById(f); if(el) el.value='';
-    });
-    document.getElementById('jobType').value   = 'Full-Time';
-    document.getElementById('jobStatus').value = 'open';
-    document.getElementById('jobLocation').value = 'Londiani, Kenya';
-    if (id) {
-      const r = await this.API('GET',`website/jobs/${id}`);
-      const j = r;
-      if (j) {
-        document.getElementById('jobTitle').value          = j.title||'';
-        document.getElementById('jobDepartment').value     = j.department||'';
-        document.getElementById('jobLocation').value       = j.location||'Londiani, Kenya';
-        document.getElementById('jobDescription').value    = j.description||'';
-        document.getElementById('jobDeadline').value       = j.deadline?.split('T')[0]||'';
-        document.getElementById('jobType').value           = j.job_type||'Full-Time';
-        document.getElementById('jobStatus').value         = j.status||'open';
-        // Parse JSON arrays back to line-separated text
-        try { document.getElementById('jobRequirements').value    = JSON.parse(j.requirements||'[]').join('\n'); } catch(_) {}
-        try { document.getElementById('jobResponsibilities').value= JSON.parse(j.responsibilities||'[]').join('\n'); } catch(_) {}
-      }
+  renderNews() {
+    const list = this.$('newsList');
+    const items = this.state.newsItems;
+    if (!items.length) {
+      list.innerHTML = this.empty('megaphone', this.state.newsStatus === 'draft' ? 'No drafts. Everything you saved is on the website.' : 'Nothing here yet. Start with an announcement families need this week.',
+        '<button type="button" class="btn btn-web" data-action="compose-news" data-kind="announcement">New announcement</button>');
+      return;
     }
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsJobModal')).show();
+    const stateLabel = { published: ['live', 'On the website'], draft: ['draft', 'Draft'], archived: ['off', 'Archived'] };
+    list.innerHTML = items.map((n) => {
+      const [cls, label] = stateLabel[n.status] || ['draft', n.status];
+      const media = n.image_url
+        ? `<img class="web-row-media" src="${this.esc(n.image_url)}" alt="" loading="lazy">`
+        : `<div class="web-row-media ph" aria-hidden="true"><i class="bi bi-${n.category === 'Announcement' ? 'megaphone' : 'newspaper'}"></i></div>`;
+      return `<div class="web-row">
+        ${media}
+        <div class="min-w-0">
+          <p class="web-row-title">${this.esc(n.title)}</p>
+          <div class="web-row-meta"><span class="web-state ${cls}">${label}</span>${this.esc(n.category || '')} · ${this.fmtDate(n.created_at)} · ${Number(n.views || 0)} views</div>
+        </div>
+        <div class="web-row-actions">
+          <button type="button" class="btn-icon" data-action="edit-news" data-id="${n.id}" aria-label="Edit ${this.esc(n.title)}"><i class="bi bi-pencil"></i></button>
+          ${n.status === 'published'
+            ? `<button type="button" class="btn-icon" data-action="news-status" data-id="${n.id}" data-status="draft" aria-label="Take off the website" title="Take off the website"><i class="bi bi-eye-slash"></i></button>`
+            : `<button type="button" class="btn-icon" data-action="news-status" data-id="${n.id}" data-status="published" aria-label="Publish" title="Publish"><i class="bi bi-send"></i></button>`}
+          <button type="button" class="btn-icon danger" data-action="delete-news" data-id="${n.id}" aria-label="Delete ${this.esc(n.title)}"><i class="bi bi-trash"></i></button>
+        </div>
+      </div>`;
+    }).join('');
   },
 
-  async wsSaveJob() {
-    const id = document.getElementById('jobEditId').value;
-    const reqLines  = document.getElementById('jobRequirements').value.split('\n').map(l=>l.trim()).filter(Boolean);
-    const respLines = document.getElementById('jobResponsibilities').value.split('\n').map(l=>l.trim()).filter(Boolean);
-    const payload = {
-      title:            document.getElementById('jobTitle').value.trim(),
-      department:       document.getElementById('jobDepartment').value.trim(),
-      job_type:         document.getElementById('jobType').value,
-      location:         document.getElementById('jobLocation').value.trim(),
-      description:      document.getElementById('jobDescription').value.trim(),
-      requirements:     JSON.stringify(reqLines),
-      responsibilities: JSON.stringify(respLines),
-      deadline:         document.getElementById('jobDeadline').value,
-      status:           document.getElementById('jobStatus').value,
-    };
-    if (!payload.title || !payload.deadline) return this.notify('Title and deadline are required.','warning');
+  setNewsKind(kind) {
+    this.state.newsKind = kind;
+    this.$('newsKindSeg').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.newsKind === kind)));
+    const cat = this.$('newsCategory');
+    if (kind === 'announcement') cat.value = 'Announcement';
+    else if (cat.value === 'Announcement') cat.value = [...cat.options].find((o) => o.value !== 'Announcement')?.value || 'Announcement';
+    const editing = !!this.$('newsEditId').value;
+    this.$('wsNewsModalTitle').textContent = `${editing ? 'Edit' : 'New'} ${kind === 'announcement' ? 'announcement' : 'article'}`;
+    this.updateNewsSubmitLabel();
+    this.updateNewsPreview();
+  },
+
+  updateNewsSubmitLabel() {
+    const status = this.$('newsStatus').value;
+    this.$('newsSubmitBtn').textContent = status === 'published' ? 'Publish' : status === 'draft' ? 'Save draft' : 'Archive';
+  },
+
+  setNewsImage(path, url) {
+    this.$('newsImageUrl').value = path || '';
+    const wrap = this.$('newsImgCurrent');
+    if (url) { this.$('newsImgPreview').src = url; wrap.hidden = false; }
+    else { wrap.hidden = true; this.$('newsImgPreview').removeAttribute('src'); }
+    this.updateNewsPreview();
+  },
+
+  updateNewsPreview() {
+    const title = this.$('newsTitle').value.trim();
+    const excerpt = this.$('newsExcerpt').value.trim();
+    this.$('newsExcerptCount').textContent = String(this.$('newsExcerpt').value.length);
+    this.$('newsLiveTitle').textContent = title || 'Your headline';
+    this.$('newsLiveExcerpt').textContent = excerpt || 'The summary appears here.';
+    this.$('newsLiveCat').textContent = this.$('newsCategory').value || 'Announcement';
+    this.$('newsLiveDate').textContent = new Date().toLocaleDateString('en-KE', { day: 'numeric', month: 'long', year: 'numeric' });
+    const src = this.$('newsImgCurrent').hidden ? '' : this.$('newsImgPreview').src;
+    this.$('newsLiveImg').src = src || 'https://placehold.co/800x450/E7F2EC/155C3B?text=Cover+photo';
+  },
+
+  async openNewsComposer(id = null, prefill = {}) {
+    await this.ensureNewsCategories();
+    this.$('newsEditId').value = id || '';
+    ['newsTitle', 'newsExcerpt', 'newsContent', 'newsAuthor', 'newsImageLink'].forEach((f) => { this.$(f).value = ''; });
+    this.$('newsStatus').value = 'published';
+    this.setNewsImage('', '');
+    let kind = prefill.kind || 'news';
+    if (id) {
+      try {
+        const a = await this.API('GET', `website/news/${id}`);
+        this.$('newsTitle').value = a.title || '';
+        this.$('newsExcerpt').value = a.excerpt || '';
+        this.$('newsContent').value = a.content || '';
+        this.$('newsAuthor').value = a.author || '';
+        this.$('newsStatus').value = a.status || 'published';
+        this.$('newsCategory').value = a.category || 'Announcement';
+        this.setNewsImage(a.image_url_path || a.image_url || '', a.image_url || '');
+        kind = a.category === 'Announcement' ? 'announcement' : 'news';
+      } catch (e) { this.notify(e.message || 'That article could not be opened.', 'danger'); return; }
+    } else {
+      if (prefill.title) this.$('newsTitle').value = prefill.title;
+      if (prefill.excerpt) this.$('newsExcerpt').value = prefill.excerpt;
+      if (prefill.category) this.$('newsCategory').value = prefill.category;
+    }
+    this.setNewsKind(kind);
+    if (!id && prefill.category && kind === 'news') this.$('newsCategory').value = prefill.category;
+    this.updateNewsPreview();
+    this.modal('wsNewsModal').show();
+  },
+
+  async handleNewsFiles(files) {
+    const file = files[0];
+    const hint = this.$('newsDropHint');
+    hint.textContent = `Uploading ${file.name}…`;
     try {
-      id ? await this.API('PUT',`website/jobs/${id}`,payload) : await this.API('POST','website/jobs',payload);
-      this.notify(id ? 'Vacancy updated' : 'Vacancy posted');
-      bootstrap.Modal.getInstance(document.getElementById('wsJobModal')).hide();
-      this.loadJobs(); this.loadStats();
-    } catch(e) { this.notify(e.message,'danger'); }
+      const r = await this.uploadMedia(file);
+      if (r.media_type !== 'image') throw new Error('The cover must be a photo. Add videos under Photos & videos.');
+      this.setNewsImage(r.path, r.url);
+      hint.textContent = `${file.name} uploaded`;
+    } catch (e) {
+      hint.textContent = 'JPG, PNG, WebP or GIF';
+      this.notify(e.message || 'The photo could not be uploaded.', 'danger');
+    }
   },
 
-  async wsCloseJob(id, title) {
-    if (!(await window.confirmAction('Confirm', `Close vacancy "${title}"?`))) return;
-    try { await this.API('DELETE',`website/jobs/${id}`); this.notify('Vacancy closed'); this.loadJobs(); this.loadStats(); }
-    catch(e) { this.notify(e.message,'danger'); }
+  askAssistantForNews() {
+    const kind = this.state.newsKind === 'announcement' ? 'a short school announcement' : 'a school news article';
+    const title = this.$('newsTitle').value.trim();
+    const excerpt = this.$('newsExcerpt').value.trim();
+    const prompt = `Draft ${kind} for the Kingsway Preparatory School website${title ? ` titled "${title}"` : ''}.`
+      + `${excerpt ? ` Key facts: ${excerpt}` : ''} Use plain, warm language for parents, keep it under 200 words, and do not name learners.`;
+    if (window.KingswayAssistant?.ask) {
+      window.KingswayAssistant.ask(prompt);
+      this.notify('The assistant is drafting. Paste the parts you want into the story, then save.', 'info');
+    } else {
+      this.notify('The assistant is not available on this page right now.', 'warning');
+    }
+  },
+
+  async saveNews() {
+    const id = this.$('newsEditId').value;
+    const link = this.$('newsImageLink').value.trim();
+    const payload = {
+      title: this.$('newsTitle').value.trim(),
+      excerpt: this.$('newsExcerpt').value.trim(),
+      content: this.$('newsContent').value.trim(),
+      author: this.$('newsAuthor').value.trim() || 'School office',
+      image_url: link || this.$('newsImageUrl').value,
+      category: this.state.newsKind === 'announcement' ? 'Announcement' : this.$('newsCategory').value,
+      status: this.$('newsStatus').value,
+    };
+    if (!payload.title) return this.notify('Add a headline before saving.', 'warning');
+    if (!payload.content && !payload.excerpt) return this.notify('Add a summary or the full story before saving.', 'warning');
+    if (!payload.content) payload.content = payload.excerpt;
+    const btn = this.$('newsSubmitBtn');
+    this.busy(btn, true);
+    try {
+      if (id) await this.API('PUT', `website/news/${id}`, payload);
+      else await this.API('POST', 'website/news', payload);
+      this.notify(payload.status === 'published' ? 'Published on the website' : payload.status === 'draft' ? 'Draft saved' : 'Archived');
+      this.modal('wsNewsModal').hide();
+      this.loadNews(); this.loadSuggestions();
+    } catch (e) { this.notify(e.message || 'The post could not be saved.', 'danger'); }
+    finally { this.busy(btn, false); this.updateNewsSubmitLabel(); }
+  },
+
+  async setNewsStatus(id, status) {
+    try {
+      await this.API('PUT', `website/news/${id}`, { status });
+      this.notify(status === 'published' ? 'Published on the website' : 'Taken off the website');
+      this.loadNews();
+    } catch (e) { this.notify(e.message, 'danger'); }
+  },
+
+  async deleteNews(id) {
+    const item = this.state.newsItems.find((n) => String(n.id) === String(id));
+    if (!(await window.confirmAction('Delete post', `Delete "${item?.title || 'this post'}"? It will be removed from the website.`, { confirmText: 'Delete', danger: true }))) return;
+    try { await this.API('DELETE', `website/news/${id}`); this.notify('Post deleted'); this.loadNews(); }
+    catch (e) { this.notify(e.message, 'danger'); }
+  },
+
+  /* ════════════════════════════════════════════════════════════════════════
+     EVENTS (API: start_at / end_at / type)
+  ════════════════════════════════════════════════════════════════════════ */
+  async loadEvents() {
+    const list = this.$('eventsList');
+    list.innerHTML = this.loading();
+    try {
+      const r = await this.API('GET', 'website/events', null, { upcoming: this.state.eventsUpcoming });
+      const items = r?.items || [];
+      if (!items.length) {
+        list.innerHTML = this.empty('calendar-event', this.state.eventsUpcoming === '1' ? 'No events coming up. Add one families should plan for.' : 'No events yet.',
+          '<button type="button" class="btn btn-web" data-action="compose-event">New event</button>');
+        return;
+      }
+      list.innerHTML = items.map((ev) => {
+        const start = new Date(String(ev.start_at || '').replace(' ', 'T'));
+        const day = Number.isNaN(start.getTime()) ? '' : start.getDate();
+        const month = Number.isNaN(start.getTime()) ? '' : start.toLocaleDateString('en-KE', { month: 'short' });
+        const state = { upcoming: ['live', 'Coming up'], ongoing: ['live', 'Happening now'], past: ['draft', 'Finished'], cancelled: ['off', 'Cancelled'] }[ev.status] || ['draft', ev.status];
+        const range = ev.end_at && String(ev.end_at).slice(0, 10) !== String(ev.start_at).slice(0, 10) ? ` to ${this.fmtDate(ev.end_at)}` : '';
+        return `<div class="web-row">
+          <div class="web-row-media ph" aria-hidden="true" style="flex-direction:column;line-height:1.05"><strong style="font-size:1.2rem;color:#155C3B">${day}</strong><span style="font-size:.75rem;color:#155C3B">${this.esc(month)}</span></div>
+          <div class="min-w-0">
+            <p class="web-row-title">${this.esc(ev.title)}</p>
+            <div class="web-row-meta"><span class="web-state ${state[0]}">${state[1]}</span>${this.fmtDate(ev.start_at)}${range}${ev.location ? ' · ' + this.esc(ev.location) : ''}</div>
+          </div>
+          <div class="web-row-actions">
+            <button type="button" class="btn-icon" data-action="announce-event" data-title="${this.esc(ev.title)}" data-date="${this.esc(ev.start_at)}" data-location="${this.esc(ev.location || '')}" aria-label="Announce ${this.esc(ev.title)}" title="Announce it"><i class="bi bi-megaphone"></i></button>
+            <button type="button" class="btn-icon" data-action="edit-event" data-id="${ev.id}" aria-label="Edit ${this.esc(ev.title)}"><i class="bi bi-pencil"></i></button>
+            <button type="button" class="btn-icon danger" data-action="delete-event" data-id="${ev.id}" data-title="${this.esc(ev.title)}" aria-label="Delete ${this.esc(ev.title)}"><i class="bi bi-trash"></i></button>
+          </div>
+        </div>`;
+      }).join('');
+    } catch (e) { list.innerHTML = this.failed(e); }
+  },
+
+  async openEventComposer(id = null) {
+    this.$('eventEditId').value = id || '';
+    this.$('wsEventModalTitle').textContent = id ? 'Edit event' : 'New event';
+    ['eventTitle', 'eventDate', 'eventTime', 'eventEndDate', 'eventLocation', 'eventDescription'].forEach((f) => { this.$(f).value = ''; });
+    this.$('eventStatus').value = 'upcoming';
+    this.$('eventCategory').value = 'Academic';
+    if (id) {
+      try {
+        const ev = await this.API('GET', `website/events/${id}`);
+        const start = String(ev.start_at || '');
+        this.$('eventTitle').value = ev.title || '';
+        this.$('eventDate').value = start.slice(0, 10);
+        const time = start.slice(11, 16);
+        this.$('eventTime').value = time && time !== '00:00' ? time : '';
+        this.$('eventEndDate').value = String(ev.end_at || '').slice(0, 10);
+        this.$('eventLocation').value = ev.location || '';
+        this.$('eventDescription').value = ev.description || '';
+        this.$('eventStatus').value = ev.status || 'upcoming';
+        if ([...this.$('eventCategory').options].some((o) => o.value === ev.type)) this.$('eventCategory').value = ev.type;
+      } catch (e) { this.notify(e.message || 'That event could not be opened.', 'danger'); return; }
+    }
+    this.modal('wsEventModal').show();
+  },
+
+  async saveEvent() {
+    const id = this.$('eventEditId').value;
+    const date = this.$('eventDate').value;
+    const time = this.$('eventTime').value;
+    const end = this.$('eventEndDate').value;
+    const payload = {
+      title: this.$('eventTitle').value.trim(),
+      start_at: date ? `${date} ${time || '00:00'}:00` : '',
+      end_at: end ? `${end} 23:59:00` : (date ? `${date} ${time || '23:59'}:00` : ''),
+      event_date: date, event_time: time || null, end_date: end || null,
+      location: this.$('eventLocation').value.trim(),
+      description: this.$('eventDescription').value.trim(),
+      type: this.$('eventCategory').value,
+      category: this.$('eventCategory').value,
+      status: this.$('eventStatus').value,
+    };
+    if (!payload.title || !date) return this.notify('Add the event name and date.', 'warning');
+    if (end && end < date) return this.notify('The end date is before the start date.', 'warning');
+    try {
+      if (id) await this.API('PUT', `website/events/${id}`, payload);
+      else await this.API('POST', 'website/events', payload);
+      this.notify(id ? 'Event updated' : 'Event added');
+      this.modal('wsEventModal').hide();
+      this.loadEvents(); this.loadSuggestions();
+    } catch (e) { this.notify(e.message || 'The event could not be saved.', 'danger'); }
+  },
+
+  async deleteEvent(id, title) {
+    if (!(await window.confirmAction('Delete event', `Delete "${title}"?`, { confirmText: 'Delete', danger: true }))) return;
+    try { await this.API('DELETE', `website/events/${id}`); this.notify('Event deleted'); this.loadEvents(); }
+    catch (e) { this.notify(e.message, 'danger'); }
+  },
+
+  /* ════════════════════════════════════════════════════════════════════════
+     PHOTOS & VIDEOS
+  ════════════════════════════════════════════════════════════════════════ */
+  async loadGallery() {
+    const wall = this.$('galleryWall');
+    wall.innerHTML = this.loading();
+    try {
+      const r = await this.API('GET', 'website/gallery', null, { active: this.state.galleryActiveOnly === '1' ? '1' : '0' });
+      const items = r?.items || [];
+      this.state.galleryItems = items;
+      if (!items.length) {
+        wall.innerHTML = this.empty('images', 'No photos yet. Upload some from the last school event.',
+          '<button type="button" class="btn btn-web" data-action="compose-gallery">Upload photos or videos</button>');
+        return;
+      }
+      wall.innerHTML = items.map((g) => {
+        const isVideo = g.media_type === 'video';
+        const hidden = String(g.is_active) === '0';
+        const videoSrc = g.video_url || g.image_url;
+        const isEmbed = isVideo && /youtube\.com|youtu\.be|vimeo\.com/i.test(videoSrc || '');
+        const media = isVideo && !isEmbed
+          ? `<video src="${this.esc(videoSrc)}" preload="metadata" muted playsinline></video>`
+          : `<img src="${this.esc(isEmbed ? 'https://placehold.co/400x300/155C3B/fff?text=Video+link' : g.image_url)}" alt="${this.esc(g.caption || '')}" loading="lazy">`;
+        return `<figure class="web-tile ${hidden ? 'is-hidden' : ''}">
+          ${isVideo ? '<span class="web-tile-kind">Video</span>' : ''}
+          ${media}
+          <figcaption>
+            <span class="text-truncate" title="${this.esc(g.caption || '')}">${this.esc(g.caption || g.category || 'No caption')}${hidden ? ' · hidden' : ''}</span>
+            <span class="d-flex gap-1 flex-shrink-0">
+              <button type="button" class="btn-icon" data-action="edit-gallery" data-id="${g.id}" aria-label="Edit"><i class="bi bi-pencil"></i></button>
+              <button type="button" class="btn-icon danger" data-action="delete-gallery" data-id="${g.id}" aria-label="Remove"><i class="bi bi-trash"></i></button>
+            </span>
+          </figcaption>
+        </figure>`;
+      }).join('');
+    } catch (e) { wall.innerHTML = this.failed(e); }
+  },
+
+  openGalleryUploader(prefill = {}) {
+    this.state.galleryQueue = [];
+    this.$('galleryQueue').innerHTML = '';
+    this.$('galleryCaptionAll').value = prefill.caption || '';
+    if (prefill.category) this.$('galleryCategory').value = prefill.category;
+    this.$('galleryVideoLink').value = '';
+    this.$('galleryVideoCaption').value = '';
+    this.$('galleryUploadState').textContent = '';
+    this.modal('wsGalleryModal').show();
+  },
+
+  queueGalleryFiles(files) {
+    // Show every file at once; the size/type check (which first fetches the
+    // server limits) finishes in the background and Add waits for it.
+    const entries = files.map((file) => ({ file, caption: '', state: 'checking', message: 'Checking…', url: URL.createObjectURL(file), isVideo: /^video\//.test(file.type) }));
+    this.state.galleryQueue.push(...entries);
+    this.renderGalleryQueue();
+    const checks = entries.map(async (entry) => {
+      const problem = await this.checkMediaFile(entry.file);
+      entry.state = problem ? 'error' : 'ready';
+      entry.message = problem || 'Ready';
+    });
+    this.state.galleryChecking = Promise.all([this.state.galleryChecking, ...checks]).then(() => this.renderGalleryQueue());
+    return this.state.galleryChecking;
+  },
+
+  renderGalleryQueue() {
+    const q = this.$('galleryQueue');
+    q.innerHTML = this.state.galleryQueue.map((e, i) => `<li>
+      ${e.isVideo ? `<video src="${e.url}" muted preload="metadata"></video>` : `<img src="${e.url}" alt="">`}
+      <div class="web-q-body">
+        <input type="text" class="form-control form-control-sm mb-1" data-queue-caption="${i}" maxlength="200" placeholder="Caption" value="${this.esc(e.caption)}" ${e.state === 'done' ? 'disabled' : ''} aria-label="Caption for ${this.esc(e.file.name)}">
+        <div class="web-q-state ${e.state === 'error' ? 'err' : e.state === 'done' ? 'ok' : ''}">${this.esc(e.message)}</div>
+      </div>
+    </li>`).join('');
+  },
+
+  async saveGallery() {
+    const btn = this.$('galleryUploadBtn');
+    const category = this.$('galleryCategory').value;
+    const captionAll = this.$('galleryCaptionAll').value.trim();
+    const link = this.$('galleryVideoLink').value.trim();
+    if (this.state.galleryChecking) await this.state.galleryChecking;
+    const pending = this.state.galleryQueue.filter((e) => e.state === 'ready' || e.state === 'retry');
+    if (!pending.length && !link) return this.notify('Choose photos or videos first.', 'warning');
+    this.busy(btn, true, 'Uploading…');
+    let done = 0; let failed = 0;
+    for (const e of pending) {
+      e.message = 'Uploading…'; this.renderGalleryQueue();
+      try {
+        const up = await this.uploadMedia(e.file);
+        await this.API('POST', 'website/gallery', {
+          image_url: up.path,
+          video_url: up.media_type === 'video' ? up.path : '',
+          media_type: up.media_type,
+          caption: (e.caption || captionAll).slice(0, 200),
+          category,
+        });
+        e.state = 'done'; e.message = 'On the website'; done++;
+      } catch (err) { e.state = 'retry'; e.message = err.message || 'Upload failed'; failed++; }
+      this.renderGalleryQueue();
+    }
+    if (link) {
+      try {
+        await this.API('POST', 'website/gallery', { image_url: link, video_url: link, media_type: 'video', caption: this.$('galleryVideoCaption').value.trim() || captionAll, category });
+        done++; this.$('galleryVideoLink').value = '';
+      } catch (err) { failed++; this.notify(err.message || 'The video link could not be added.', 'danger'); }
+    }
+    this.busy(btn, false);
+    this.$('galleryUploadState').textContent = failed ? `${done} added, ${failed} need another try.` : `${done} added to the website.`;
+    if (done) { this.notify(`${done} ${done === 1 ? 'item' : 'items'} added to the website`); this.loadGallery(); this.loadSuggestions(); }
+    if (!failed && done) setTimeout(() => this.modal('wsGalleryModal').hide(), 700);
+  },
+
+  openGalleryEdit(id) {
+    const g = this.state.galleryItems.find((x) => String(x.id) === String(id));
+    if (!g) return;
+    this.$('galleryEditId').value = g.id;
+    this.$('galleryEditCaption').value = g.caption || '';
+    this.$('galleryEditCategory').value = g.category || 'General';
+    this.$('galleryEditActive').checked = String(g.is_active) !== '0';
+    this.$('wsGalleryEditTitle').textContent = g.media_type === 'video' ? 'Edit video' : 'Edit photo';
+    this.modal('wsGalleryEditModal').show();
+  },
+
+  async saveGalleryEdit() {
+    const id = this.$('galleryEditId').value;
+    try {
+      await this.API('PUT', `website/gallery/${id}`, {
+        caption: this.$('galleryEditCaption').value.trim(),
+        category: this.$('galleryEditCategory').value.trim() || 'General',
+        is_active: this.$('galleryEditActive').checked ? 1 : 0,
+      });
+      this.notify('Saved');
+      this.modal('wsGalleryEditModal').hide();
+      this.loadGallery();
+    } catch (e) { this.notify(e.message, 'danger'); }
+  },
+
+  async deleteGallery(id) {
+    if (!(await window.confirmAction('Remove from gallery', 'Remove this from the website gallery?', { confirmText: 'Remove', danger: true }))) return;
+    try { await this.API('DELETE', `website/gallery/${id}`); this.notify('Removed from the gallery'); this.loadGallery(); }
+    catch (e) { this.notify(e.message, 'danger'); }
+  },
+
+  /* ════════════════════════════════════════════════════════════════════════
+     DOWNLOADS: uploaded files + system documents
+  ════════════════════════════════════════════════════════════════════════ */
+  loadDownloadsTab() { this.loadDownloads(); this.loadDownloadsConfig(); },
+
+  async loadDownloads() {
+    const list = this.$('downloadsList');
+    list.innerHTML = this.loading();
+    try {
+      const r = await this.API('GET', 'website/downloads', null, { active: '0' });
+      this.state.downloads = r?.items || [];
+      this.$('dlCategoryOptions').innerHTML = [...new Set(this.state.downloads.map((d) => d.category).filter(Boolean))].map((c) => `<option value="${this.esc(c)}">`).join('');
+      if (!this.state.downloads.length) {
+        list.innerHTML = this.empty('file-earmark-arrow-down', 'No uploaded documents. Book lists, uniform guides and circulars go here.',
+          '<button type="button" class="btn btn-web" data-action="compose-download">Upload a document</button>');
+        return;
+      }
+      let lastCat = null;
+      list.innerHTML = this.state.downloads.map((d) => {
+        const hidden = String(d.is_active) === '0';
+        const head = d.category !== lastCat ? `<div class="small fw-semibold text-muted mt-2">${this.esc(d.category)}</div>` : '';
+        lastCat = d.category;
+        return `${head}<div class="web-dl-row ${hidden ? 'is-hidden' : ''}">
+          <i class="bi ${this.esc(d.icon || 'bi-file-earmark')} web-dl-ico" style="color:${this.esc(d.color || '#155C3B')}" aria-hidden="true"></i>
+          <div class="min-w-0"><p class="web-row-title">${this.esc(d.title)}</p><div class="web-row-meta">${this.esc(d.file_type || '')} · ${this.esc(d.file_size || '')}${hidden ? ' · hidden from families' : ''}${d.download_count ? ` · downloaded ${Number(d.download_count)} times` : ''}</div></div>
+          <div class="web-row-actions">
+            <button type="button" class="btn-icon" data-action="dl-move" data-id="${d.id}" data-dir="-1" aria-label="Move up"><i class="bi bi-arrow-up"></i></button>
+            <button type="button" class="btn-icon" data-action="dl-move" data-id="${d.id}" data-dir="1" aria-label="Move down"><i class="bi bi-arrow-down"></i></button>
+            <button type="button" class="btn-icon" data-action="dl-toggle" data-id="${d.id}" aria-label="${hidden ? 'Show on the page' : 'Hide from the page'}" title="${hidden ? 'Show on the page' : 'Hide from the page'}"><i class="bi bi-${hidden ? 'eye' : 'eye-slash'}"></i></button>
+            <button type="button" class="btn-icon" data-action="edit-download" data-id="${d.id}" aria-label="Edit ${this.esc(d.title)}"><i class="bi bi-pencil"></i></button>
+          </div>
+        </div>`;
+      }).join('');
+    } catch (e) { list.innerHTML = this.failed(e); }
+  },
+
+  async toggleDownload(id) {
+    const d = this.state.downloads.find((x) => String(x.id) === String(id));
+    if (!d) return;
+    const show = String(d.is_active) === '0';
+    try {
+      await this.API('PUT', `website/downloads/${id}`, { is_active: show ? 1 : 0 });
+      this.notify(show ? 'Now on the downloads page' : 'Hidden from the downloads page');
+      this.loadDownloads();
+    } catch (e) { this.notify(e.message, 'danger'); }
+  },
+
+  async moveDownload(id, dir) {
+    const items = this.state.downloads;
+    const i = items.findIndex((x) => String(x.id) === String(id));
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= items.length || items[j].category !== items[i].category) return;
+    try {
+      // Re-number the group so equal display_order values cannot stall a move.
+      const group = items.filter((x) => x.category === items[i].category);
+      const gi = group.indexOf(items[i]);
+      [group[gi], group[gi + dir]] = [group[gi + dir], group[gi]];
+      await Promise.all(group.map((x, k) => this.API('PUT', `website/downloads/${x.id}`, { display_order: (k + 1) * 10 })));
+      this.loadDownloads();
+    } catch (e) { this.notify(e.message, 'danger'); }
+  },
+
+  openDownloadComposer(id = null) {
+    this.$('dlEditId').value = id || '';
+    this.$('wsDownloadModalTitle').textContent = id ? 'Edit document' : 'Upload a document';
+    this.$('dlFile').value = '';
+    this.state.dlPendingFile = null;
+    this.$('dlDropLabel').textContent = id ? 'Drop a new file here to replace it, or leave it as it is' : 'Drop a document here or choose one from this device';
+    const d = id ? this.state.downloads.find((x) => String(x.id) === String(id)) : null;
+    this.$('dlTitle').value = d?.title || '';
+    this.$('dlDesc').value = d?.description || '';
+    this.$('dlCategory').value = d?.category || 'General';
+    this.$('dlActive').checked = d ? String(d.is_active) !== '0' : true;
+    this.modal('wsDownloadModal').show();
+  },
+
+  async saveDownload() {
+    const id = this.$('dlEditId').value;
+    const title = this.$('dlTitle').value.trim();
+    const file = this.state.dlPendingFile;
+    if (!title) return this.notify('Add the title families will see.', 'warning');
+    if (!id && !file) return this.notify('Choose the document to upload.', 'warning');
+    const btn = this.$('dlSaveBtn');
+    this.busy(btn, true);
+    const fields = { title, description: this.$('dlDesc').value.trim(), category: this.$('dlCategory').value.trim() || 'General', is_active: this.$('dlActive').checked ? 1 : 0 };
+    try {
+      if (file) {
+        const fd = new FormData();
+        Object.entries(fields).forEach(([k, v]) => fd.append(k, String(v)));
+        fd.append('file', file);
+        await this.API('POST', id ? `website/downloads/${id}/replace` : 'website/downloads', fd, {}, { isFile: true });
+      } else {
+        await this.API('PUT', `website/downloads/${id}`, fields);
+      }
+      this.notify(id ? 'Document updated' : 'Document added');
+      this.modal('wsDownloadModal').hide();
+      this.loadDownloads();
+    } catch (e) { this.notify(e.message || 'The document could not be saved.', 'danger'); }
+    finally { this.busy(btn, false); }
+  },
+
+  async loadDownloadsConfig() {
+    try {
+      const r = await this.API('GET', 'website/downloads-config');
+      this.state.dlConfig = r.config;
+      this.state.dlOptions = r.options;
+      this.renderDownloadsConfig();
+    } catch (e) {
+      this.$('dlConfigState').textContent = e.message || 'The settings could not be loaded.';
+    }
+  },
+
+  renderDownloadsConfig() {
+    const c = this.state.dlConfig; const o = this.state.dlOptions;
+    if (!c || !o) return;
+    this.$('dlYears').innerHTML = o.years.map((y) => `<div class="form-check">
+      <input class="form-check-input" type="checkbox" id="dlYear${y.id}" value="${y.id}" data-dl-year ${c.years.includes(y.id) ? 'checked' : ''}>
+      <label class="form-check-label" for="dlYear${y.id}">${this.esc(y.label)}${y.is_current ? ' (current)' : ''}</label></div>`).join('');
+    this.renderDefaultYearOptions();
+    this.$('dlCalendar').checked = !!c.calendar;
+    this.$('dlFeeWhole').checked = !!c.fee_whole_school;
+    this.$('dlFeeClass').checked = !!c.fee_per_class;
+    this.$('dlSections').innerHTML = o.fee_sections.map((s) => `<div class="form-check">
+      <input class="form-check-input" type="checkbox" id="dlSec_${s.key}" value="${s.key}" data-dl-section ${c.fee_sections.includes(s.key) ? 'checked' : ''}>
+      <label class="form-check-label" for="dlSec_${s.key}">${this.esc(s.label)}</label></div>`).join('');
+    this.$('dlTypes').innerHTML = o.student_types.map((t) => `<div class="form-check">
+      <input class="form-check-input" type="checkbox" id="dlType_${t.key}" value="${t.key}" data-dl-type ${c.student_types.includes(t.key) ? 'checked' : ''}>
+      <label class="form-check-label" for="dlType_${t.key}">${this.esc(t.label)}</label></div>`).join('');
+    this.$('dlIntro').value = c.intro || '';
+    this.$('dlConfigState').textContent = '';
+  },
+
+  renderDefaultYearOptions() {
+    const o = this.state.dlOptions; const c = this.state.dlConfig;
+    const chosen = [...document.querySelectorAll('[data-dl-year]:checked')].map((el) => Number(el.value));
+    const years = chosen.length ? o.years.filter((y) => chosen.includes(y.id)) : o.years.filter((y) => y.is_current);
+    const current = Number(this.$('dlDefaultYear').value || c.default_year_id || 0);
+    this.$('dlDefaultYear').innerHTML = '<option value="">The current year</option>' + years.map((y) => `<option value="${y.id}" ${y.id === current ? 'selected' : ''}>${this.esc(y.label)}</option>`).join('');
+  },
+
+  async saveDownloadsConfig(event) {
+    event?.preventDefault();
+    const payload = {
+      years: [...document.querySelectorAll('[data-dl-year]:checked')].map((el) => Number(el.value)),
+      default_year_id: Number(this.$('dlDefaultYear').value) || null,
+      calendar: this.$('dlCalendar').checked,
+      fee_whole_school: this.$('dlFeeWhole').checked,
+      fee_sections: [...document.querySelectorAll('[data-dl-section]:checked')].map((el) => el.value),
+      fee_per_class: this.$('dlFeeClass').checked,
+      student_types: [...document.querySelectorAll('[data-dl-type]:checked')].map((el) => el.value),
+      intro: this.$('dlIntro').value.trim(),
+    };
+    const btn = this.$('dlConfigSave');
+    this.busy(btn, true);
+    try {
+      this.state.dlConfig = await this.API('PUT', 'website/downloads-config', payload);
+      this.renderDownloadsConfig();
+      this.$('dlConfigState').textContent = 'Saved. Families see this now.';
+      this.notify('Downloads page updated');
+      this.loadSuggestions();
+    } catch (e) { this.$('dlConfigState').textContent = ''; this.notify(e.message || 'The downloads page could not be saved.', 'danger'); }
+    finally { this.busy(btn, false); }
+  },
+
+  /* ════════════════════════════════════════════════════════════════════════
+     VACANCIES
+  ════════════════════════════════════════════════════════════════════════ */
+  async ensureDepartments() {
+    if (this.state.departments.length) return;
+    try { const r = await this.API('GET', 'website/departments'); this.state.departments = (r?.items || []).filter((d) => String(d.is_active) !== '0'); }
+    catch (_) { this.state.departments = []; }
+    this.$('jobDepartment').innerHTML = '<option value="">Choose a department</option>' + this.state.departments.map((d) => `<option value="${d.id}">${this.esc(d.name)}</option>`).join('');
+  },
+
+  async loadJobs() {
+    const list = this.$('jobsList');
+    list.innerHTML = this.loading();
+    try {
+      const r = await this.API('GET', 'website/jobs', null, { status: 'all' });
+      const items = r?.items || [];
+      this.state.jobs = items;
+      if (!items.length) {
+        list.innerHTML = this.empty('briefcase', 'No vacancies posted. When the school is hiring, post the role here and it appears on the Careers page.',
+          '<button type="button" class="btn btn-web" data-action="compose-job">Post a vacancy</button>');
+        return;
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      list.innerHTML = items.map((j) => {
+        const expired = j.status === 'open' && String(j.deadline).slice(0, 10) < today;
+        const state = expired ? ['off', 'Deadline passed'] : ({ open: ['live', 'Open'], closed: ['draft', 'Closed'], filled: ['draft', 'Filled'] }[j.status] || ['draft', j.status]);
+        return `<div class="web-row">
+          <div class="web-row-media ph" aria-hidden="true"><i class="bi bi-briefcase"></i></div>
+          <div class="min-w-0"><p class="web-row-title">${this.esc(j.title)}</p>
+            <div class="web-row-meta"><span class="web-state ${state[0]}">${state[1]}</span>${this.esc(j.department || '')} · ${this.esc(j.job_type || '')} · apply by ${this.fmtDate(j.deadline)}</div></div>
+          <div class="web-row-actions">
+            <button type="button" class="btn-icon" data-action="edit-job" data-id="${j.id}" aria-label="Edit ${this.esc(j.title)}"><i class="bi bi-pencil"></i></button>
+            ${j.status === 'open' ? `<button type="button" class="btn-icon danger" data-action="close-job" data-id="${j.id}" data-title="${this.esc(j.title)}" aria-label="Close ${this.esc(j.title)}" title="Close vacancy"><i class="bi bi-x-circle"></i></button>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+    } catch (e) { list.innerHTML = this.failed(e); }
+  },
+
+  async openJobComposer(id = null) {
+    await this.ensureDepartments();
+    this.$('jobEditId').value = id || '';
+    this.$('wsJobModalTitle').textContent = id ? 'Edit vacancy' : 'Post a vacancy';
+    ['jobTitle', 'jobDescription', 'jobRequirements', 'jobResponsibilities', 'jobDeadline'].forEach((f) => { this.$(f).value = ''; });
+    this.$('jobDepartment').value = '';
+    this.$('jobType').value = 'Full-Time';
+    this.$('jobStatus').value = 'open';
+    this.$('jobLocation').value = 'Londiani, Kenya';
+    if (id) {
+      try {
+        const j = await this.API('GET', `website/jobs/${id}`);
+        this.$('jobTitle').value = j.title || '';
+        this.$('jobDepartment').value = j.department_id ? String(j.department_id) : (this.state.departments.find((d) => d.name === j.department)?.id || '');
+        this.$('jobLocation').value = j.location || 'Londiani, Kenya';
+        this.$('jobDescription').value = j.description || '';
+        this.$('jobDeadline').value = String(j.deadline || '').slice(0, 10);
+        this.$('jobType').value = j.job_type || 'Full-Time';
+        this.$('jobStatus').value = j.status || 'open';
+        const lines = (v) => { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a.join('\n') : String(v || ''); } catch (_) { return String(v || ''); } };
+        this.$('jobRequirements').value = lines(j.requirements);
+        this.$('jobResponsibilities').value = lines(j.responsibilities);
+      } catch (e) { this.notify(e.message || 'That vacancy could not be opened.', 'danger'); return; }
+    } else {
+      const d = new Date(); d.setDate(d.getDate() + 21);
+      this.$('jobDeadline').value = d.toISOString().slice(0, 10);
+    }
+    this.modal('wsJobModal').show();
+  },
+
+  async saveJob() {
+    const id = this.$('jobEditId').value;
+    const split = (v) => v.split('\n').map((l) => l.trim()).filter(Boolean);
+    const payload = {
+      title: this.$('jobTitle').value.trim(),
+      department_id: this.$('jobDepartment').value,
+      job_type: this.$('jobType').value,
+      location: this.$('jobLocation').value.trim(),
+      description: this.$('jobDescription').value.trim(),
+      requirements: JSON.stringify(split(this.$('jobRequirements').value)),
+      responsibilities: JSON.stringify(split(this.$('jobResponsibilities').value)),
+      deadline: this.$('jobDeadline').value,
+      status: this.$('jobStatus').value,
+    };
+    if (!payload.title || !payload.deadline) return this.notify('Add the job title and the date applications close.', 'warning');
+    if (!payload.department_id) return this.notify('Choose the department this vacancy belongs to.', 'warning');
+    if (!payload.description) return this.notify('Describe the role so applicants know what it involves.', 'warning');
+    try {
+      if (id) await this.API('PUT', `website/jobs/${id}`, payload);
+      else await this.API('POST', 'website/jobs', payload);
+      this.notify(id ? 'Vacancy updated' : 'Vacancy posted on the Careers page');
+      this.modal('wsJobModal').hide();
+      this.loadJobs(); this.loadSuggestions();
+    } catch (e) { this.notify(e.message || 'The vacancy could not be saved.', 'danger'); }
+  },
+
+  async closeJob(id, title) {
+    if (!(await window.confirmAction('Close vacancy', `Close "${title}"? It will no longer accept applications.`, { confirmText: 'Close vacancy' }))) return;
+    try { await this.API('PUT', `website/jobs/${id}`, { status: 'closed' }); this.notify('Vacancy closed'); this.loadJobs(); this.loadSuggestions(); }
+    catch (e) { this.notify(e.message, 'danger'); }
   },
 
   /* ════════════════════════════════════════════════════════════════════════════
@@ -562,7 +927,7 @@ const manageWebsiteController = {
     const body = document.getElementById('appsTableBody');
     body.innerHTML = '<tr><td colspan="9" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
-      const r = await this.API('GET','website/applications',{status});
+      const r = await this.API('GET','website/applications',null,{status});
       const items = r?.items || [];
       const boardMap = {day:'Day Scholar',full_boarding:'Full Boarding',weekly_boarding:'Weekly Boarding'};
       if (!items.length) { body.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-muted">No applications found.</td></tr>'; return; }
@@ -706,44 +1071,116 @@ const manageWebsiteController = {
     catch(e) { this.notify(e.message,'danger'); }
   },
 
-  /* ════════════════════════════════════════════════════════════════════════════
-     SETTINGS
-  ════════════════════════════════════════════════════════════════════════════ */
+  /* ════════════════════════════════════════════════════════════════════════
+     SCHOOL DETAILS (grouped, saved per group)
+  ════════════════════════════════════════════════════════════════════════ */
+  SETTING_GROUPS: [
+    { id: 'identity', title: 'The school', keys: ['school_name', 'school_motto', 'school_code', 'school_founded_year'] },
+    { id: 'contact', title: 'How families reach you', keys: ['school_phone', 'school_phone_alt', 'school_email', 'school_address', 'school_address_physical', 'school_address_postal', 'school_website', 'google_maps_url'] },
+    { id: 'hours', title: 'Office hours', keys: ['office_hours_weekday', 'office_hours_saturday'] },
+    { id: 'social', title: 'Social media', keys: ['social_facebook', 'social_instagram', 'social_youtube', 'social_twitter', 'social_whatsapp'] },
+    { id: 'stats', title: 'Numbers on the homepage', match: (k) => k.startsWith('stat_') },
+    { id: 'admission', title: 'Admission and staff numbers', match: (k) => /^(admission_no|staff_no)_/.test(k) },
+  ],
+  // Same column as another key: edited once, under the main key.
+  SETTING_ALIASES: ['school_phone_main', 'school_email_main', 'currency'],
+
+  humanKey(key) {
+    return key.replace(/^stat_/, '').replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+  },
+
   async loadSettings() {
-    const container = document.getElementById('settingsList');
-    container.innerHTML = '<div class="spinner-border spinner-border-sm"></div>';
+    const box = this.$('settingsGroups');
+    box.innerHTML = this.loading();
     try {
-      const r = await this.API('GET','website/settings');
-      this.state.allSettings = r?.items || [];
-      this.renderSettings(this.state.allSettings);
-    } catch(e) { container.innerHTML = `<div class="text-danger small">${this.esc(e.message)}</div>`; }
+      const r = await this.API('GET', 'website/settings');
+      this.state.allSettings = (r?.items || []).filter((s) => !this.SETTING_ALIASES.includes(s.setting_key));
+      this.renderSettings();
+    } catch (e) { box.innerHTML = this.failed(e); }
   },
 
-  renderSettings(items) {
-    const container = document.getElementById('settingsList');
-    if (!items.length) { container.innerHTML = '<div class="text-muted small">No settings found.</div>'; return; }
-    container.innerHTML = items.map(s => {
-      const isLong = (s.setting_value||'').length > 60;
-      const tag = isLong ? 'textarea' : 'input type="text"';
-      const closeTag = isLong ? '</textarea>' : '';
-      const val = this.esc(s.setting_value||'');
-      const attrs = `data-key="${this.esc(s.setting_key)}" style="width:100%;padding:5px 9px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem" data-kw-onblur="wsSaveSetting('${this.esc(s.setting_key)}',this.value)"`;
-      const input = isLong
-        ? `<textarea ${attrs} rows="2">${val}${closeTag}`
-        : `<${tag} ${attrs} value="${val}">`;
-      return `
-        <div class="ws-settings-row" data-setting-row>
-          <div><div class="ws-settings-key">${this.esc(s.setting_key)}</div><div class="ws-settings-label">${this.esc(s.label||'')}</div></div>
-          <div>${input}</div>
-        </div>`;
-    }).join('');
+  renderSettings(filter = '') {
+    const q = filter.trim().toLowerCase();
+    const items = this.state.allSettings.filter((s) => !q
+      || s.setting_key.toLowerCase().includes(q) || String(s.label || '').toLowerCase().includes(q) || String(s.setting_value || '').toLowerCase().includes(q));
+    const used = new Set();
+    const groups = this.SETTING_GROUPS.map((g) => {
+      const rows = items.filter((s) => (g.keys ? g.keys.includes(s.setting_key) : g.match(s.setting_key)));
+      rows.forEach((s) => used.add(s.setting_key));
+      if (g.keys) rows.sort((a, b) => g.keys.indexOf(a.setting_key) - g.keys.indexOf(b.setting_key));
+      return { ...g, rows };
+    });
+    const rest = items.filter((s) => !used.has(s.setting_key));
+    if (rest.length) groups.push({ id: 'other', title: 'Other details', rows: rest });
+    const visible = groups.filter((g) => g.rows.length);
+    if (!visible.length) { this.$('settingsGroups').innerHTML = this.empty('search', 'No detail matches that search.'); return; }
+    this.$('settingsGroups').innerHTML = visible.map((g) => `<section class="web-set-group" data-set-group="${g.id}">
+      <header><h3>${this.esc(g.title)}</h3>
+        <button type="button" class="btn btn-web btn-sm" data-action="save-settings" data-group="${g.id}" disabled>Save changes</button></header>
+      <div class="web-set-grid">${g.rows.map((s) => {
+        const editable = s.editable !== false;
+        const value = String(s.setting_value ?? '');
+        const long = value.length > 70 || /json$/.test(s.setting_key);
+        const label = s.label && s.label !== s.setting_key ? s.label : this.humanKey(s.setting_key);
+        const id = `set_${s.setting_key}`;
+        const input = long
+          ? `<textarea class="form-control form-control-sm" id="${id}" rows="2" data-setting="${this.esc(s.setting_key)}" data-original="${this.esc(value)}" ${editable ? '' : 'readonly'}>${this.esc(value)}</textarea>`
+          : `<input class="form-control form-control-sm" id="${id}" value="${this.esc(value)}" data-setting="${this.esc(s.setting_key)}" data-original="${this.esc(value)}" ${editable ? '' : 'readonly'}>`;
+        return `<div class="web-set-field"><label class="form-label" for="${id}">${this.esc(label)}</label>${input}
+          ${editable ? '' : '<small>Worked out from school records</small>'}</div>`;
+      }).join('')}</div>
+    </section>`).join('');
   },
 
-  async wsSaveSetting(key, value) {
-    try {
-      await this.API('PUT','website/settings',{key, value});
-      this.notify(`Setting "${key}" saved`);
-    } catch(e) { this.notify(e.message,'danger'); }
+  markSettingDirty(input) {
+    const field = input.closest('.web-set-field');
+    const dirty = input.value !== input.dataset.original;
+    field?.classList.toggle('is-dirty', dirty);
+    const group = input.closest('[data-set-group]');
+    const anyDirty = !!group?.querySelector('.web-set-field.is-dirty');
+    const btn = group?.querySelector('[data-action="save-settings"]');
+    if (btn) btn.disabled = !anyDirty;
+  },
+
+  async saveSettingsGroup(groupId) {
+    const group = document.querySelector(`[data-set-group="${groupId}"]`);
+    if (!group) return;
+    const btn = group.querySelector('[data-action="save-settings"]');
+    const changed = [...group.querySelectorAll('[data-setting]')].filter((el) => !el.readOnly && el.value !== el.dataset.original);
+    if (!changed.length) return;
+    this.busy(btn, true);
+    let saved = 0;
+    for (const el of changed) {
+      try {
+        await this.API('PUT', 'website/settings', { key: el.dataset.setting, value: el.value.trim() });
+        el.dataset.original = el.value.trim();
+        el.value = el.value.trim();
+        this.markSettingDirty(el);
+        saved++;
+      } catch (e) { this.notify(`${el.closest('.web-set-field')?.querySelector('label')?.textContent || el.dataset.setting}: ${e.message}`, 'danger'); }
+    }
+    this.busy(btn, false);
+    btn.disabled = !group.querySelector('.web-set-field.is-dirty');
+    if (saved) this.notify(saved === changed.length ? 'Saved. The website shows the new details now.' : `${saved} of ${changed.length} saved.`);
+  },
+
+  /* ════════════════════════════════════════════════════════════════════════
+     PREVIEW (same-origin frame, no new tab, no sign-out)
+  ════════════════════════════════════════════════════════════════════════ */
+  openPreview(page = '') {
+    this.$('previewPage').value = page;
+    this.loadPreview();
+    this.modal('wsPreviewModal').show();
+  },
+  loadPreview() {
+    const page = this.$('previewPage').value;
+    const base = (window.APP_BASE || '').replace(/\/+$/, '');
+    this.$('previewFrame').src = `${base}/${page}?preview=${Date.now()}`;
+    this.$('wsPreviewTitle').textContent = `Preview: ${this.$('previewPage').selectedOptions[0]?.textContent || 'Home'}`;
+  },
+  setPreviewDevice(device) {
+    this.$('previewDevice').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.device === device)));
+    this.$('previewStage').classList.toggle('is-phone', device === 'phone');
   },
 
   /* ════════════════════════════════════════════════════════════════════════════
@@ -1030,7 +1467,7 @@ const manageWebsiteController = {
     searchResults.innerHTML = '';
 
     try {
-      const pr = await this.API('GET', 'website/leadership/positions', { leadership_category_id: categoryId });
+      const pr = await this.API('GET', 'website/leadership/positions', null, { leadership_category_id: categoryId });
       this.state.leadershipPositions = Array.isArray(pr) ? pr : [];
       posSel.innerHTML = '<option value="">Select position\u2026</option>' +
         this.state.leadershipPositions.map(p =>
@@ -1169,111 +1606,175 @@ const manageWebsiteController = {
     }, 300);
   },
 
-  /* ── Event Listeners ──────────────────────────────────────────────────────── */
+  /* ════════════════════════════════════════════════════════════════════════
+     WIRING
+  ════════════════════════════════════════════════════════════════════════ */
   setupEventListeners() {
-    // News search / filter
-    ['newsSearch','newsCatFilter','newsStatusFilter'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.addEventListener('change', () => this.loadNews());
+    const root = this.$('kwWeb');
+    const actions = {
+      'preview': (el) => this.openPreview(el.dataset.previewPage || ''),
+      'refresh-next': () => this.loadSuggestions(),
+      'toggle-next': (el) => {
+        const box = el.closest('.web-next');
+        const open = box.classList.toggle('is-expanded');
+        el.textContent = open ? 'Show fewer' : `Show all ${this.state.suggestions?.length || ''} suggestions`;
+      },
+      'next-go': (el) => this.runSuggestion(Number(el.dataset.index), false),
+      'next-ai': (el) => this.runSuggestion(Number(el.dataset.index), true),
+      'compose-news': (el) => this.openNewsComposer(null, { kind: el.dataset.kind || 'news', category: el.dataset.kind === 'announcement' ? 'Announcement' : undefined }),
+      'edit-news': (el) => this.openNewsComposer(el.dataset.id),
+      'news-status': (el) => this.setNewsStatus(el.dataset.id, el.dataset.status),
+      'delete-news': (el) => this.deleteNews(el.dataset.id),
+      'compose-event': () => this.openEventComposer(),
+      'edit-event': (el) => this.openEventComposer(el.dataset.id),
+      'delete-event': (el) => this.deleteEvent(el.dataset.id, el.dataset.title),
+      'announce-event': (el) => {
+        this.switchTab('news');
+        const when = this.fmtDate(el.dataset.date);
+        this.openNewsComposer(null, { kind: 'announcement', category: 'Announcement', title: `${el.dataset.title} on ${when}`,
+          excerpt: `Join us for ${el.dataset.title} on ${when}${el.dataset.location ? ` at ${el.dataset.location}` : ''}.` });
+      },
+      'compose-gallery': () => this.openGalleryUploader(),
+      'edit-gallery': (el) => this.openGalleryEdit(el.dataset.id),
+      'delete-gallery': (el) => this.deleteGallery(el.dataset.id),
+      'compose-download': () => this.openDownloadComposer(),
+      'edit-download': (el) => this.openDownloadComposer(el.dataset.id),
+      'dl-toggle': (el) => this.toggleDownload(el.dataset.id),
+      'dl-move': (el) => this.moveDownload(el.dataset.id, Number(el.dataset.dir)),
+      'compose-job': () => this.openJobComposer(),
+      'edit-job': (el) => this.openJobComposer(el.dataset.id),
+      'close-job': (el) => this.closeJob(el.dataset.id, el.dataset.title),
+      'save-settings': (el) => this.saveSettingsGroup(el.dataset.group),
+    };
+    const modalActions = {
+      'save-news': () => this.saveNews(),
+      'clear-news-image': () => { this.setNewsImage('', ''); this.$('newsImageLink').value = ''; },
+      'ai-draft-news': () => this.askAssistantForNews(),
+      'save-gallery': () => this.saveGallery(),
+      'save-gallery-edit': () => this.saveGalleryEdit(),
+      'save-event': () => this.saveEvent(),
+      'save-download': () => this.saveDownload(),
+      'save-job': () => this.saveJob(),
+      'preview-reload': () => this.loadPreview(),
+    };
+    const route = (map) => (e) => {
+      const el = e.target.closest('[data-action]');
+      if (!el || !map[el.dataset.action]) return;
+      e.preventDefault();
+      map[el.dataset.action](el);
+    };
+    root.addEventListener('click', route(actions));
+    ['wsNewsModal', 'wsGalleryModal', 'wsGalleryEditModal', 'wsEventModal', 'wsDownloadModal', 'wsJobModal', 'wsPreviewModal']
+      .forEach((id) => this.$(id)?.addEventListener('click', route({ ...modalActions, ...actions })));
+
+    // News filters (auto-load on change)
+    this.$('newsStateChips').addEventListener('click', (e) => {
+      const chip = e.target.closest('[data-news-status]'); if (!chip) return;
+      this.state.newsStatus = chip.dataset.newsStatus;
+      this.$('newsStateChips').querySelectorAll('[data-news-status]').forEach((c) => c.setAttribute('aria-pressed', String(c === chip)));
+      this.loadNews();
     });
-    const newsSearchEl = document.getElementById('newsSearch');
-    if (newsSearchEl) newsSearchEl.addEventListener('keyup', () => this.loadNews());
+    this.$('newsCatFilter').addEventListener('change', () => this.loadNews());
+    let searchTimer = null;
+    this.$('newsSearch').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => this.loadNews(), 300); });
 
-    // Image URL preview
-    document.addEventListener('input', e => {
-      if (e.target.id === 'newsImageUrl') this.previewNewsImg(e.target.value);
-      if (e.target.id === 'galleryUrl')   this.previewGalleryImg(e.target.value);
+    // Composer
+    this.$('newsKindSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-news-kind]'); if (b) this.setNewsKind(b.dataset.newsKind); });
+    ['newsTitle', 'newsExcerpt', 'newsCategory'].forEach((id) => this.$(id).addEventListener('input', () => this.updateNewsPreview()));
+    this.$('newsStatus').addEventListener('change', () => this.updateNewsSubmitLabel());
+    this.$('newsImageLink').addEventListener('change', (e) => { const v = e.target.value.trim(); if (v) this.setNewsImage(v, v); });
+    this.bindDropZone(document.querySelector('[data-drop="news"]'), this.$('newsFile'), (files) => this.handleNewsFiles(files));
+    this.bindDropZone(document.querySelector('[data-drop="gallery"]'), this.$('galleryFiles'), (files) => this.queueGalleryFiles(files));
+    this.$('galleryQueue').addEventListener('input', (e) => { const i = e.target.dataset.queueCaption; if (i !== undefined && this.state.galleryQueue[i]) this.state.galleryQueue[i].caption = e.target.value; });
+    this.$('wsGalleryModal').addEventListener('hidden.bs.modal', () => { this.state.galleryQueue.forEach((q) => URL.revokeObjectURL(q.url)); this.state.galleryQueue = []; });
+    this.bindDropZone(document.querySelector('[data-drop="download"]'), this.$('dlFile'), (files) => {
+      const f = files[0];
+      if (!/\.(pdf|docx?|xlsx?|pptx?)$/i.test(f.name)) return this.notify('Choose a PDF, Word, Excel or PowerPoint file.', 'warning');
+      if (f.size > 26214400) return this.notify(`${f.name} is ${this.fmtBytes(f.size)}. The limit is 25 MB.`, 'warning');
+      this.state.dlPendingFile = f;
+      this.$('dlDropLabel').textContent = `${f.name} (${this.fmtBytes(f.size)}) is ready`;
+      if (!this.$('dlTitle').value.trim()) this.$('dlTitle').value = f.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ');
     });
 
-    // Events filter
-    document.getElementById('eventsUpcomingOnly')?.addEventListener('change', () => this.loadEvents());
+    // Events / gallery scope chips
+    this.$('eventScopeChips').addEventListener('click', (e) => {
+      const chip = e.target.closest('[data-event-scope]'); if (!chip) return;
+      this.state.eventsUpcoming = chip.dataset.eventScope;
+      this.$('eventScopeChips').querySelectorAll('[data-event-scope]').forEach((c) => c.setAttribute('aria-pressed', String(c === chip)));
+      this.loadEvents();
+    });
+    this.$('galleryScopeChips').addEventListener('click', (e) => {
+      const chip = e.target.closest('[data-gallery-scope]'); if (!chip) return;
+      this.state.galleryActiveOnly = chip.dataset.galleryScope;
+      this.$('galleryScopeChips').querySelectorAll('[data-gallery-scope]').forEach((c) => c.setAttribute('aria-pressed', String(c === chip)));
+      this.loadGallery();
+    });
 
-    // Application sub-tabs
-    document.querySelectorAll('[data-apps-tab]').forEach(btn => {
+    // Downloads config
+    this.$('dlConfigForm').addEventListener('submit', (e) => this.saveDownloadsConfig(e));
+    this.$('dlConfigForm').addEventListener('change', (e) => { if (e.target.matches('[data-dl-year]')) this.renderDefaultYearOptions(); this.$('dlConfigState').textContent = 'Not saved yet'; });
+
+    // Settings
+    this.$('settingsGroups').addEventListener('input', (e) => { if (e.target.matches('[data-setting]')) this.markSettingDirty(e.target); });
+    this.$('settingsSearch').addEventListener('input', (e) => this.renderSettings(e.target.value));
+
+    // Preview
+    this.$('previewPage').addEventListener('change', () => this.loadPreview());
+    this.$('previewDevice').addEventListener('click', (e) => { const b = e.target.closest('[data-device]'); if (b) this.setPreviewDevice(b.dataset.device); });
+    this.$('wsPreviewModal').addEventListener('hidden.bs.modal', () => { this.$('previewFrame').src = 'about:blank'; });
+
+    // Applications sub-tabs and filter
+    document.querySelectorAll('[data-apps-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('[data-apps-tab]').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('[data-apps-tab]').forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
-        const tab = btn.dataset.appsTab;
-        document.getElementById('admissionAppsPanel').style.display = tab === 'admission' ? '' : 'none';
-        document.getElementById('jobAppsPanel').style.display       = tab === 'jobs'      ? '' : 'none';
+        this.$('admissionAppsPanel').style.display = btn.dataset.appsTab === 'admission' ? '' : 'none';
+        this.$('jobAppsPanel').style.display = btn.dataset.appsTab === 'jobs' ? '' : 'none';
       });
     });
-
-    // Application status filter
-    document.getElementById('appStatusFilter')?.addEventListener('change', () => this.loadApplications());
-
-    // Settings search
-    document.getElementById('settingsSearch')?.addEventListener('input', (e) => {
-      const q = e.target.value.toLowerCase();
-      const filtered = this.state.allSettings.filter(s =>
-        (s.setting_key||'').toLowerCase().includes(q) ||
-        (s.label||'').toLowerCase().includes(q) ||
-        (s.setting_value||'').toLowerCase().includes(q)
-      );
-      this.renderSettings(filtered);
-    });
+    this.$('appStatusFilter')?.addEventListener('change', () => this.loadApplications());
   },
 
-  /* ════════════════════════════════════════════════════════════════════════════
-     INIT
-  ════════════════════════════════════════════════════════════════════════════ */
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     this.setupEventListeners();
-    this.loadStats();
     this.initTabs();
+    this.loadSuggestions();
   },
 };
 
-/* ── Window delegates for inline onclick handlers ─────────────────────────── */
-window.wsOpenNewsModal    = function(id) { return manageWebsiteController.wsOpenNewsModal(id); };
-window.wsSaveNews         = function() { return manageWebsiteController.wsSaveNews(); };
-window.wsDeleteNews       = function(id, title) { return manageWebsiteController.wsDeleteNews(id, title); };
-window.wsOpenEventModal   = function(id) { return manageWebsiteController.wsOpenEventModal(id); };
-window.wsSaveEvent        = function() { return manageWebsiteController.wsSaveEvent(); };
-window.wsDeleteEvent      = function(id, title) { return manageWebsiteController.wsDeleteEvent(id, title); };
-window.wsViewImg          = function(url) { return manageWebsiteController.wsViewImg(url); };
-window.wsOpenGalleryModal = function() { return manageWebsiteController.wsOpenGalleryModal(); };
-window.wsSaveGallery      = function() { return manageWebsiteController.wsSaveGallery(); };
-window.wsDeleteGallery    = function(id) { return manageWebsiteController.wsDeleteGallery(id); };
-window.wsOpenDownloadModal= function(id) { return manageWebsiteController.wsOpenDownloadModal(id); };
-window.wsSaveDownload     = function() { return manageWebsiteController.wsSaveDownload(); };
-window.wsDeleteDownload   = function(id) { return manageWebsiteController.wsDeleteDownload(id); };
-window.wsOpenJobModal     = function(id) { return manageWebsiteController.wsOpenJobModal(id); };
-window.wsSaveJob          = function() { return manageWebsiteController.wsSaveJob(); };
-window.wsCloseJob         = function(id, title) { return manageWebsiteController.wsCloseJob(id, title); };
-window.wsLoadApplications = function() { return manageWebsiteController.loadApplications(); };
-window.wsUpdateAppStatus  = function(id, status) { return manageWebsiteController.wsUpdateAppStatus(id, status); };
-window.wsUpdateInquiryStatus = function(id, status) { return manageWebsiteController.wsUpdateInquiryStatus(id, status); };
-window.wsReplyInquiry = function(id) { return manageWebsiteController.wsReplyInquiry(id); };
-window.wsSaveContent      = function(key, value) { return manageWebsiteController.wsSaveContent(key, value); };
-window.wsAddCategory      = function() { return manageWebsiteController.wsAddCategory(); };
-window.wsDeleteCategory   = function(id, name) { return manageWebsiteController.wsDeleteCategory(id, name); };
-window.wsSaveSetting      = function(key, value) { return manageWebsiteController.wsSaveSetting(key, value); };
-window.stAdd              = function(resource) { return manageWebsiteController.stAdd(resource); };
-window.stEdit             = function(resource, id) { return manageWebsiteController.stEdit(resource, id); };
-window.stSave             = function(resource, id) { return manageWebsiteController.stSave(resource, id); };
-window.stDelete           = function(resource, id) { return manageWebsiteController.stDelete(resource, id); };
-window.loadStaticTables   = function() { return manageWebsiteController.loadStaticTables(); };
-window.wsOpenLeadershipModal    = function(categoryId, entryId) { return manageWebsiteController.wsOpenLeadershipModal(categoryId, entryId); };
-window.wsSaveLeadership         = function() { return manageWebsiteController.wsSaveLeadership(); };
-window.wsDeleteLeadership       = function(id, name) { return manageWebsiteController.wsDeleteLeadership(id, name); };
-window.wsLeadershipPersonMode   = function(mode) { return manageWebsiteController.wsLeadershipPersonMode(mode); };
-window.wsLeadershipPersonSearch = function(q) { return manageWebsiteController.wsLeadershipPersonSearch(q); };
-window.wsSelectLeadershipPerson = function(pid, name) {
+/* ── Window delegates used by data-kw-on* handlers in kept sections ───────── */
+window.wsViewImg = (url) => { document.getElementById('wsImgViewSrc').src = url; bootstrap.Modal.getOrCreateInstance(document.getElementById('wsImgViewModal')).show(); };
+window.wsLoadApplications = () => manageWebsiteController.loadApplications();
+window.wsUpdateAppStatus = (id, status) => manageWebsiteController.wsUpdateAppStatus(id, status);
+window.wsUpdateInquiryStatus = (id, status) => manageWebsiteController.wsUpdateInquiryStatus(id, status);
+window.wsReplyInquiry = (id) => manageWebsiteController.wsReplyInquiry(id);
+window.wsSaveContent = (key, value) => manageWebsiteController.wsSaveContent(key, value);
+window.wsAddCategory = () => manageWebsiteController.wsAddCategory();
+window.wsDeleteCategory = (id, name) => manageWebsiteController.wsDeleteCategory(id, name);
+window.stAdd = (resource) => manageWebsiteController.stAdd(resource);
+window.stEdit = (resource, id) => manageWebsiteController.stEdit(resource, id);
+window.stSave = (resource, id) => manageWebsiteController.stSave(resource, id);
+window.stDelete = (resource, id) => manageWebsiteController.stDelete(resource, id);
+window.loadStaticTables = () => manageWebsiteController.loadStaticTables();
+window.wsOpenLeadershipModal = (categoryId, entryId) => manageWebsiteController.wsOpenLeadershipModal(categoryId, entryId);
+window.wsSaveLeadership = () => manageWebsiteController.wsSaveLeadership();
+window.wsDeleteLeadership = (id, name) => manageWebsiteController.wsDeleteLeadership(id, name);
+window.wsLeadershipPersonMode = (mode) => manageWebsiteController.wsLeadershipPersonMode(mode);
+window.wsLeadershipPersonSearch = (q) => manageWebsiteController.wsLeadershipPersonSearch(q);
+window.wsSelectLeadershipPerson = (pid, name) => {
   document.getElementById('leadPersonId').value = pid;
   document.getElementById('leadPersonSearch').value = '';
   document.getElementById('leadPersonSearchResults').style.display = 'none';
-  const sw = document.getElementById('leadPersonSelected');
   document.getElementById('leadPersonSelectedName').textContent = name;
-  sw.classList.remove('d-none');
+  document.getElementById('leadPersonSelected').classList.remove('d-none');
 };
 
 /* ── Bootstrap ──────────────────────────────────────────────────────────────── */
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => manageWebsiteController.init().catch(() => {}));
+  document.addEventListener('DOMContentLoaded', () => manageWebsiteController.init().catch((e) => console.warn('[website]', e)));
 } else {
-  manageWebsiteController.init().catch(() => {});
+  manageWebsiteController.init().catch((e) => console.warn('[website]', e));
 }
 
 window.manageWebsiteController = manageWebsiteController;

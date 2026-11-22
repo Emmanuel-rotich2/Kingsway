@@ -191,7 +191,7 @@ final class AgentToolExecutor
         } catch (Throwable $e) {
             Logger::error('ai_generation', '[AgentToolExecutor] ' . $tool . ' failed', [
                 'error_class' => get_class($e),
-                'message' => mb_substr($e->getMessage(), 0, 200),
+                'reason' => mb_substr($e->getMessage(), 0, 200),
             ]);
             return ['status' => 'unavailable', 'message' => 'that information could not be retrieved right now'];
         }
@@ -267,7 +267,7 @@ final class AgentToolExecutor
         } catch (Throwable $e) {
             Logger::error('ai_generation', '[AgentToolExecutor] ' . $tool . ' failed', [
                 'error_class' => get_class($e),
-                'message' => mb_substr($e->getMessage(), 0, 200),
+                'reason' => mb_substr($e->getMessage(), 0, 200),
             ]);
             return ['status' => 'unavailable', 'message' => 'that information could not be retrieved right now'];
         }

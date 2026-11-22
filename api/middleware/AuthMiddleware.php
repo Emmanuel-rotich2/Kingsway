@@ -247,6 +247,15 @@ class AuthMiddleware
                 ) {
                     continue;
                 }
+                if (str_starts_with($endpoint, 'website/')) {
+                    // Public website reads stay anonymous, but staff managing
+                    // the website read the same resources: without their
+                    // identity the workspace only ever saw published news,
+                    // open vacancies and active gallery items. Use a valid
+                    // bearer token when one is sent; anything else stays a
+                    // plain anonymous read.
+                    self::authenticateOptionally();
+                }
                 return;
             }
         }
@@ -259,6 +268,27 @@ class AuthMiddleware
 
         // Validate JWT token for protected endpoints
         self::validateJWT();
+    }
+
+    /** True while a public read is checking an optional bearer token. */
+    private static bool $optionalAuth = false;
+
+    private static function authenticateOptionally(): void
+    {
+        if (!self::resolveBearerHeader()) {
+            return;
+        }
+        self::$optionalAuth = true;
+        try {
+            self::validateJWT();
+        } catch (\DomainException $declined) {
+            if ($declined->getMessage() !== 'optional_auth_declined') {
+                throw $declined;
+            }
+            unset($_SERVER['auth_user'], $_SERVER['auth_session_id']);
+        } finally {
+            self::$optionalAuth = false;
+        }
     }
 
     /**
@@ -558,6 +588,10 @@ class AuthMiddleware
      */
     private static function deny($code, $message)
     {
+        if (self::$optionalAuth) {
+            // An unusable token on a public read: continue anonymously.
+            throw new \DomainException('optional_auth_declined');
+        }
         \App\API\Includes\SecurityEventNotifier::unauthorizedAccess(
             $message,
             [

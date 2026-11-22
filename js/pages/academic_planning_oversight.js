@@ -33,7 +33,11 @@ const academicPlanningOversight = {
     this.setText('apoContext', this.scope.label ? `Showing ${this.scope.label}${this.scope.termId ? '' : ' (all terms)'}` : 'All academic years');
     const results = await Promise.allSettled([
       window.API.apiCall('/academic/scheme-of-work-get', 'GET', null, params),
-      window.API.academic.listLessonPlans(params),
+      // School administrators reach this page without lesson plan access;
+      // asking anyway only produced an "Access Denied" error per load.
+      window.AuthContext?.hasPermission?.('lesson_plans_view') === false
+        ? Promise.resolve({ lesson_plans: [] })
+        : window.API.academic.listLessonPlans(params),
       window.API.academic.getLessonPlansByClass({ ...context, page: 1, limit: 100 }),
       window.callAPI('academic/legacy-content-reconciliation', 'GET')
     ]);

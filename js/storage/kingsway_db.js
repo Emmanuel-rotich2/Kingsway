@@ -9,7 +9,11 @@ const KingswayDB = (function() {
   ("use strict");
 
   const DB_NAME = "KingswayDB";
-  const DB_VERSION = 10.2; // Increment this when schema changes
+  // Increment by a whole number when the schema changes. IndexedDB versions
+  // are integers: 10.1 and 10.2 both opened as 10, so stores added under a
+  // fractional bump never got created ("One of the specified object stores
+  // was not found"). initialize() also repairs a database missing a store.
+  const DB_VERSION = 11;
 
   let db = null;
 
@@ -354,16 +358,44 @@ const KingswayDB = (function() {
       return db;
     }
 
+    return openDatabase(DB_VERSION, true);
+  }
+
+  function openDatabase(version, allowRepair) {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      const request = indexedDB.open(DB_NAME, version);
 
       request.onerror = () => {
+        if (request.error?.name === "VersionError" && version !== undefined) {
+          // A repair already moved this browser's database past DB_VERSION:
+          // open whatever version it has instead of failing.
+          openDatabase(undefined, allowRepair).then(resolve, reject);
+          return;
+        }
         console.error("[KingswayDB] Failed to open database:", request.error);
         reject(request.error);
       };
 
       request.onsuccess = () => {
-        db = request.result;
+        const opened = request.result;
+        const missing = Object.keys(schema).filter(
+          (name) => !opened.objectStoreNames.contains(name),
+        );
+        if (missing.length && allowRepair) {
+          // An existing database at this or a later version lacks stores
+          // (see DB_VERSION). One version bump runs onupgradeneeded, which
+          // creates only the missing stores and keeps cached data.
+          const nextVersion = opened.version + 1;
+          opened.close();
+          openDatabase(nextVersion, false).then(resolve, reject);
+          return;
+        }
+        db = opened;
+        // Another tab repairing or upgrading must not be blocked by this one.
+        opened.onversionchange = () => {
+          opened.close();
+          if (db === opened) db = null;
+        };
         console.log("[KingswayDB] Database opened successfully");
         resolve(db);
       };

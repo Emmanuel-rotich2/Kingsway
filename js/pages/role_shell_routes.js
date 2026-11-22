@@ -67,6 +67,10 @@
         for (const path of scripts) {
           const src = `${window.APP_BASE || ''}/${path}`;
           const requested = new URL(src, location.href);
+          if (window.KingswayScriptRegistry?.has(requested.href)
+            && ![...document.scripts].some((script) => script.src && script.src.split('?')[0] === requested.origin + requested.pathname)) {
+            continue;
+          }
           const existing = [...document.scripts].find((script) => {
             if (!script.src) return false;
             try {

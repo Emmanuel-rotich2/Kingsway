@@ -242,6 +242,79 @@ class WebsiteController extends BaseController
         return $this->handleResponse($this->manager->getGallery($data));
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // MEDIA UPLOADS  /api/website/media
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private const MEDIA_PERMISSIONS = [
+        'website_gallery_manage', 'website_news_manage', 'website_events_manage', 'website_content_manage',
+    ];
+
+    private function canUploadMedia(): bool
+    {
+        foreach (self::MEDIA_PERMISSIONS as $perm) {
+            if ($this->hasPerm($perm)) return true;
+        }
+        return $this->hasPerm('website_settings_manage');
+    }
+
+    /** POST /api/website/media — one image or video from the user's device. */
+    public function postMedia($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user || !$this->canUploadMedia()) {
+            return $this->forbidden('You do not have permission to upload website media.');
+        }
+        $file = $_FILES['file'] ?? null;
+        $error = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($error === UPLOAD_ERR_INI_SIZE || $error === UPLOAD_ERR_FORM_SIZE
+            || (empty($_FILES) && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0)) {
+            return $this->badRequest('This file is larger than the server accepts ('
+                . $this->humanBytes($this->serverUploadLimit()) . '). Compress it or upload a shorter clip.');
+        }
+        if (!$file || $error !== UPLOAD_ERR_OK) {
+            return $this->badRequest('Choose an image or video to upload.');
+        }
+        return $this->handleResponse($this->manager->storeWebsiteMedia($file));
+    }
+
+    /** GET /api/website/media-limits — what the browser may send. */
+    public function getMediaLimits($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user || !$this->canUploadMedia()) {
+            return $this->forbidden('You do not have permission to upload website media.');
+        }
+        $server = $this->serverUploadLimit();
+        $uploads = new \App\API\Services\UploadService();
+        return $this->success([
+            'image_max_bytes' => min($server, $uploads->maxBytes('website_image')),
+            'video_max_bytes' => min($server, $uploads->maxBytes('website_video')),
+            'image_types' => ['jpg', 'jpeg', 'png', 'webp', 'gif'],
+            'video_types' => ['mp4', 'webm', 'mov'],
+        ], 'Upload limits');
+    }
+
+    private function serverUploadLimit(): int
+    {
+        $toBytes = static function (string $value): int {
+            $value = trim($value);
+            if ($value === '' || $value === '-1') return PHP_INT_MAX;
+            $unit = strtolower(substr($value, -1));
+            $number = (float) $value;
+            return (int) match ($unit) {
+                'g' => $number * 1073741824,
+                'm' => $number * 1048576,
+                'k' => $number * 1024,
+                default => $number,
+            };
+        };
+        return min($toBytes((string) ini_get('upload_max_filesize')), $toBytes((string) ini_get('post_max_size')));
+    }
+
+    private function humanBytes(int $bytes): string
+    {
+        return $bytes >= 1048576 ? round($bytes / 1048576) . ' MB' : max(1, round($bytes / 1024)) . ' KB';
+    }
+
     public function postGallery($id = null, $data = [], $segments = [])
     {
         $guard = $this->requirePerm('website_gallery_manage');
@@ -300,24 +373,27 @@ class WebsiteController extends BaseController
                 ];
             }, $years ?: []);
 
+            $config = $this->manager->getDownloadsPageConfig();
+            $years = $this->publicPrintableYears($years, $config);
             if (!$years) {
-                return $this->success(['items' => [], 'academic_years' => []], 'No academic years available.');
+                return $this->success(['items' => [], 'academic_years' => [], 'intro' => $config['intro']], 'No academic years available.');
             }
 
             $yearInput = trim((string) ($data['academic_year'] ?? $data['academicYear'] ?? ''));
-            $selectedYear = $this->resolvePrintableYear($years, $yearInput);
+            $selectedYear = $this->resolvePrintableYear($years, $yearInput, $config['default_year_id']);
             if (!$selectedYear) {
                 return $this->badRequest('The selected academic year is not available.');
             }
 
             $yearId = (int) $selectedYear['id'];
             $yearLabel = (string) ($selectedYear['year_code'] ?: $selectedYear['year_name']);
-            $items = $this->buildPrintableDownloadCatalog($yearId, $yearLabel);
+            $items = $this->filterPrintableCatalog($this->buildPrintableDownloadCatalog($yearId, $yearLabel), $config);
 
             return $this->success([
                 'items' => $items,
                 'academic_years' => $years,
                 'selected_academic_year' => $yearLabel,
+                'intro' => $config['intro'],
             ], 'Printable downloads available.');
         } catch (\Throwable $exception) {
             \App\API\Services\Logger::legacyError('[WebsiteController] printable downloads: ' . $exception->getMessage());
@@ -349,11 +425,17 @@ class WebsiteController extends BaseController
                     'is_current' => (int) ($year['is_current'] ?? 0),
                 ];
             }, $years);
+            $config = $this->manager->getDownloadsPageConfig();
+            $years = $this->publicPrintableYears($years, $config);
             $selectedYear = $this->resolvePrintableYear(
                 $years,
-                trim((string) ($data['academic_year'] ?? $data['academicYear'] ?? ''))
+                trim((string) ($data['academic_year'] ?? $data['academicYear'] ?? '')),
+                $config['default_year_id']
             );
             if (!$selectedYear) return $this->badRequest('The selected academic year is not available.');
+            if (!$this->printableAllowed($kind, $data, $config)) {
+                return $this->notFound('This document is not offered on the downloads page.');
+            }
 
             $yearValue = (string) ($selectedYear['year_code'] ?: $selectedYear['id']);
             if ($kind === 'calendar') {
@@ -387,8 +469,13 @@ class WebsiteController extends BaseController
         }
     }
 
-    private function resolvePrintableYear(array $years, string $input): ?array
+    private function resolvePrintableYear(array $years, string $input, ?int $defaultYearId = null): ?array
     {
+        if ($input === '' && $defaultYearId) {
+            foreach ($years as $year) {
+                if ((int) $year['id'] === $defaultYearId) return $year;
+            }
+        }
         if ($input !== '') {
             foreach ($years as $year) {
                 if ((string) $year['id'] === $input || $year['year_code'] === $input || $year['year_name'] === $input) {
@@ -404,6 +491,82 @@ class WebsiteController extends BaseController
             if ((int) ($year['is_current'] ?? 0) === 1) return $year;
         }
         return $years[0] ?? null;
+    }
+
+    /** Years the public may choose: the configured ones, else the current year. */
+    private function publicPrintableYears(array $years, array $config): array
+    {
+        if ($config['years']) {
+            return array_values(array_filter($years, static fn (array $y): bool => in_array((int) $y['id'], $config['years'], true)));
+        }
+        $current = array_values(array_filter($years, static fn (array $y): bool => (int) ($y['is_current'] ?? 0) === 1));
+        return $current ?: array_slice($years, 0, 1);
+    }
+
+    private function filterPrintableCatalog(array $items, array $config): array
+    {
+        return array_values(array_filter($items, function (array $item) use ($config): bool {
+            return $this->printableAllowed($item['kind'], $item, $config);
+        }));
+    }
+
+    /** One rule for the catalog and for generating a PDF on request. */
+    private function printableAllowed(string $kind, array $request, array $config): bool
+    {
+        if ($kind === 'calendar') return (bool) $config['calendar'];
+        if ($kind !== 'fee') return false;
+        $type = strtolower((string) ($request['student_type'] ?? $request['studentType'] ?? 'both'));
+        if (!in_array($type, $config['student_types'], true)) return false;
+        $scope = strtolower((string) ($request['scope'] ?? 'all'));
+        if ($scope === 'all') return (bool) $config['fee_whole_school'];
+        if (str_starts_with($scope, 'class_')) return (bool) $config['fee_per_class'];
+        return in_array($scope, $config['fee_sections'], true);
+    }
+
+    /** GET /api/website/posting-suggestions — what to post next, from school records. */
+    public function getPostingSuggestions($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user || !$this->canUploadMedia()) {
+            return $this->forbidden('You do not have permission to manage website content.');
+        }
+        return $this->handleResponse($this->manager->getPostingSuggestions());
+    }
+
+    /** GET /api/website/downloads-config — the downloads page settings and choices. */
+    public function getDownloadsConfig($id = null, $data = [], $segments = [])
+    {
+        $guard = $this->requirePerm('website_downloads_manage');
+        if ($guard) return $guard;
+        $years = array_map(static fn (array $y): array => [
+            'id' => (int) $y['id'],
+            'label' => (string) ($y['year_code'] ?: $y['year_name']),
+            'status' => (string) ($y['status'] ?? ''),
+            'is_current' => (int) ($y['is_current'] ?? 0) === 1,
+        ], $this->contract(\App\API\Services\AcademicContextService::class)->yearsNewestFirst() ?: []);
+        return $this->success([
+            'config' => $this->manager->getDownloadsPageConfig(),
+            'options' => [
+                'years' => $years,
+                'fee_sections' => array_map(
+                    static fn ($key, $label) => ['key' => $key, 'label' => $label],
+                    array_keys(\App\API\Modules\website\WebsiteManager::DOWNLOAD_FEE_SECTIONS),
+                    \App\API\Modules\website\WebsiteManager::DOWNLOAD_FEE_SECTIONS
+                ),
+                'student_types' => [
+                    ['key' => 'both', 'label' => 'Day scholars and boarders together'],
+                    ['key' => 'day', 'label' => 'Day scholars'],
+                    ['key' => 'boarder', 'label' => 'Boarders'],
+                ],
+            ],
+        ], 'Downloads page settings');
+    }
+
+    /** PUT /api/website/downloads-config */
+    public function putDownloadsConfig($id = null, $data = [], $segments = [])
+    {
+        $guard = $this->requirePerm('website_downloads_manage');
+        if ($guard) return $guard;
+        return $this->handleResponse($this->manager->saveDownloadsPageConfig((array) $data));
     }
 
     private function buildPrintableDownloadCatalog(int $yearId, string $yearLabel): array
@@ -470,6 +633,21 @@ class WebsiteController extends BaseController
         }
 
         return $this->handleResponse($this->manager->createDownload($data, $_FILES['file'], $this->userId()));
+    }
+
+    /**
+     * POST /api/website/downloads/{id}/replace — new file for an existing
+     * download. PHP only parses multipart bodies on POST, so a multipart PUT
+     * arrived with no fields and no file.
+     */
+    public function postDownloadsReplace($id = null, $data = [], $segments = [])
+    {
+        $guard = $this->requirePerm('website_downloads_manage');
+        if ($guard) return $guard;
+        if (!$id) return $this->badRequest('Download ID required.');
+        $file = $_FILES['file'] ?? [];
+        $fields = array_merge((array) $data, $_POST);
+        return $this->handleResponse($this->manager->updateDownload($id, $fields, $file, $this->userId()));
     }
 
     public function putDownloads($id = null, $data = [], $segments = [])

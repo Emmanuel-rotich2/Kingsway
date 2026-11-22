@@ -21,6 +21,63 @@ use Exception;
  */
 class WebsiteManager extends BaseAPI
 {
+    /** Settings keys backed by a school_profile column (key => column). */
+    private const PROFILE_SETTING_COLUMNS = [
+        'school_name' => 'school_name',
+        'school_code' => 'school_code',
+        'school_motto' => 'motto',
+        'school_founded_year' => 'established_year',
+        'school_phone' => 'phone',
+        'school_phone_main' => 'phone',
+        'school_phone_alt' => 'alternative_phone',
+        'school_email' => 'email',
+        'school_email_main' => 'email',
+        'school_address' => 'address',
+        'school_address_physical' => 'city',
+        'school_address_postal' => 'postal_code',
+        'school_website' => 'website',
+        'office_hours_weekday' => 'office_hours_weekday',
+        'office_hours_saturday' => 'office_hours_saturday',
+        'social_facebook' => 'social_facebook',
+        'social_twitter' => 'social_twitter',
+        'social_instagram' => 'social_instagram',
+        'social_youtube' => 'social_youtube',
+        'social_whatsapp' => 'social_whatsapp',
+        'google_maps_url' => 'google_maps_url',
+        'currency' => 'currency',
+    ];
+
+    private const PROFILE_SETTING_LABELS = [
+        'school_name' => 'School name',
+        'school_code' => 'School code',
+        'school_motto' => 'Motto',
+        'school_founded_year' => 'Year founded',
+        'school_phone' => 'Phone',
+        'school_phone_main' => 'Main phone',
+        'school_phone_alt' => 'Other phone',
+        'school_email' => 'Email',
+        'school_email_main' => 'Main email',
+        'school_address' => 'Address',
+        'school_address_physical' => 'Town',
+        'school_address_postal' => 'Postal code',
+        'school_website' => 'Website',
+        'office_hours_weekday' => 'Office hours (Mon–Fri)',
+        'office_hours_saturday' => 'Office hours (Saturday)',
+        'social_facebook' => 'Facebook page',
+        'social_twitter' => 'X (Twitter)',
+        'social_instagram' => 'Instagram',
+        'social_youtube' => 'YouTube',
+        'social_whatsapp' => 'WhatsApp',
+        'google_maps_url' => 'Google Maps link',
+        'currency' => 'Currency',
+    ];
+
+    /** Worked out from school records; shown, never edited. */
+    private const COMPUTED_SETTING_KEYS = ['stat_years', 'headteacher_name', 'school_leaders_json'];
+
+    /** JSON configuration documents edited by their own screens. */
+    public const INTERNAL_SETTING_KEYS = ['downloads_page_config'];
+
     private $allowedTables = [
         'programs'    => ['school_programs',       ['name','level_range','icon','color','description','anchor','display_order','is_active']],
         'facilities'  => ['school_facilities',     ['icon','name','description','display_order','is_active']],
@@ -300,7 +357,7 @@ class WebsiteManager extends BaseAPI
                 $stmt->execute([$id]);
                 $row = $stmt->fetch(\PDO::FETCH_ASSOC);
                 return $row
-                    ? $this->successResponse($row)
+                    ? $this->successResponse($this->withMediaUrls($row, ['image_url']))
                     : $this->errorResponse('Article not found', 404);
             }
 
@@ -323,7 +380,7 @@ class WebsiteManager extends BaseAPI
                  ORDER BY created_at DESC LIMIT ? OFFSET ?"
             );
             $stmt->execute(array_merge($params, [$limit, $offset]));
-            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $rows = array_map(fn (array $r): array => $this->withMediaUrls($r, ['image_url']), $stmt->fetchAll(\PDO::FETCH_ASSOC));
 
             $totalStmt = $this->db->prepare("SELECT COUNT(*) FROM news_articles WHERE $whereSql");
             $totalStmt->execute(array_slice($params, 0, count($params)));
@@ -389,7 +446,7 @@ class WebsiteManager extends BaseAPI
             );
             $stmt->execute([
                 $data['title'], $slug, $data['excerpt'] ?? '', $this->sanitizeArticleContent((string)$data['content']),
-                $data['category'] ?? 'Announcement', $data['image_url'] ?? null,
+                $data['category'] ?? 'Announcement', isset($data['image_url']) ? \App\API\Services\UploadService::toStoredPath($data['image_url']) : null,
                 $author, $data['status'] ?? 'published',
             ]);
             $newId = $this->db->lastInsertId();
@@ -408,9 +465,11 @@ class WebsiteManager extends BaseAPI
             foreach (['title','excerpt','content','category','image_url','author','status'] as $f) {
                 if (isset($data[$f])) {
                     $fields[] = "$f=?";
-                    $params[] = $f === 'content'
-                        ? $this->sanitizeArticleContent((string)$data[$f])
-                        : $data[$f];
+                    $params[] = match ($f) {
+                        'content' => $this->sanitizeArticleContent((string)$data[$f]),
+                        'image_url' => \App\API\Services\UploadService::toStoredPath((string) $data[$f]),
+                        default => $data[$f],
+                    };
                 }
             }
             if (empty($fields)) {
@@ -598,12 +657,28 @@ class WebsiteManager extends BaseAPI
             $sql = $activeOnly
                 ? "SELECT * FROM gallery_items WHERE is_active=1 ORDER BY display_order ASC, created_at DESC LIMIT 100"
                 : "SELECT * FROM gallery_items ORDER BY display_order ASC, created_at DESC LIMIT 100";
-            $rows = $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC);
+            $rows = array_map(fn (array $r): array => $this->withMediaUrls($r, ['image_url', 'video_url']), $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC));
             return $this->successResponse(['items' => $rows, 'total' => count($rows)]);
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
+    }
+
+    /**
+     * Uploaded media is stored relative to the uploads root; responses carry
+     * the full URL built from UPLOAD_URL, so moving the uploads folder only
+     * needs UPLOAD_PATH/UPLOAD_URL changed.
+     */
+    private function withMediaUrls(array $row, array $fields): array
+    {
+        foreach ($fields as $field) {
+            if (array_key_exists($field, $row) && $row[$field] !== null && $row[$field] !== '') {
+                $row[$field . '_path'] = \App\API\Services\UploadService::toStoredPath((string) $row[$field]);
+                $row[$field] = \App\API\Services\UploadService::resolvePublicUrl((string) $row[$field]);
+            }
+        }
+        return $row;
     }
 
     public function createGalleryItem(array $data)
@@ -616,7 +691,9 @@ class WebsiteManager extends BaseAPI
                 "INSERT INTO gallery_items (image_url,media_type,video_url,caption,category,display_order,is_active) VALUES (?,?,?,?,?,?,1)"
             );
             $stmt->execute([
-                $data['image_url'], $mediaType, $data['video_url'] ?? null, $data['caption'] ?? '', $data['category'] ?? 'General', $maxOrder + 10,
+                \App\API\Services\UploadService::toStoredPath($data['image_url']), $mediaType,
+                isset($data['video_url']) && $data['video_url'] !== '' ? \App\API\Services\UploadService::toStoredPath($data['video_url']) : null,
+                $data['caption'] ?? '', $data['category'] ?? 'General', $maxOrder + 10,
             ]);
             return $this->successResponse(['id' => $this->db->lastInsertId()], 'Gallery item added', 201);
         } catch (Exception $e) {
@@ -639,7 +716,9 @@ class WebsiteManager extends BaseAPI
                         }
                     }
                     $fields[] = "$f=?";
-                    $params[] = $data[$f];
+                    $params[] = in_array($f, ['image_url', 'video_url'], true) && $data[$f] !== ''
+                        ? \App\API\Services\UploadService::toStoredPath((string) $data[$f])
+                        : $data[$f];
                 }
             }
             if (empty($fields)) {
@@ -685,6 +764,266 @@ class WebsiteManager extends BaseAPI
             \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
+    }
+
+    /**
+     * Store one image or video uploaded from the operator's device for the
+     * public website and return its public URL.
+     */
+    public function storeWebsiteMedia(array $file): array
+    {
+        $extension = strtolower(pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
+        $isVideo = in_array($extension, ['mp4', 'webm', 'mov'], true);
+        try {
+            $stored = $this->uploadManaged($file, $isVideo ? 'website_video' : 'website_image', [
+                'owner_id' => date('Y-m'),
+                'prefix' => $isVideo ? 'video' : 'image',
+                'preferred_name' => pathinfo((string) ($file['name'] ?? 'media'), PATHINFO_FILENAME),
+            ]);
+        } catch (\RuntimeException $e) {
+            // Validation messages (type, size) are written for the user.
+            return $this->errorResponse($e->getMessage(), 422);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[WebsiteManager] media upload: ' . $e->getMessage());
+            return $this->errorResponse('The file could not be saved. Please try again.', 500);
+        }
+        return $this->successResponse([
+            // Save `path`; `url` is only for showing the file right away.
+            'path' => $stored['path'],
+            'url' => \App\API\Services\UploadService::resolvePublicUrl($stored['path']),
+            'media_type' => $isVideo ? 'video' : 'image',
+            'mime_type' => $stored['mime_type'],
+            'file_size' => $stored['file_size'],
+            'original_filename' => $stored['original_filename'],
+        ], 'Uploaded', 201);
+    }
+
+    // ───────────────────────── WHAT TO POST NEXT ─────────────────────────
+
+    /**
+     * Posting suggestions grounded in the school's own records: the calendar,
+     * the news page, the gallery, vacancies, the enquiries inbox and the
+     * downloads page. Deterministic and read-only; nothing is published.
+     * Each suggestion names the workspace tab and, where it makes sense, a
+     * draft to open in the composer.
+     */
+    public function getPostingSuggestions(): array
+    {
+        $out = [];
+        $today = date('Y-m-d');
+        $fmt = static fn (string $d): string => date('l j F', strtotime($d));
+        $daysUntil = static fn (string $d): int => (int) floor((strtotime(substr($d, 0, 10)) - strtotime($today)) / 86400);
+        $mentioned = function (string $title): bool {
+            $needle = '%' . mb_substr(trim($title), 0, 60) . '%';
+            return (bool) $this->scalar(
+                "SELECT id FROM news_articles WHERE deleted_at IS NULL AND (title LIKE ? OR excerpt LIKE ?) LIMIT 1",
+                [$needle, $needle]
+            );
+        };
+        $safe = function (callable $build) use (&$out): void {
+            try { $build(); } catch (\Throwable $e) {
+                \App\API\Includes\FileLogger::write('errors', ['type' => 'posting_suggestion_skipped', 'reason' => mb_substr($e->getMessage(), 0, 200)], 'warning');
+            }
+        };
+
+        // 1. Upcoming school events nobody has announced yet.
+        $safe(function () use (&$out, $fmt, $daysUntil, $mentioned) {
+            $stmt = $this->db->query(
+                "SELECT id, title, description, start_at, category, location FROM school_events
+                  WHERE status = 'upcoming' AND start_at >= CURDATE() AND start_at < CURDATE() + INTERVAL 21 DAY
+                    AND category NOT IN ('public_holiday')
+                  ORDER BY start_at ASC LIMIT 12"
+            );
+            $seen = [];
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $e) {
+                $key = strtolower(trim((string) $e['title']));
+                if ($key === '' || isset($seen[$key]) || $mentioned((string) $e['title'])) continue;
+                $seen[$key] = true;
+                $isHoliday = in_array($e['category'], ['holiday'], true) || stripos((string) $e['title'], 'holiday') !== false;
+                $when = $fmt((string) $e['start_at']);
+                $days = $daysUntil((string) $e['start_at']);
+                $out[] = [
+                    'id' => 'event-' . $e['id'],
+                    'kind' => $isHoliday ? 'reminder' : 'announce',
+                    'priority' => $days <= 7 ? 1 : 2,
+                    'title' => $isHoliday ? 'Remind families: ' . $e['title'] : 'Announce ' . $e['title'],
+                    'reason' => ($days === 0 ? 'Today' : ($days === 1 ? 'Tomorrow' : 'In ' . $days . ' days')) . ', ' . $when . '. Nothing on the news page mentions it yet.',
+                    'action' => ['tab' => 'news', 'compose' => [
+                        'category' => 'Announcement',
+                        'title' => $e['title'] . ($isHoliday ? ' begins ' : ' on ') . $when,
+                        'excerpt' => $isHoliday
+                            ? $e['title'] . ' begins on ' . $when . '. Please plan travel and reporting dates accordingly.'
+                            : 'Join us for ' . $e['title'] . ' on ' . $when . ($e['location'] ? ' at ' . $e['location'] : '') . '.',
+                    ]],
+                ];
+                if (count($seen) >= 4) break;
+            }
+        });
+
+        // 2. Events that just happened: invite a photo recap.
+        $safe(function () use (&$out, $fmt) {
+            $stmt = $this->db->query(
+                "SELECT id, title, start_at, end_at FROM school_events
+                  WHERE end_at < NOW() AND end_at >= CURDATE() - INTERVAL 14 DAY
+                    AND category IN ('academic','administrative','admission','other','examination')
+                  ORDER BY end_at DESC LIMIT 3"
+            );
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $e) {
+                $photosSince = (int) $this->scalar("SELECT COUNT(*) FROM gallery_items WHERE created_at >= ?", [substr((string) $e['start_at'], 0, 10)]);
+                if ($photosSince > 0) continue;
+                $out[] = [
+                    'id' => 'recap-' . $e['id'],
+                    'kind' => 'recap',
+                    'priority' => 2,
+                    'title' => 'Share photos from ' . $e['title'],
+                    'reason' => 'It ended ' . $fmt((string) $e['end_at']) . ' and no photos have been added to the gallery since.',
+                    'action' => ['tab' => 'gallery', 'compose' => ['caption' => $e['title'], 'category' => 'Events']],
+                ];
+            }
+        });
+
+        // 3. A news page that has gone quiet.
+        $safe(function () use (&$out, $today) {
+            $last = $this->scalar("SELECT MAX(created_at) FROM news_articles WHERE status = 'published' AND deleted_at IS NULL");
+            $days = $last ? (int) floor((strtotime($today) - strtotime(substr((string) $last, 0, 10))) / 86400) : null;
+            if ($days === null || $days >= 14) {
+                $out[] = [
+                    'id' => 'news-quiet',
+                    'kind' => 'refresh',
+                    'priority' => 2,
+                    'title' => 'Post a short update for parents',
+                    'reason' => $days === null ? 'The news page has no published articles yet.' : 'The last article went up ' . $days . ' days ago.',
+                    'action' => ['tab' => 'news', 'compose' => ['category' => 'Academic', 'title' => '', 'excerpt' => '']],
+                ];
+            }
+        });
+
+        // 4. Families waiting for a reply.
+        $safe(function () use (&$out) {
+            $new = (int) $this->scalar("SELECT COUNT(*) FROM contact_inquiries WHERE status = 'new'");
+            if ($new > 0) {
+                $out[] = [
+                    'id' => 'inquiries',
+                    'kind' => 'reply',
+                    'priority' => 1,
+                    'title' => 'Reply to ' . $new . ' new ' . ($new === 1 ? 'enquiry' : 'enquiries'),
+                    'reason' => 'Sent through the website contact form and not yet read.',
+                    'action' => ['tab' => 'inquiries'],
+                ];
+            }
+        });
+
+        // 5. Vacancies still open past their deadline.
+        $safe(function () use (&$out) {
+            $stale = (int) $this->scalar("SELECT COUNT(*) FROM job_vacancies WHERE status = 'open' AND deadline < CURDATE()");
+            if ($stale > 0) {
+                $out[] = [
+                    'id' => 'jobs-stale',
+                    'kind' => 'tidy',
+                    'priority' => 2,
+                    'title' => 'Close ' . $stale . ' ' . ($stale === 1 ? 'vacancy' : 'vacancies') . ' past the deadline',
+                    'reason' => 'They still show on the Careers page as open.',
+                    'action' => ['tab' => 'jobs'],
+                ];
+            }
+        });
+
+        // 6. Next academic year approaching but not on the downloads page.
+        $safe(function () use (&$out, $daysUntil) {
+            $next = $this->db->query(
+                "SELECT id, year_code, start_date FROM academic_years WHERE start_date > CURDATE() ORDER BY start_date ASC LIMIT 1"
+            )->fetch(\PDO::FETCH_ASSOC);
+            if (!$next) return;
+            $days = $daysUntil((string) $next['start_date']);
+            $config = $this->getDownloadsPageConfig();
+            if ($days <= 60 && !in_array((int) $next['id'], $config['years'], true)) {
+                $out[] = [
+                    'id' => 'downloads-next-year',
+                    'kind' => 'downloads',
+                    'priority' => 1,
+                    'title' => 'Publish the ' . $next['year_code'] . ' fee structure and calendar',
+                    'reason' => 'The year starts in ' . $days . ' days. Families can only download the current year\'s documents.',
+                    'action' => ['tab' => 'downloads'],
+                ];
+            }
+        });
+
+        usort($out, static fn (array $a, array $b): int => $a['priority'] <=> $b['priority']);
+        return $this->successResponse(['items' => array_slice($out, 0, 8), 'generated_at' => date('c')]);
+    }
+
+    // ───────────────────────── DOWNLOADS PAGE CONFIG ─────────────────────────
+
+    public const DOWNLOAD_FEE_SECTIONS = [
+        'ecd' => 'ECD / Pre-primary',
+        'lower_primary' => 'Lower Primary',
+        'upper_primary' => 'Upper Primary',
+        'primary' => 'Primary School',
+        'jss' => 'Junior School',
+    ];
+    public const DOWNLOAD_STUDENT_TYPES = ['both', 'day', 'boarder'];
+
+    /**
+     * What the public Downloads page offers from the system-generated
+     * documents. Defaults keep the page short: this year's calendar and the
+     * whole-school fee structures.
+     *
+     * @return array{intro:string, years:list<int>, default_year_id:?int, calendar:bool,
+     *   fee_whole_school:bool, fee_sections:list<string>, fee_per_class:bool, student_types:list<string>}
+     */
+    public function getDownloadsPageConfig(): array
+    {
+        $defaults = [
+            'intro' => '',
+            'years' => [],            // empty = the current academic year only
+            'default_year_id' => null, // null = the current academic year
+            'calendar' => true,
+            'fee_whole_school' => true,
+            'fee_sections' => [],
+            'fee_per_class' => false,
+            'student_types' => self::DOWNLOAD_STUDENT_TYPES,
+        ];
+        try {
+            $raw = $this->scalar("SELECT setting_value FROM school_settings WHERE setting_key = 'downloads_page_config'");
+            $stored = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
+        } catch (\Throwable $e) {
+            $stored = null;
+        }
+        return is_array($stored) ? $this->normaliseDownloadsPageConfig(array_merge($defaults, $stored)) : $defaults;
+    }
+
+    public function saveDownloadsPageConfig(array $input): array
+    {
+        $config = $this->normaliseDownloadsPageConfig(array_merge($this->getDownloadsPageConfig(), $input));
+        if (($config['fee_whole_school'] || $config['fee_sections'] || $config['fee_per_class']) && !$config['student_types']) {
+            return $this->errorResponse('Choose at least one learner type for the fee structures, or turn fee structures off.', 422);
+        }
+        try {
+            $this->db->prepare(
+                "INSERT INTO school_settings (setting_key, setting_value, label) VALUES ('downloads_page_config', ?, 'Downloads page')
+                 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+            )->execute([json_encode($config, JSON_UNESCAPED_UNICODE)]);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[WebsiteManager] downloads config: ' . $e->getMessage());
+            return $this->errorResponse('The downloads page settings could not be saved.', 500);
+        }
+        return $this->successResponse($config, 'Downloads page updated');
+    }
+
+    private function normaliseDownloadsPageConfig(array $c): array
+    {
+        $years = array_values(array_unique(array_filter(array_map('intval', (array) ($c['years'] ?? [])), static fn ($v) => $v > 0)));
+        $default = (int) ($c['default_year_id'] ?? 0);
+        return [
+            'intro' => mb_substr(trim(strip_tags((string) ($c['intro'] ?? ''))), 0, 400),
+            'years' => $years,
+            'default_year_id' => $default > 0 && ($years === [] || in_array($default, $years, true)) ? $default : null,
+            'calendar' => filter_var($c['calendar'] ?? true, FILTER_VALIDATE_BOOLEAN),
+            'fee_whole_school' => filter_var($c['fee_whole_school'] ?? true, FILTER_VALIDATE_BOOLEAN),
+            'fee_sections' => array_values(array_intersect(array_keys(self::DOWNLOAD_FEE_SECTIONS), (array) ($c['fee_sections'] ?? []))),
+            'fee_per_class' => filter_var($c['fee_per_class'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            'student_types' => array_values(array_intersect(self::DOWNLOAD_STUDENT_TYPES, (array) ($c['student_types'] ?? []))),
+        ];
     }
 
     public function createDownload(array $data, array $file, $userId = null)
@@ -751,7 +1090,7 @@ class WebsiteManager extends BaseAPI
             $fields = [];
             $params = [];
 
-            foreach (['title','description','category','icon','color','is_active'] as $field) {
+            foreach (['title','description','category','icon','color','is_active','display_order'] as $field) {
                 if (array_key_exists($field, $data)) {
                     $fields[] = "{$field} = ?";
                     $params[] = $data[$field];
@@ -882,7 +1221,13 @@ class WebsiteManager extends BaseAPI
         try {
             $req  = is_array($data['requirements'] ?? null)    ? json_encode($data['requirements'])    : ($data['requirements'] ?? '[]');
             $resp = is_array($data['responsibilities'] ?? null) ? json_encode($data['responsibilities']) : ($data['responsibilities'] ?? '[]');
-            $departmentId = $data['department_id'] ?? $data['department'] ?? null;
+            $departmentId = $this->resolveDepartmentId($data['department_id'] ?? $data['department'] ?? null);
+            if ($departmentId === null) {
+                return $this->errorResponse('Choose the department this vacancy belongs to.', 422);
+            }
+            if (trim((string) ($data['title'] ?? '')) === '' || trim((string) ($data['deadline'] ?? '')) === '') {
+                return $this->errorResponse('A vacancy needs a title and an application deadline.', 422);
+            }
 
             $stmt = $this->db->prepare(
                 "INSERT INTO job_vacancies (title,department_id,job_type,location,description,requirements,responsibilities,deadline,color,status)
@@ -900,6 +1245,22 @@ class WebsiteManager extends BaseAPI
         }
     }
 
+    /**
+     * job_vacancies.department_id is a departments.id. The vacancy form sent the
+     * department as typed text, so every post failed with a 500; accept an id
+     * or an exact (case-insensitive) department name.
+     */
+    private function resolveDepartmentId($value): ?int
+    {
+        if ($value === null || $value === '') return null;
+        if (is_numeric($value)) {
+            $id = (int) $this->scalar("SELECT id FROM departments WHERE id = ?", [(int) $value]);
+            return $id > 0 ? $id : null;
+        }
+        $id = (int) $this->scalar("SELECT id FROM departments WHERE LOWER(name) = LOWER(?) LIMIT 1", [trim((string) $value)]);
+        return $id > 0 ? $id : null;
+    }
+
     public function updateJob($id, array $data)
     {
         try {
@@ -912,8 +1273,12 @@ class WebsiteManager extends BaseAPI
                 }
             }
             if (isset($data['department_id']) || isset($data['department'])) {
+                $departmentId = $this->resolveDepartmentId($data['department_id'] ?? $data['department']);
+                if ($departmentId === null) {
+                    return $this->errorResponse('Choose the department this vacancy belongs to.', 422);
+                }
                 $fields[] = "department_id=?";
-                $params[] = $data['department_id'] ?? $data['department'];
+                $params[] = $departmentId;
             }
             foreach (['requirements','responsibilities'] as $f) {
                 if (isset($data[$f])) {
@@ -956,37 +1321,30 @@ class WebsiteManager extends BaseAPI
             // pages that read keys like school_name, school_motto, etc. still work.
             $profile = $this->db->query("SELECT * FROM school_profile LIMIT 1")->fetch(\PDO::FETCH_ASSOC);
             if ($profile) {
-                $profileMap = [
-                    'school_name' => $profile['school_name'] ?? '',
-                    'school_code' => $profile['school_code'] ?? '',
-                    'school_motto' => $profile['motto'] ?? '',
-                    'school_founded_year' => $profile['established_year'] ?? '',
-                    'school_phone' => $profile['phone'] ?? '',
-                    'school_phone_main' => $profile['phone'] ?? '',
-                    'school_phone_alt' => $profile['alternative_phone'] ?? '',
-                    'school_email' => $profile['email'] ?? '',
-                    'school_email_main' => $profile['email'] ?? '',
-                    'school_address' => $profile['address'] ?? '',
-                    'school_address_physical' => $profile['city'] ?? '',
-                    'school_address_postal' => $profile['postal_code'] ?? '',
-                    'school_website' => $profile['website'] ?? '',
-                    'office_hours_weekday' => $profile['office_hours_weekday'] ?? '',
-                    'office_hours_saturday' => $profile['office_hours_saturday'] ?? '',
-                    'social_facebook' => $profile['social_facebook'] ?? '',
-                    'social_twitter' => $profile['social_twitter'] ?? '',
-                    'social_instagram' => $profile['social_instagram'] ?? '',
-                    'social_youtube' => $profile['social_youtube'] ?? '',
-                    'social_whatsapp' => $profile['social_whatsapp'] ?? '',
-                    'google_maps_url' => $profile['google_maps_url'] ?? '',
-                    'currency' => $profile['currency'] ?? 'KES',
-                ];
+                // school_profile is the source of truth for these keys. A stored
+                // school_settings row with the same key used to sit beside the
+                // profile row; readers took the profile value, so every edit
+                // made in Settings looked like it had been ignored.
+                $byKey = [];
+                foreach ($rows as $i => $r) {
+                    $rows[$i]['source'] = 'settings';
+                    $rows[$i]['editable'] = true;
+                    $byKey[$r['setting_key']] = $i;
+                }
                 $maxId = 0;
                 foreach ($rows as $r) { if ((int)$r['id'] > $maxId) $maxId = (int)$r['id']; }
-                foreach ($profileMap as $key => $val) {
-                    if ($val !== '' && $val !== null) {
-                        $maxId++;
-                        $rows[] = ['id' => $maxId, 'setting_key' => $key, 'setting_value' => (string)$val, 'label' => $key];
+                foreach (self::PROFILE_SETTING_COLUMNS as $key => $column) {
+                    $val = $profile[$column] ?? '';
+                    if ($key === 'currency' && ($val === '' || $val === null)) $val = 'KES';
+                    if (isset($byKey[$key])) {
+                        $rows[$byKey[$key]]['setting_value'] = (string) $val;
+                        $rows[$byKey[$key]]['source'] = 'profile';
+                        continue;
                     }
+                    $maxId++;
+                    $rows[] = ['id' => $maxId, 'setting_key' => $key, 'setting_value' => (string) $val,
+                        'label' => self::PROFILE_SETTING_LABELS[$key] ?? $key, 'source' => 'profile', 'editable' => true];
+                    $byKey[$key] = count($rows) - 1;
                 }
 
                 // ── Computed: years of excellence (auto-increments yearly) ──
@@ -994,7 +1352,7 @@ class WebsiteManager extends BaseAPI
                     ? (int)date('Y') - (int)$profile['established_year'] : null;
                 if ($years !== null && $years >= 0) {
                     $maxId++;
-                    $rows[] = ['id' => $maxId, 'setting_key' => 'stat_years', 'setting_value' => (string)$years, 'label' => 'Years of Excellence'];
+                    $rows[] = ['id' => $maxId, 'setting_key' => 'stat_years', 'setting_value' => (string)$years, 'label' => 'Years of Excellence', 'source' => 'computed', 'editable' => false];
                 }
 
                 // ── Computed: headteacher name from staff table ──
@@ -1022,7 +1380,7 @@ class WebsiteManager extends BaseAPI
                 }
                 if ($headteacher) {
                     $maxId++;
-                    $rows[] = ['id' => $maxId, 'setting_key' => 'headteacher_name', 'setting_value' => $headteacher, 'label' => 'Headteacher'];
+                    $rows[] = ['id' => $maxId, 'setting_key' => 'headteacher_name', 'setting_value' => $headteacher, 'label' => 'Headteacher', 'source' => 'computed', 'editable' => false];
                 }
 
                 // ── Computed: all school leaders from staff table ──
@@ -1047,9 +1405,14 @@ class WebsiteManager extends BaseAPI
                 }
                 if ($leaders) {
                     $maxId++;
-                    $rows[] = ['id' => $maxId, 'setting_key' => 'school_leaders_json', 'setting_value' => json_encode($leaders), 'label' => 'School Leaders'];
+                    $rows[] = ['id' => $maxId, 'setting_key' => 'school_leaders_json', 'setting_value' => json_encode($leaders), 'label' => 'School Leaders', 'source' => 'computed', 'editable' => false];
                 }
             }
+            // Internal configuration documents have their own editors.
+            $rows = array_values(array_filter(
+                $rows,
+                static fn (array $r): bool => !in_array($r['setting_key'], self::INTERNAL_SETTING_KEYS, true)
+            ));
             return $this->successResponse(['items' => $rows, 'total' => count($rows)]);
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
@@ -1059,7 +1422,27 @@ class WebsiteManager extends BaseAPI
 
     public function saveSetting(string $key, string $value = '')
     {
+        if (in_array($key, self::COMPUTED_SETTING_KEYS, true)) {
+            return $this->errorResponse('This value is worked out from school records and cannot be edited here.', 422);
+        }
+        if (in_array($key, self::INTERNAL_SETTING_KEYS, true)) {
+            return $this->errorResponse('Use the downloads page settings to change this.', 422);
+        }
         try {
+            $column = self::PROFILE_SETTING_COLUMNS[$key] ?? null;
+            if ($column !== null) {
+                // $column comes from the fixed map above, never from input.
+                $profileId = (int) $this->scalar("SELECT id FROM school_profile ORDER BY id LIMIT 1");
+                if ($profileId > 0) {
+                    $this->db->prepare("UPDATE school_profile SET `$column` = ?, updated_at = NOW() WHERE id = ?")
+                        ->execute([$value, $profileId]);
+                    // Keys that share a column (school_phone / school_phone_main)
+                    // stay in step through the profile; keep any legacy row equal.
+                    $this->db->prepare("UPDATE school_settings SET setting_value = ? WHERE setting_key = ?")
+                        ->execute([$value, $key]);
+                    return $this->successResponse(null, 'Setting saved');
+                }
+            }
             $stmt = $this->db->prepare(
                 "INSERT INTO school_settings (setting_key, setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)"
             );

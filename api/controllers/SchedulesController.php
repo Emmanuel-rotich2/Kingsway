@@ -833,7 +833,7 @@ class SchedulesController extends BaseController
      */
     private function getCurrentUserId()
     {
-        return $this->user['id'] ?? null;
+        return $this->getUserId();
     }
 
 

@@ -222,11 +222,11 @@ final class StaffTeachingAssignmentService
 
     /** Columns shared by list/get: one row per assignment, not per stream. */
     private const SUBJECT_SELECT = "SELECT DISTINCT v.id, v.assignment_scope, v.staff_id teacher_id, v.subject_id, v.class_id,
-                    CASE WHEN v.assignment_scope = 'stream' THEN v.stream_id END AS stream_id,
-                    CASE WHEN v.assignment_scope = 'stream' THEN v.class_stream_id END AS class_stream_id,
+                    CASE WHEN v.assignment_scope = 'stream' COLLATE utf8mb4_unicode_ci THEN v.stream_id END AS stream_id,
+                    CASE WHEN v.assignment_scope = 'stream' COLLATE utf8mb4_unicode_ci THEN v.class_stream_id END AS class_stream_id,
                     v.academic_year_class_id, v.academic_year_id, v.role,
                     v.staff_no, v.staff_name teacher_name, v.subject_name, v.class_name,
-                    CASE WHEN v.assignment_scope = 'stream' THEN v.stream_name ELSE 'All streams' END AS stream_name,
+                    CASE WHEN v.assignment_scope = 'stream' COLLATE utf8mb4_unicode_ci THEN v.stream_name ELSE 'All streams' END AS stream_name,
                     v.academic_year
                FROM vw_staff_assignments_detailed v";
 
@@ -259,7 +259,7 @@ final class StaffTeachingAssignmentService
     public function getSubjectAssignment(int $id, string $scope = 'class'): ?array
     {
         $row = $this->db->query(
-            self::SUBJECT_SELECT . " WHERE v.id = ? AND v.assignment_scope = ? LIMIT 1",
+            self::SUBJECT_SELECT . " WHERE v.id = ? AND v.assignment_scope = ? COLLATE utf8mb4_unicode_ci LIMIT 1",
             [$id, self::normalizeScope($scope)]
         )->fetch(PDO::FETCH_ASSOC);
         return $row ?: null;
