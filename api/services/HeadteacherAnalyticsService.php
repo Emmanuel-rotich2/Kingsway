@@ -190,7 +190,8 @@ class HeadteacherAnalyticsService
         // and assessment_results table for actual student scores
         $stmt = $this->db->query("SELECT 
             COUNT(*) as total_assessments,
-            SUM(CASE WHEN status = 'pending_submission' THEN 1 ELSE 0 END) as pending_submission,
+            SUM(CASE WHEN status = 'pending_submission' AND results_opened_at IS NOT NULL THEN 1 ELSE 0 END) as pending_submission,
+            SUM(CASE WHEN status = 'pending_submission' AND results_opened_at IS NULL THEN 1 ELSE 0 END) as scheduled,
             SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END) as submitted,
             SUM(CASE WHEN status = 'pending_approval' THEN 1 ELSE 0 END) as pending_approval,
             SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved
@@ -210,6 +211,7 @@ class HeadteacherAnalyticsService
         return [
             'total_assessments' => (int) ($row['total_assessments'] ?? 0),
             'pending_submission' => (int) ($row['pending_submission'] ?? 0),
+            'scheduled' => (int) ($row['scheduled'] ?? 0),
             'submitted' => (int) ($row['submitted'] ?? 0),
             'pending_approval' => (int) ($row['pending_approval'] ?? 0),
             'approved' => (int) ($row['approved'] ?? 0),

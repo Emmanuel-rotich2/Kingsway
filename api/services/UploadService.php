@@ -33,6 +33,21 @@ final class UploadService
             // Public website media (gallery, news and announcement covers).
             // Raster images and browser-playable video only: no SVG or
             // documents, which could carry script into a public page.
+            // Exam papers and marking schemes: confidential, never served
+            // publicly; downloaded only through the paper bank endpoint.
+            'exam_paper' => [
+                'root' => (string) UPLOAD_PATH . '/academic/exam_papers',
+                'public_segment' => null,
+                'extensions' => ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'],
+                'mime_types' => [
+                    'application/pdf',
+                    'application/msword',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'image/jpeg',
+                    'image/png',
+                ],
+                'max_bytes' => 20971520,
+            ],
             'website_image' => [
                 'root' => (string) SCHOOL_ASSETS . '/website',
                 'public_segment' => 'school_assets/website',

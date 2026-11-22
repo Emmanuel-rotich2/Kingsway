@@ -1067,7 +1067,9 @@ class FinanceAPI extends BaseAPI
         try {
             $month = (int) ($data['month'] ?? $data['payroll_month'] ?? 0);
             $year = (int) ($data['year'] ?? $data['payroll_year'] ?? 0);
-            $createdBy = (int) ($data['created_by'] ?? $this->getCurrentUserId());
+            // Who prepared the payroll is the signed-in user, never a request
+            // field: the approver check below depends on it.
+            $createdBy = (int) ($this->getCurrentUserId() ?: ($data['created_by'] ?? 0));
 
             if ($month < 1 || $month > 12 || $year < 2000) {
                 return formatResponse(false, null, 'A valid payroll month and year are required');
@@ -2884,7 +2886,7 @@ class FinanceAPI extends BaseAPI
             $manualAllowances = $preparationOnly ? [] : ($data['allowances'] ?? []);
             $manualOtherDeductions = $preparationOnly ? 0 : ($data['other_deductions'] ?? 0);
             $childrenDeductions = $preparationOnly ? [] : ($data['children_deductions'] ?? []);
-            $processedBy = $data['processed_by'] ?? null;
+            $processedBy = $this->getCurrentUserId() ?: ($data['processed_by'] ?? null);
             $statutoryOptionsProvided = array_key_exists('statutory_options', $data);
             $statutoryOptions = $statutoryOptionsProvided
                 ? $this->statutoryOptionsForStaff($data, (int) $staffId)
@@ -4015,7 +4017,7 @@ class FinanceAPI extends BaseAPI
             $payrollId = (int) $payrollId;
             [$runScope, $runParams] = DataScopeService::predicateFor('payroll_runs', 'pr');
             $runStmt = $this->db->prepare(
-                "SELECT pr.id, pr.month, pr.year, pr.data_scope, pr.status
+                "SELECT pr.id, pr.month, pr.year, pr.data_scope, pr.status, pr.created_by
                  FROM payroll_runs pr WHERE pr.id = ? AND $runScope LIMIT 1"
             );
             $runStmt->execute(array_merge([$payrollId], $runParams));
@@ -4045,6 +4047,11 @@ class FinanceAPI extends BaseAPI
                 return formatResponse(false, null, 'Only a draft payroll can be approved');
             }
 
+            // Recorded as the signed-in approver. The School Administrator may
+            // both draft and approve payroll (school hierarchy: Director, then
+            // School Administrator), so no preparer/approver split is enforced.
+            $approver = (int) ($approvedBy ?: $this->getCurrentUserId());
+
             $stmt = $this->db->prepare(
                 "UPDATE payslips
                  SET payslip_status = 'approved', signed_by = ?, paid_at = NULL, updated_at = NOW()
@@ -4052,7 +4059,7 @@ class FinanceAPI extends BaseAPI
                    AND payslip_status = 'draft'"
             );
             $stmt->execute([
-                (int) ($approvedBy ?: $this->getCurrentUserId()),
+                $approver,
                 (int) $run['month'],
                 (int) $run['year'],
                 (string) $run['data_scope'],

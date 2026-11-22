@@ -2376,7 +2376,7 @@ if ($classId) {
 
             $rows = $this->dbQuery(
                 "SELECT s.id AS student_id, p.first_name, p.last_name, s.admission_no,
-                        fs.score, fs.score AS marks, fs.max_score, fs.percentage,
+                        fs.score, fs.score AS marks, fs.max_score, fs.rubric_level, fs.percentage,
                         fs.cbc_grade, fs.cbc_grade AS grade, fs.remarks,
                         fs.updated_at
                  FROM students s
@@ -2392,6 +2392,38 @@ if ($classId) {
             return $this->successResponse($rows);
         } catch (Exception $e) {
             $this->logError($e, 'AcademicManager::getFormativeAssessmentMarks');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * Open (or close) marking for a formative assessment. The subject teacher
+     * opens it once the lesson or task has happened; until then the
+     * assessment is only scheduled and its marks are not due.
+     */
+    public function setAssessmentResultsWindow(int $assessmentId, bool $open, ?int $userId, int $staffId, bool $canManageAll = false): array
+    {
+        try {
+            $asmnt = $this->dbQuery(
+                "SELECT id, assigned_by, academic_year_class_stream_id, academic_year_term_id, learning_area_id, is_formative
+                 FROM assessments WHERE id=:id LIMIT 1",
+                [':id' => $assessmentId]
+            )->fetch(PDO::FETCH_ASSOC);
+            if (!$asmnt) return $this->errorResponse('Assessment not found', 404);
+            if (
+                !$canManageAll
+                && (int) $asmnt['assigned_by'] !== $staffId
+                && !$this->teacherHasFormativeScope($staffId, (int) $asmnt['academic_year_term_id'], (int) $asmnt['academic_year_class_stream_id'], (int) $asmnt['learning_area_id'])
+            ) {
+                return $this->errorResponse('This assessment is outside your teaching scope', 403);
+            }
+            $window = new \App\API\Services\ResultsWindowService($this->db);
+            $result = $open ? $window->openAssessment($assessmentId, (int) ($userId ?? 0)) : $window->closeAssessment($assessmentId);
+            return $this->successResponse($result, $open ? 'Marking is open' : 'Marking closed; the assessment stays scheduled');
+        } catch (\RuntimeException $e) {
+            return $this->errorResponse($e->getMessage(), $e->getCode() >= 400 ? $e->getCode() : 409);
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::setAssessmentResultsWindow');
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -2432,6 +2464,12 @@ if ($classId) {
             }
             $correctionReason = trim((string) ($data['reason'] ?? ''));
             if ($asmnt['status'] === 'approved' && $correctionReason === '') $correctionReason = 'School administrator correction';
+            // Marks are only taken once the teacher has opened marking.
+            try {
+                (new \App\API\Services\ResultsWindowService($this->db))->assertOpen((int) $asmnt['id']);
+            } catch (\RuntimeException $closed) {
+                return $this->errorResponse($closed->getMessage(), 409);
+            }
             $maxMarks = (float) $asmnt['max_marks'];
 
             $this->db->beginTransaction();
@@ -2439,9 +2477,9 @@ if ($classId) {
             // Native prepared statements bind each placeholder once, so the
             // ON DUPLICATE KEY UPDATE clause needs its own placeholder names.
             $ins = $this->db->prepare(
-                "INSERT INTO formative_scores (assessment_id, student_id, score, max_score, remarks, entered_by)
-                 VALUES (:aid, :sid, :score, :max, :rmk, :eby)
-                 ON DUPLICATE KEY UPDATE score=:score_u, max_score=:max_u, remarks=:rmk_u, entered_by=:eby_u, updated_at=NOW()"
+                "INSERT INTO formative_scores (assessment_id, student_id, score, max_score, rubric_level, remarks, entered_by)
+                 VALUES (:aid, :sid, :score, :max, :lvl, :rmk, :eby)
+                 ON DUPLICATE KEY UPDATE score=:score_u, max_score=:max_u, rubric_level=:lvl_u, remarks=:rmk_u, entered_by=:eby_u, updated_at=NOW()"
             );
             foreach ($scores as $entry) {
                 $studentId = (int) ($entry['student_id'] ?? 0);
@@ -2457,9 +2495,22 @@ if ($classId) {
                 if (!$isEnrolled) {
                     throw new \InvalidArgumentException('A submitted learner is not enrolled in the assessment stream');
                 }
-                $score = (float) ($entry['marks_obtained'] ?? $entry['score'] ?? 0);
-                if ($score < 0 || $score > $maxMarks) {
-                    throw new \InvalidArgumentException('Every score must be between zero and the assessment maximum');
+                // A CBC rubric judgement (4 exceeding, 3 meeting, 2 approaching,
+                // 1 below) is stored as level out of 4 so it aggregates with
+                // marked evidence.
+                $rubricLevel = isset($entry['rubric_level']) && $entry['rubric_level'] !== '' ? (int) $entry['rubric_level'] : null;
+                if ($rubricLevel !== null) {
+                    if ($rubricLevel < 1 || $rubricLevel > 4) {
+                        throw new \InvalidArgumentException('A rubric level must be 1, 2, 3 or 4');
+                    }
+                    $score = (float) $rubricLevel;
+                    $rowMax = 4.0;
+                } else {
+                    $score = (float) ($entry['marks_obtained'] ?? $entry['score'] ?? 0);
+                    $rowMax = $maxMarks;
+                    if ($score < 0 || $score > $maxMarks) {
+                        throw new \InvalidArgumentException('Every score must be between zero and the assessment maximum');
+                    }
                 }
                 if ($asmnt['status'] === 'approved') {
                     $beforeStmt = $this->db->prepare('SELECT score, max_score, remarks FROM formative_scores WHERE assessment_id=? AND student_id=? LIMIT 1');
@@ -2473,11 +2524,13 @@ if ($classId) {
                     ':aid'   => $assessmentId,
                     ':sid'   => $studentId,
                     ':score' => $score,
-                    ':max'   => $maxMarks,
+                    ':max'   => $rowMax,
+                    ':lvl'   => $rubricLevel,
                     ':rmk'   => $entry['remarks'] ?? null,
                     ':eby'   => $userId,
                     ':score_u' => $score,
-                    ':max_u'   => $maxMarks,
+                    ':max_u'   => $rowMax,
+                    ':lvl_u'   => $rubricLevel,
                     ':rmk_u'   => $entry['remarks'] ?? null,
                     ':eby_u'   => $userId,
                 ]);
@@ -2504,6 +2557,48 @@ if ($classId) {
         }
     }
 
+    /**
+     * Grade formative averages with the same system the term engine uses:
+     * a term/class/learning-area binding, else the grading profile.
+     */
+    private function gradeFormativeRows(array $rows, int $termId, int $classStreamId): array
+    {
+        if (!$rows) return $rows;
+        $grading = new \App\API\Services\CbcGradingService($this->db);
+        $classId = (int) $this->dbQuery(
+            "SELECT ayc.class_id FROM " . ReadReplicaService::qualifiedRef('academic_year_class_streams') . " aycs
+             JOIN " . ReadReplicaService::qualifiedRef('academic_year_classes') . " ayc ON ayc.id = aycs.academic_year_class_id
+             WHERE aycs.id = :id LIMIT 1",
+            [':id' => $classStreamId]
+        )->fetchColumn();
+        $profileSystem = null;
+        try {
+            $profile = (new \App\API\Services\AssessmentAggregationService($this->db))->resolveProfile(null, $termId, null);
+            $profileSystem = (int) $profile['grading_system_id'];
+        } catch (\Throwable $e) {
+            $profileSystem = null;
+        }
+        $systems = [];
+        foreach ($rows as &$row) {
+            if ($row['formative_avg_pct'] === null) continue;
+            $areaId = (int) ($row['learning_area_id'] ?? 0);
+            if (!array_key_exists($areaId, $systems)) {
+                $binding = null;
+                try { $binding = (new \App\API\Services\GradingScopeService($this->db))->resolve($termId, $classId, $areaId); } catch (\Throwable $e) { $binding = null; }
+                $systems[$areaId] = isset($binding['system']['id']) ? (int) $binding['system']['id'] : $profileSystem;
+            }
+            try {
+                $grade = $grading->gradeForSystem(max(0.0, min(100.0, (float) $row['formative_avg_pct'])), 100, $systems[$areaId]);
+                $row['formative_grade'] = $grade['grade_code'];
+                $row['formative_grade_name'] = $grade['grade_name'];
+            } catch (\Throwable $e) {
+                $row['formative_grade'] = null;
+            }
+        }
+        unset($row);
+        return $rows;
+    }
+
     public function getFormativeSummary(array $data): array
     {
         try {
@@ -2525,12 +2620,9 @@ if ($classId) {
             if ($strandId)    { $filters .= ' AND st.id = :stid';    $params[':stid'] = $strandId; }
             if ($subStrandId) { $filters .= ' AND ss.id = :ssid';    $params[':ssid'] = $subStrandId; }
 
-            $gradeCase = "CASE
-                            WHEN AVG(fs.percentage) >= 75 THEN 'EE'
-                            WHEN AVG(fs.percentage) >= 60 THEN 'ME'
-                            WHEN AVG(fs.percentage) >= 40 THEN 'AE'
-                            ELSE 'BE'
-                         END AS formative_grade";
+            // Grades come from the school's grading scale (below), not from
+            // fixed 75/60/40 cut-offs that disagreed with the report cards.
+            $gradeCase = "NULL AS formative_grade";
 
             if ($mode === 'sub_strand') {
                 $select = "la.id AS learning_area_id, la.name AS learning_area_name,
@@ -2578,6 +2670,7 @@ if ($classId) {
                  ORDER BY $order",
                 $params
             )->fetchAll(PDO::FETCH_ASSOC);
+            $rows = $this->gradeFormativeRows($rows, $termId, $classId);
             return $this->successResponse($rows);
         } catch (Exception $e) {
             $this->logError($e, 'AcademicManager::getFormativeSummary');
@@ -3263,9 +3356,9 @@ if ($classId) {
             $academicYearTermId = (int) $term['id'];
 
             $student = $this->dbQuery(
-                "SELECT s.id, s.admission_no, sae.id AS enrollment_id,
+                "SELECT s.id, s.admission_no, s.assessment_number, s.nemis_number, sae.id AS enrollment_id,
                         sae.academic_year_class_stream_id AS class_stream_id,
-                        p.first_name, p.middle_name, p.last_name,
+                        p.first_name, p.middle_name, p.last_name, p.gender, p.dob, p.photo_url,
                         c.name AS class_name, st.name AS stream_name
                  FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                  JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sae.student_id
@@ -3281,15 +3374,51 @@ if ($classId) {
             )->fetch(PDO::FETCH_ASSOC);
             if (!$student) return $this->errorResponse('Learner was not enrolled in the selected academic year', 404);
 
+            // Every learning area timetabled for the learner's stream, with
+            // its term score when there is one: a learning area with no marks
+            // yet is shown as not assessed instead of disappearing.
             $scores = $this->dbQuery(
                 "SELECT tss.*,
-                        la.name AS subject_name, la.code AS subject_code
+                        la.id AS subject_id, la.name AS subject_name, la.code AS subject_code
+                 FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " sla
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " cla ON cla.id = sla.academic_year_class_learning_area_id
+                 JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = cla.learning_area_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("term_subject_scores") . " tss
+                        ON tss.subject_id = la.id AND tss.student_id = :sid AND tss.academic_year_term_id = :tid
+                 WHERE sla.academic_year_class_stream_id = :stream
+                   AND sla.status IN ('planned','active','in_progress','covered')
+                 GROUP BY la.id
+                 ORDER BY la.name",
+                [':sid' => $studentId, ':tid' => $academicYearTermId, ':stream' => (int) $student['class_stream_id']]
+            )->fetchAll(PDO::FETCH_ASSOC);
+            // Learning areas the learner was scored in but that are no longer
+            // timetabled still belong on the report.
+            $listed = array_column($scores, 'subject_id');
+            $extra = $this->dbQuery(
+                "SELECT tss.*, la.name AS subject_name, la.code AS subject_code
                  FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " tss
                  JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = tss.subject_id
-                 WHERE tss.student_id=:sid AND tss.academic_year_term_id=:tid
-                 ORDER BY la.name",
+                 WHERE tss.student_id=:sid AND tss.academic_year_term_id=:tid",
                 [':sid' => $studentId, ':tid' => $academicYearTermId]
             )->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($extra as $row) {
+                if (!in_array($row['subject_id'], $listed)) $scores[] = $row;
+            }
+
+            // Strand-level results (term_strand_scores, written by the term engine).
+            $strandStmt = $this->db->prepare(
+                'SELECT learning_area_id, strand_id, strand_name, sub_strand_count, evidence_count, percentage, grade_code
+                 FROM term_strand_scores WHERE student_id = ? AND academic_year_term_id = ? ORDER BY strand_name'
+            );
+            $strandStmt->execute([$studentId, $academicYearTermId]);
+            $strandsByArea = [];
+            foreach ($strandStmt->fetchAll(PDO::FETCH_ASSOC) as $strand) {
+                $strandsByArea[(int) $strand['learning_area_id']][] = $strand;
+            }
+            foreach ($scores as &$scoreRow) {
+                $scoreRow['strands'] = $strandsByArea[(int) $scoreRow['subject_id']] ?? [];
+            }
+            unset($scoreRow);
 
             $competencyRef = ReadReplicaService::qualifiedRef('learner_competency');
             $competencies = $this->dbQuery(
@@ -3336,12 +3465,16 @@ if ($classId) {
                 'SELECT * FROM student_term_rankings WHERE student_id=:sid AND academic_year_term_id=:tid LIMIT 1',
                 [':sid' => $studentId, ':tid' => $academicYearTermId]
             )->fetch(PDO::FETCH_ASSOC) ?: null;
-            $resultPolicy = $this->dbQuery(
-                "SELECT formative_weight, summative_weight, ranking_method, publish_rank_to_guardians
-                 FROM academic_result_policies
-                 WHERE academic_year_id=:year_id AND status='active' LIMIT 1",
-                [':year_id' => (int) $term['academic_year_id']]
-            )->fetch(PDO::FETCH_ASSOC) ?: null;
+            // The same weights the term engine used (grading profile).
+            $engine = (new \App\API\Services\TermResultsService($this->db))->policyForTerm($academicYearTermId);
+            $resultPolicy = [
+                'formative_weight' => $engine['formative_weight'],
+                'summative_weight' => $engine['summative_weight'],
+                'grading_system_id' => $engine['grading_system_id'],
+                'weights_from' => $engine['weights_from'],
+                'ranking_method' => $engine['ranking_method'],
+                'publish_rank_to_guardians' => $engine['publish_rank_to_guardians'],
+            ];
             $expectedAreas = (int) $this->dbQuery(
                 "SELECT COUNT(DISTINCT cla.learning_area_id)
                  FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " sla
@@ -3375,6 +3508,7 @@ if ($classId) {
             }
 
             return $this->successResponse([
+                'level'        => (new \App\API\Services\ReportCardReleaseService($this->db))->levelForClass((string) ($student['class_name'] ?? '')),
                 'student'      => $student,
                 'term'         => $term,
                 'scores'       => $scores,

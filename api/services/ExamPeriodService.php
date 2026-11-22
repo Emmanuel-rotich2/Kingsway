@@ -852,7 +852,7 @@ final class ExamPeriodService
 
     public function openResults(int $periodId):array
     {
-        $stmt=$this->db->prepare("UPDATE exam_periods SET status='results_open',results_opened_by=?,results_opened_at=NOW() WHERE id=? AND status='published' AND deleted_at IS NULL");$stmt->execute([$this->userId,$periodId]);if($stmt->rowCount()!==1)throw new RuntimeException('Only a published, active exam period can be opened for result entry',409);return ['id'=>$periodId,'status'=>'results_open'];
+        $stmt=$this->db->prepare("UPDATE exam_periods SET status='results_open',results_opened_by=?,results_opened_at=NOW() WHERE id=? AND status='published' AND deleted_at IS NULL");$stmt->execute([$this->userId,$periodId]);if($stmt->rowCount()!==1)throw new RuntimeException('Only a published, active exam period can be opened for result entry',409);$opened=(new ResultsWindowService($this->db))->openForExamPeriod($periodId,(int)$this->userId);return ['id'=>$periodId,'status'=>'results_open','assessments_opened'=>$opened];
     }
 
     /** School Administrator publication gate for reviewed summative registers. */

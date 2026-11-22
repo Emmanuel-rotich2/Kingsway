@@ -1338,8 +1338,9 @@ class FinanceController extends BaseController
     {
         if ($denied = $this->requireApprovalAccess('approve payroll')) return $denied;
         $payrollId = $data['payroll_id'] ?? $data['id'] ?? $id;
-        $approvedBy = $data['user_id'] ?? $this->getUserId();
-        $result = $this->api->approvePayroll($payrollId, $approvedBy);
+        // The approver is always the signed-in user. Taking it from the
+        // request let any caller record someone else as the approver.
+        $result = $this->api->approvePayroll($payrollId, $this->getUserId());
         return $this->handleResponse($result);
     }
 
@@ -1549,8 +1550,8 @@ class FinanceController extends BaseController
         if (!$payrollId) {
             return $this->badRequest('Payroll ID required');
         }
-        $approvedBy = $payload['approved_by'] ?? null;
-        $result = $this->api->approvePayroll($payrollId, $approvedBy);
+        // The approver is always the signed-in user, never a request field.
+        $result = $this->api->approvePayroll($payrollId, $this->getUserId());
         return $this->handleResponse($result);
     }
 

@@ -152,8 +152,29 @@ final class StaffRecordsService
         return $row;
     }
 
-    public function assignRole(int $staffId, int $roleId): array
+    /**
+     * Staff management may only give or remove the roles it offers
+     * (availableRoles). The screen hid System Administrator and Parent but
+     * the API accepted any role id, so a crafted request could grant them.
+     */
+    private function assertAssignableRole(int $roleId, bool $actorIsSystemAdministrator): void
     {
+        // Every school-domain role, Director included, is the School
+        // Administrator's to give or remove; system-domain roles never are.
+        $roles = $this->availableRoles(true);
+        $match = null;
+        foreach ($roles as $role) {
+            if ((int) $role['id'] === $roleId) { $match = $role; break; }
+        }
+        if ($match === null) {
+            throw new \InvalidArgumentException('This role cannot be given or removed from staff management.');
+        }
+    }
+
+
+    public function assignRole(int $staffId, int $roleId, bool $actorIsSystemAdministrator = false): array
+    {
+        $this->assertAssignableRole($roleId, $actorIsSystemAdministrator);
         $staff = $this->staffUser($staffId);
         $result = (new \App\API\Modules\users\UserRoleManager($this->db->getConnection()))
             ->assignRole((int)$staff['user_id'], $roleId, true);
@@ -161,8 +182,9 @@ final class StaffRecordsService
         return ['staff_id' => $staffId, 'role_id' => $roleId];
     }
 
-    public function revokeRole(int $staffId, int $roleId): void
+    public function revokeRole(int $staffId, int $roleId, bool $actorIsSystemAdministrator = false): void
     {
+        $this->assertAssignableRole($roleId, $actorIsSystemAdministrator);
         $staff = $this->staffUser($staffId);
         $result = (new \App\API\Modules\users\UserRoleManager($this->db->getConnection()))
             ->revokeRole((int)$staff['user_id'], $roleId);
@@ -192,9 +214,9 @@ final class StaffRecordsService
         )->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function availableRoles(): array
+    public function availableRoles(bool $includeLeadership = true): array
     {
-        return $this->db->query(
+        $roles = $this->db->query(
             "SELECT id, name, description, scope, is_system
              FROM roles
              WHERE is_active = 1
@@ -203,6 +225,7 @@ final class StaffRecordsService
                AND LOWER(name) NOT IN ('system administrator', 'parent')
              ORDER BY name"
         )->fetchAll(PDO::FETCH_ASSOC);
+        return $roles;
     }
 
     public function leaveTypes(): array

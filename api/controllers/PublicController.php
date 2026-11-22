@@ -360,6 +360,19 @@ public function postSubscribers($id = null, $data = [], $segments = [])
      * (decided server-side by StudentCardVerificationService::viewPolicy).
      * No SQL in the page, none here either — the service owns every query.
      */
+    /**
+     * GET /api/public/report-verification?code=XXXX
+     * Confirms a printed report book is genuine (the QR on its last page).
+     */
+    public function getReportVerification($id = null, $data = [], $segments = [])
+    {
+        $code = (string) ($_GET['code'] ?? $data['code'] ?? $id ?? '');
+        if (trim($code) === '') return $this->errorResponse('Enter the verification code printed on the report.', 422);
+        $result = (new \App\API\Services\ReportCardVerificationService(Database::getInstance()->getConnection()))->lookup($code);
+        if (!$result) return $this->errorResponse('No report matches this code. Check the code and try again.', 404);
+        return $this->successResponse($result, 'Report verified');
+    }
+
     public function getStudentVerification($id = null, $data = [], $segments = [])
     {
         $studentId = (int) ($id ?? ($_GET['student_id'] ?? 0));
