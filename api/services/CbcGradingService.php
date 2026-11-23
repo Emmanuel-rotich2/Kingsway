@@ -81,6 +81,21 @@ final class CbcGradingService
         ]);
     }
 
+    /**
+     * Grade code of a percentage on the term's scale (the shared grader), or
+     * null when there is no percentage. Used wherever a stored score is shown.
+     */
+    public function codeForPercentage($percentage, ?int $termId = null): ?string
+    {
+        if ($percentage === null || $percentage === '' || !is_numeric($percentage)) return null;
+        try {
+            $system = (new GradingScopeService($this->db))->systemForTerm($termId);
+            return $this->gradeForSystem(max(0.0, min(100.0, (float) $percentage)), 100, $system)['grade_code'];
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
     /** Adds the 4-level group (EE/ME/AE/BE) of an 8-level grade. */
     public static function withLevel4(array $grade): array
     {

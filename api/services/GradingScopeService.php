@@ -197,6 +197,43 @@ final class GradingScopeService
         return self::$systemCache[$key];
     }
 
+    /** The system a term grades on (its setting, else the school default), canonical. */
+    public function systemForTerm(?int $termId): ?int
+    {
+        $key = spl_object_id($this->db) . ':t' . (int) $termId;
+        if (!array_key_exists($key, self::$systemCache)) {
+            $resolved = null;
+            if ($termId) {
+                try { $b = $this->resolve($termId, null, null); $resolved = isset($b['system']['id']) ? (int) $b['system']['id'] : null; } catch (\Throwable $e) { $resolved = null; }
+            }
+            self::$systemCache[$key] = $this->canonicalSystemId($resolved);
+        }
+        return self::$systemCache[$key];
+    }
+
+    /**
+     * Percentage range of a level on a system: one band (e.g. ME1) or a whole
+     * group of bands (e.g. ME = ME1 + ME2). Null when the code is unknown.
+     * @return array{code:string,min:float,max:float,midpoint:float}|null
+     */
+    public function levelRange(int $systemId, string $code): ?array
+    {
+        $code = strtoupper(trim($code));
+        if ($code === '') return null;
+        $stmt = $this->db->prepare('SELECT band_code, group_code, min_percentage, max_percentage FROM grading_system_bands WHERE grading_system_id = ?');
+        $stmt->execute([$systemId]);
+        $min = null; $max = null;
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $b) {
+            $group = $b['group_code'] ?: self::level4((string) $b['band_code']);
+            if (strtoupper((string) $b['band_code']) === $code || ($group !== null && strtoupper((string) $group) === $code)) {
+                $min = $min === null ? (float) $b['min_percentage'] : min($min, (float) $b['min_percentage']);
+                $max = $max === null ? (float) $b['max_percentage'] : max($max, (float) $b['max_percentage']);
+            }
+        }
+        if ($min === null) return null;
+        return ['code' => $code, 'min' => $min, 'max' => $max, 'midpoint' => round(($min + $max) / 2, 2)];
+    }
+
     /** Forget cached system rows (after creating or publishing a system). */
     public static function forgetCache(): void
     {

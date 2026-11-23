@@ -40,13 +40,42 @@ const DetailedPayslipController = {
     await this.loadHistory();
   },
 
-  populateYearSelect: function () {
+  populateYearSelect: async function () {
     const select = document.getElementById("payrollYear");
     if (!select) return;
-    const currentYear = new Date().getFullYear();
+
+    // Fetch academic years from the API
+    let years = [];
+    try {
+      const response = await window.API.academic.getAllAcademicYears();
+      const data = response?.data ?? response;
+      if (Array.isArray(data)) {
+        years = data
+          .map((y) => y.year_code || y.year_name || y.id)
+          .filter((y) => y)
+          .map((y) => String(y).replace(/[^0-9]/g, ''))
+          .filter((y) => y.length === 4)
+          .map((y) => parseInt(y, 10));
+      }
+    } catch (error) {
+      console.warn('Failed to fetch academic years, falling back to calendar years:', error);
+    }
+
+    // Fallback to calendar years if no academic years
+    if (years.length === 0) {
+      const currentYear = new Date().getFullYear();
+      for (let y = currentYear; y >= currentYear - 4; y--) {
+        years.push(y);
+      }
+    }
+
+    // Deduplicate and sort
+    years = [...new Set(years)].sort((a, b) => b - a);
+
     select.innerHTML = "";
-    for (let year = currentYear; year >= currentYear - 4; year -= 1) {
-      select.add(new Option(year, year, year === currentYear, year === currentYear));
+    years.forEach((y) => select.add(new Option(y, y)));
+    if (years.length > 0) {
+      select.value = String(years[0]);
     }
   },
 
@@ -478,35 +507,15 @@ const DetailedPayslipController = {
     }
 
     const payslip = this.data.currentPayslip;
-    const staff = this.data.currentPayslip || {};
+    const payrollId = payslip.id || payslip.payslip_id;
+    if (!payrollId) {
+      this.showError("Payslip ID not available");
+      return;
+    }
 
     if (window.PrintManager && window.PrintManager.printDedicatedPayslip) {
-      window.PrintManager.printDedicatedPayslip({
-        employeeName: `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
-        staffNo: staff.staff_no || '',
-        department: staff.department_name || staff.department || '',
-        designation: staff.designation || staff.position || '',
-        kraPin: staff.kra_pin || '',
-        nssfNo: staff.nssf_no || '',
-        nhifNo: staff.shif_no || staff.nhif_no || '',
-        period: payslip.period || new Date().toISOString().slice(0, 7),
-        basicSalary: payslip.basic_salary || payslip.basic_pay || 0,
-        allowances: (payslip.earnings || []).map(e => ({ name: e.description || e.name || '', amount: e.amount || e.value || 0 })),
-        deductions: (payslip.deductions || []).map(d => ({ name: d.description || d.name || '', amount: d.amount || d.value || 0 })),
-        statutory: {
-          paye: payslip.paye || payslip.tax || 0,
-          nssf: payslip.nssf || 0,
-          nhif_shif: payslip.shif || payslip.nhif || 0,
-          housing_levy: payslip.housing_levy || 0,
-        },
-        grossPay: payslip.gross_pay || payslip.gross_salary || 0,
-        totalDeductions: payslip.total_deductions || 0,
-        netPay: payslip.net_pay || payslip.net_salary || 0,
-        bankName: staff.bank_name || '',
-        bankBranch: staff.bank_branch || '',
-        bankAccount: staff.bank_account || '',
-        filename: `payslip_${staff.staff_no || staff.id || 'staff'}_${payslip.period || new Date().toISOString().slice(0, 7)}`,
-      });
+      // Authoritative payslip: server loads all financial data.
+      window.PrintManager.printDedicatedPayslip({ payroll_id: payrollId });
     } else {
       this.showError("PrintManager not available");
     }

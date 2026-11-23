@@ -3403,7 +3403,7 @@ class FinanceAPI extends BaseAPI
         try {
             [$psScope, $psParams] = DataScopeService::predicateFor('payslips', 'ps');
             [$sScope, $sParams] = DataScopeService::predicateFor('staff', 's');
-            // Get payroll record
+            // Get payroll record with all deduction columns
             $sql = "SELECT
                         ps.*,
                         s.staff_no,
@@ -3470,15 +3470,24 @@ class FinanceAPI extends BaseAPI
 
             $payroll['children_deductions'] = $childrenDeductions;
             $payroll['total_children_fees'] = array_sum(array_column($childrenDeductions, 'deducted_amount'));
-            $employeeDeductions =
-                (float) ($payroll['nssf_contribution'] ?? 0) +
-                (float) ($payroll['shif_contribution'] ?? $payroll['nhif_contribution'] ?? 0) +
-                (float) ($payroll['paye_tax'] ?? 0) +
-                (float) ($payroll['housing_levy'] ?? 0) +
-                (float) $payroll['total_children_fees'] +
-                (float) ($payroll['other_deductions_total'] ?? 0);
-            $payroll['total_deductions'] = number_format($employeeDeductions, 2, '.', '');
+
+            // Authoritative total deductions: gross - net (stored values)
+            $gross = (float) ($payroll['gross_salary'] ?? $payroll['gross_pay'] ?? 0);
+            $net = (float) ($payroll['net_salary'] ?? $payroll['net_pay'] ?? 0);
+            $authoritativeTotalDeductions = $gross > 0 || $net > 0 ? max(0, $gross - $net) : 0;
+
+            // Explicitly include all deduction types from the stored record
+            $payroll['loan_deduction'] = $payroll['loan_deduction'] ?? 0;
+            $payroll['sacco_deduction'] = $payroll['sacco_deduction'] ?? 0;
+            $payroll['salary_advance_deduction'] = $payroll['salary_advance_deduction'] ?? 0;
+            $payroll['child_fees_deduction'] = $payroll['child_fees_deduction'] ?? 0;
+            $payroll['housing_levy'] = $payroll['housing_levy'] ?? 0;
+
+            // Use authoritative total; fall back to stored if not computable
+            $storedTotal = (float) ($payroll['total_deductions'] ?? $payroll['employee_deductions_total'] ?? 0);
+            $payroll['total_deductions'] = number_format($authoritativeTotalDeductions ?: $storedTotal, 2, '.', '');
             $payroll['employee_deductions_total'] = $payroll['total_deductions'];
+
             $payroll['allowances'] = $payroll['allowances_total'] ?? 0;
             $payroll['nssf_deduction'] = $payroll['nssf_contribution'] ?? 0;
             $payroll['shif_deduction'] = $payroll['shif_contribution'] ?? $payroll['nhif_contribution'] ?? 0;
@@ -3491,6 +3500,18 @@ class FinanceAPI extends BaseAPI
                 'shif' => $payroll['shif_contribution'] ?? $payroll['nhif_contribution'],
                 'paye' => $payroll['paye_tax'],
                 'housing_levy' => $payroll['housing_levy']
+            ];
+            // Detailed deduction breakdown for the template
+            $payroll['deduction_breakdown'] = [
+                'paye' => (float) ($payroll['paye_tax'] ?? 0),
+                'nssf' => (float) ($payroll['nssf_contribution'] ?? 0),
+                'shif' => (float) ($payroll['shif_contribution'] ?? $payroll['nhif_contribution'] ?? 0),
+                'housing_levy' => (float) ($payroll['housing_levy'] ?? 0),
+                'loan' => (float) ($payroll['loan_deduction'] ?? 0),
+                'sacco' => (float) ($payroll['sacco_deduction'] ?? 0),
+                'salary_advance' => (float) ($payroll['salary_advance_deduction'] ?? 0),
+                'child_fees' => (float) $payroll['total_children_fees'],
+                'other' => (float) ($payroll['other_deductions_total'] ?? 0),
             ];
             $payroll['statutory_options'] = $this->payrollStatutoryService->optionsForPayslip(
                 (int) $payroll['id']
@@ -3667,6 +3688,14 @@ class FinanceAPI extends BaseAPI
                 $params[] = $search;
                 $params[] = $search;
                 $params[] = $search;
+            }
+            if (!empty($filters['payroll_run_id'])) {
+                $sql .= " AND pr.id = ?";
+                $params[] = $filters['payroll_run_id'];
+            }
+            if (!empty($filters['staff_id'])) {
+                $sql .= " AND ps.staff_id = ?";
+                $params[] = $filters['staff_id'];
             }
 
             $sql .= " ORDER BY ps.created_at DESC";

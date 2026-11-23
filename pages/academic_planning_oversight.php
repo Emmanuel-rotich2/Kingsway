@@ -55,7 +55,7 @@
                 <div class="table-responsive"><table class="table table-hover apo-table" id="apoSchemesTable"><thead><tr><th>#</th><th>Learning Area</th><th>Grade</th><th>Stream</th><th>Teacher</th><th>Weeks</th><th>Progress</th><th>Status</th><th>Actions</th></tr></thead><tbody></tbody></table></div>
             </div>
             <div class="tab-pane fade" id="apoLessons">
-                <div class="d-flex justify-content-between align-items-center mb-2"><h6 class="mb-0">Lesson plans in the current term</h6><select class="form-select form-select-sm w-auto" id="apoLessonStatus"><option value="">All statuses</option><option value="draft">Draft</option><option value="submitted">Submitted</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
+                <div class="d-flex justify-content-between align-items-center mb-2"><h6 class="mb-0">Lesson plans in the current term</h6><select class="form-select form-select-sm w-auto" id="apoLessonStatus"><option value="">All statuses</option><option value="draft">Draft (with the teacher)</option><option value="submitted">Submitted for review</option><option value="approved">Approved, not yet published</option><option value="published">Published to parents</option></select></div>
                 <div class="table-responsive"><table class="table table-hover apo-table" id="apoLessonsTable"><thead><tr><th>#</th><th>Learning Area</th><th>Grade</th><th>Stream</th><th>Teacher</th><th>Plans</th><th>Delivery Dates</th><th>Status</th><th>Actions</th></tr></thead><tbody></tbody></table></div>
             </div>
             <div class="tab-pane fade" id="apoClasses">
@@ -82,7 +82,7 @@
         <div class="modal-content">
             <div class="modal-header bg-primary text-white"><div><h5 class="modal-title mb-1" id="apoLessonModalTitle">Lesson Plans</h5><small id="apoLessonModalMeta"></small></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button></div>
             <div class="modal-body" id="apoLessonModalBody"></div>
-            <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div>
+            <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button type="button" class="btn btn-outline-success d-none" id="apoApproveAllLessons" data-year-write><i class="bi bi-check2-all me-1"></i>Approve all submitted</button><button type="button" class="btn btn-success d-none" id="apoPublishAllLessons" data-year-write><i class="bi bi-broadcast me-1"></i>Publish all approved</button></div>
         </div>
     </div>
 </div>
@@ -95,7 +95,7 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body" id="apoSchemeModalBody"></div>
-            <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button type="button" class="btn btn-success d-none" id="apoApproveScheme" data-year-write><i class="bi bi-check2-circle me-1"></i>Approve complete workbook</button></div>
+            <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button type="button" class="btn btn-success d-none" id="apoApproveScheme" data-year-write><i class="bi bi-check2-circle me-1"></i>Approve complete workbook</button><button type="button" class="btn btn-success d-none" id="apoPublishScheme" data-year-write><i class="bi bi-broadcast me-1"></i>Publish to parents</button></div>
         </div>
     </div>
 </div>

@@ -307,19 +307,73 @@ const PayrollManagerController = {
   },
 
   /**
-   * Populate year filter dropdowns
+   * Populate year filter dropdowns with academic years
    */
-  populateYearFilters: function () {
-    const currentYear = new Date().getFullYear();
-    const yearSelect = document.getElementById("filterYear");
+  populateYearFilters: async function () {
+    const yearFromSelect = document.getElementById("filterYearFrom");
+    const yearToSelect = document.getElementById("filterYearTo");
 
-    for (let y = currentYear; y >= currentYear - 5; y--) {
-      const option = document.createElement("option");
-      option.value = y;
-      option.textContent = y;
-      if (y === currentYear) option.selected = true;
-      yearSelect.appendChild(option);
+    if (!yearFromSelect || !yearToSelect) {
+      // Fallback to old single year selector
+      const yearSelect = document.getElementById("filterYear");
+      if (yearSelect) {
+        const currentYear = new Date().getFullYear();
+        for (let y = currentYear; y >= currentYear - 5; y--) {
+          const option = document.createElement("option");
+          option.value = y;
+          option.textContent = y;
+          if (y === currentYear) option.selected = true;
+          yearSelect.appendChild(option);
+        }
+      }
+      return;
     }
+
+    // Fetch academic years from the API
+    let years = [];
+    try {
+      const response = await window.API.academic.getAllAcademicYears();
+      const data = response?.data ?? response;
+      if (Array.isArray(data)) {
+        years = data
+          .map((y) => y.year_code || y.year_name || y.id)
+          .filter((y) => y)
+          .map((y) => String(y).replace(/[^0-9]/g, ''))
+          .filter((y) => y.length === 4)
+          .map((y) => parseInt(y, 10));
+      }
+    } catch (error) {
+      console.warn('Failed to fetch academic years, falling back to calendar years:', error);
+    }
+
+    // Fallback to calendar years if no academic years
+    if (years.length === 0) {
+      const currentYear = new Date().getFullYear();
+      for (let y = currentYear; y >= currentYear - 10; y--) {
+        years.push(y);
+      }
+    }
+
+    // Deduplicate and sort
+    years = [...new Set(years)].sort((a, b) => b - a);
+
+    const yearOptions = years.map((year) => {
+      const option = document.createElement("option");
+      option.value = year;
+      option.textContent = year;
+      return option;
+    });
+
+    [yearFromSelect, yearToSelect].forEach((select) => {
+      const selected = select.value;
+      select.replaceChildren(new Option("Any", ""));
+      yearOptions.forEach((opt) => select.append(opt.cloneNode(true)));
+
+      const selectedYearExists = Array.from(select.options).some((option) => option.value === selected);
+      select.value = selected === '' || selectedYearExists
+        ? selected
+        : (select === yearFromSelect ? String(years[years.length - 1] || new Date().getFullYear() - 1) : String(years[0] || new Date().getFullYear()));
+    });
   },
 
   /**
@@ -328,8 +382,10 @@ const PayrollManagerController = {
   loadPayrolls: async function () {
     try {
       const filters = {
-        month: document.getElementById("filterMonth").value,
-        year: document.getElementById("filterYear").value,
+        month_from: document.getElementById("filterMonthFrom")?.value || document.getElementById("filterMonth")?.value,
+        year_from: document.getElementById("filterYearFrom")?.value || document.getElementById("filterYear")?.value,
+        month_to: document.getElementById("filterMonthTo")?.value,
+        year_to: document.getElementById("filterYearTo")?.value,
         status: document.getElementById("filterStatus").value,
         search: document.getElementById("searchStaff").value,
       };
@@ -355,11 +411,14 @@ const PayrollManagerController = {
    */
   loadStats: async function () {
     try {
-      const month =
-        document.getElementById("filterMonth").value ||
-        new Date().getMonth() + 1;
-      const year =
-        document.getElementById("filterYear").value || new Date().getFullYear();
+      const monthFrom = document.getElementById("filterMonthFrom")?.value;
+      const yearFrom = document.getElementById("filterYearFrom")?.value;
+      const monthTo = document.getElementById("filterMonthTo")?.value;
+      const yearTo = document.getElementById("filterYearTo")?.value;
+
+      // Default to current month/year if not specified
+      const month = monthFrom || new Date().getMonth() + 1;
+      const year = yearFrom || new Date().getFullYear();
 
       const response = await API.finance.getPayrollStats(month, year);
 
@@ -2614,76 +2673,8 @@ const PayrollManagerController = {
     }
 
     try {
-      const data = await API.finance.getDetailedPayslip(this.currentPayslipId);
-      if (!data || !data.id) throw new Error("Payslip details are unavailable");
-      const number = (value) => Number.parseFloat(value) || 0;
-      const monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-      const period = `${monthNames[Number(data.payroll_month)] || "-"} ${data.payroll_year || "-"}`;
-      const children = Array.isArray(data.children_deductions) ? data.children_deductions : [];
-      const childrenList = children.map((child) => ({
-        student_name: child.student_name || "Child",
-        class_name: child.class_name || "",
-        deducted_amount: number(child.deducted_amount || child.amount),
-      }));
-      const other = number(data.other_deductions ?? data.other_deductions_total);
-      const mode = data.payment_mode || data.payment_method;
-      const modeLabels = { bank: "Bank Transfer", cash: "Cash", mpesa: "M-Pesa", airtel_money: "Airtel Money" };
-      const paymentMethod = mode ? (modeLabels[mode] || mode) : "Not Recorded";
-      const paidDateValue = data.paid_at || data.payment_date;
-      const datePaid = paidDateValue
-        ? new Date(paidDateValue).toLocaleString("en-KE")
-        : "Not Paid";
-      const status = String(data.status || data.payslip_status || data.payment_status || "Unknown");
-      const school = data.school_profile || {};
-
-      // Payload mirrors every field rendered by renderPayslip(). The backend
-      // renders the payslip's complete standalone template (including its
-      // own header/footer), not the generic report shell.
-      await window.PrintManager.printDedicatedPayslip({
-        title: "Staff Payslip",
-        subtitle: period,
-        employeeName: `${data.first_name || ""} ${data.last_name || ""}`.trim(),
-        staffNo: data.staff_no || data.staff_number || "-",
-        department: data.department || "-",
-        designation: data.position || data.designation || "-",
-        kraPin: data.kra_pin || "-",
-        nssfNo: data.nssf_no || "-",
-        shifNo: data.shif_no || data.nhif_no || "-",
-        period,
-        basicSalary: number(data.basic_salary),
-        allowances: [{ name: "Allowances", amount: number(data.allowances ?? data.allowances_total) }],
-        statutory: {
-          paye: number(data.paye_tax),
-          nssf: number(data.nssf_deduction ?? data.nssf_contribution),
-          nhif_shif: number(data.shif_deduction ?? data.shif_contribution ?? data.nhif_contribution),
-          housing_levy: number(data.housing_levy),
-        },
-        childrenDeductions: childrenList,
-        otherDeductions: other,
-        deductions: [],
-        grossPay: number(data.gross_salary),
-        totalDeductions: number(data.total_deductions ?? data.employee_deductions_total),
-        netPay: number(data.net_salary),
-        employerNssf: number(data.employer_nssf_contribution),
-        employerHousing: number(data.employer_housing_levy),
-        bankName: data.bank_name || "-",
-        bankAccountNumber: data.bank_account_number || data.bank_account || "-",
-        bankAccount: [data.bank_name, data.bank_account_number || data.bank_account].filter(Boolean).join(" / ") || "-",
-        paymentMethod,
-        paymentReference: data.payment_reference || "-",
-        datePaid,
-        status,
-        generatedOn: new Date().toLocaleDateString("en-KE"),
-        schoolName: school.school_name,
-        schoolLogo: school.logo_url,
-        schoolMotto: school.motto,
-        filename: `staff_payslip_${data.payroll_year || new Date().getFullYear()}_${data.payroll_month || ""}`,
-        reportCode: `PAYSLIP-${data.id}`,
-        signatureSection: [
-          { label: "Accounts Officer", dateLine: true },
-          { label: "Employee Acknowledgement", dateLine: true },
-        ],
-      });
+      // Authoritative payslip: server loads all financial data.
+      await window.PrintManager.printDedicatedPayslip({ payroll_id: this.currentPayslipId });
     } catch (error) {
       console.error("Error printing payslip:", error);
       this.showError(error.message || "Unable to generate the payslip");

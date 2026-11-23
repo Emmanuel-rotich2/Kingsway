@@ -202,11 +202,16 @@ define(
 |--------------------------------------------------------------------------
 | Trusted print templates
 |--------------------------------------------------------------------------
+|
+| Templates are code: they ship with the application in resources/templates
+| (tracked in Git, deployed with every release) and are never stored under
+| the uploads tree, which holds content only and must not run PHP. Images,
+| logos and photos stay in uploads and are reached through UPLOAD_PATH.
 */
 
 define(
     'TEMPLATES_PATH',
-    $normalizedUploadPath . '/templates'
+    dirname(__DIR__) . '/resources/templates'
 );
 
 define(
@@ -290,13 +295,6 @@ $requiredUploadDirectories = [
     SCHOOL_ASSETS_DOCUMENTS,
     SCHOOL_ASSETS_GALLERY,
     SCHOOL_ASSETS_QR_CODES,
-
-    TEMPLATES_PATH,
-    PRINT_TEMPLATES,
-    PRINT_SERVER_TEMPLATES,
-    CERTIFICATE_TEMPLATES,
-    ID_CARD_TEMPLATES,
-    STAFF_SECURITY_PASS_TEMPLATES,
 
     TEMP_UPLOADS,
     PRINT_OUTPUT_PATH,

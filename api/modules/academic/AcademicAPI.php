@@ -2027,8 +2027,11 @@ SELECT
             // Scheme approval is the academic control point. A lesson plan
             // created from that approved scheme may be published directly by
             // its assigned author; it does not enter a second approval queue.
-            $status = in_array((string) ($data['status'] ?? ''), ['published', 'approved'], true)
-                ? 'approved'
+            // The teacher can save a draft or submit it to the academic heads;
+            // approval and publishing happen later, by the heads and the
+            // School Administrator.
+            $status = in_array((string) ($data['status'] ?? ''), ['submitted', 'published', 'approved'], true)
+                ? 'submitted'
                 : 'draft';
 
             // Create the lesson template holding the lesson content
@@ -2112,13 +2115,11 @@ SELECT
             // are retained only so older records remain readable.
             $this->syncLessonPlanAtomicContent((int) $planId, $data, (int) ($data['sub_strand_id'] ?? 0));
 
-            $this->db->commit();
-            // The lesson's formative assessment is part of the plan.
-            try {
-                (new \App\API\Services\LessonPlanAssessmentService($this->db))->ensureFor((int) $planId);
-            } catch (\Throwable $assessmentError) {
-                \App\API\Includes\FileLogger::write('academic', ['type' => 'lesson_assessment_not_created', 'lesson_plan_id' => (int) $planId, 'reason' => mb_substr($assessmentError->getMessage(), 0, 200)], 'warning');
+            if ($status === 'submitted') {
+                $this->db->prepare('UPDATE lesson_plans SET submitted_at = NOW() WHERE id = ?')->execute([(int) $planId]);
             }
+            $this->db->commit();
+            // The lesson's formative assessment is created once the heads approve.
             $this->logAction('create', $planId, "Created lesson plan: {$normalized['title']}");
 
             return successResponse([
@@ -2373,7 +2374,7 @@ SELECT
                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d
                   ON d.academic_year_calendar_id = aycal.id AND d.date = ?
                 WHERE sw.id = ?
-                  AND sw.status = 'approved'
+                  AND sw.status IN ('approved','published')
                   AND aycs.status = 'active'
                 LIMIT 1";
         $stmt = $this->db->prepare($sql);
@@ -3308,7 +3309,7 @@ return errorResponse($e->getMessage(), 400);
                 'schemes' => $schemes,
                 'summary' => [
                     'total' => count($schemes),
-                    'approved' => count(array_filter($schemes, fn($s) => ($s['status'] ?? '') === 'approved')),
+                    'approved' => count(array_filter($schemes, fn($s) => in_array($s['status'] ?? '', ['approved', 'published'], true))),
                     'pending' => count(array_filter($schemes, fn($s) => in_array(($s['status'] ?? ''), ['draft', 'submitted'], true))),
                     'overdue' => 0,
                 ],
@@ -3438,7 +3439,7 @@ return errorResponse($e->getMessage(), 400);
     {
         try {
             $schemeId = (int) $schemeId;
-            $stmt = $this->db->prepare("SELECT sw.id, sw.scheme_workbook_id, sw.status, sw.teacher_id, sw.academic_year_class_stream_learning_area_id AS stream_learning_area_id, sw.academic_year_calendar_week_id AS calendar_week_id, st.learning_area_id, st.strand_id, st.sub_strand_id, st.title, sss.name AS strand_name, sss.sub_strand_name, sss.variant AS strand_variant, sss.source_document AS strand_source_document, ac.week_number, ac.week_start, ac.week_end, csd.class_id AS class_id, csd.stream_id AS stream_id, la.name AS learning_area_name, csd.class_name AS class_name, csd.stream_name AS stream_name FROM " . ReadReplicaService::qualifiedRef("schemes_of_work") . " sw JOIN " . ReadReplicaService::qualifiedRef("scheme_templates") . " st ON st.id=sw.scheme_template_id JOIN " . ReadReplicaService::qualifiedRef("strands_sub_strands") . " sss ON sss.id=st.strand_id AND sss.sub_strand_id=st.sub_strand_id JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id=st.learning_area_id LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " aysla ON aysla.id=sw.academic_year_class_stream_learning_area_id LEFT JOIN " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd ON csd.academic_year_class_stream_id=aysla.academic_year_class_stream_id JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id=sw.academic_year_calendar_week_id WHERE sw.id=? AND sw.status='approved' LIMIT 1");
+            $stmt = $this->db->prepare("SELECT sw.id, sw.scheme_workbook_id, sw.status, sw.teacher_id, sw.academic_year_class_stream_learning_area_id AS stream_learning_area_id, sw.academic_year_calendar_week_id AS calendar_week_id, st.learning_area_id, st.strand_id, st.sub_strand_id, st.title, sss.name AS strand_name, sss.sub_strand_name, sss.variant AS strand_variant, sss.source_document AS strand_source_document, ac.week_number, ac.week_start, ac.week_end, csd.class_id AS class_id, csd.stream_id AS stream_id, la.name AS learning_area_name, csd.class_name AS class_name, csd.stream_name AS stream_name FROM " . ReadReplicaService::qualifiedRef("schemes_of_work") . " sw JOIN " . ReadReplicaService::qualifiedRef("scheme_templates") . " st ON st.id=sw.scheme_template_id JOIN " . ReadReplicaService::qualifiedRef("strands_sub_strands") . " sss ON sss.id=st.strand_id AND sss.sub_strand_id=st.sub_strand_id JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id=st.learning_area_id LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " aysla ON aysla.id=sw.academic_year_class_stream_learning_area_id LEFT JOIN " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd ON csd.academic_year_class_stream_id=aysla.academic_year_class_stream_id JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id=sw.academic_year_calendar_week_id WHERE sw.id=? AND sw.status IN ('approved','published') LIMIT 1");
             $stmt->execute([$schemeId]);
             $scheme = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$scheme) return errorResponse('Approved scheme row not found', 404);
@@ -3848,7 +3849,7 @@ return errorResponse($e->getMessage(), 400);
 
     public function approveSchemeWorkbook(int $workbookId, array $data = [])
     {
-        if (!$workbookId || !$this->isAcademicLeader()) return errorResponse('Academic leadership access is required to approve a workbook', 403);
+        if (!$workbookId || !$this->isAcademicHead()) return errorResponse('Only the academic heads can approve a scheme of work', 403);
         $staff = (int)$this->getCurrentStaffId();
         $source = $this->db->prepare("SELECT id,status FROM scheme_workbooks WHERE id=? LIMIT 1");
         $source->execute([$workbookId]);
@@ -4199,6 +4200,31 @@ return errorResponse($e->getMessage(), 400);
         }
     }
 
+    /** School Administrator: publish an approved scheme so parents can see it. */
+    public function publishSchemeWorkbook(int $workbookId): array
+    {
+        if (!$workbookId) return errorResponse('workbook_id is required', 400);
+        if (!$this->canPublishLearning()) return errorResponse('Only the School Administrator can publish a scheme of work', 403);
+        $book = $this->db->prepare('SELECT id, status FROM scheme_workbooks WHERE id = ? LIMIT 1');
+        $book->execute([$workbookId]);
+        $row = $book->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return errorResponse('Scheme workbook not found', 404);
+        if ($row['status'] === 'published') return successResponse(['workbook_id' => $workbookId, 'status' => 'published'], 'Scheme is already published');
+        if ($row['status'] !== 'approved') return errorResponse('Only a scheme the academic heads have approved can be published', 409);
+        $staff = (int) $this->getCurrentStaffId();
+        try {
+            $this->db->beginTransaction();
+            $this->db->prepare("UPDATE schemes_of_work SET status = 'published', published_by = ?, published_at = NOW() WHERE scheme_workbook_id = ? AND status = 'approved'")->execute([$staff, $workbookId]);
+            $this->db->prepare("UPDATE scheme_workbooks SET status = 'published', published_by = ?, published_at = NOW(), updated_at = NOW() WHERE id = ? AND status = 'approved'")->execute([$staff, $workbookId]);
+            $this->db->commit();
+            \App\API\Includes\FileLogger::write('academic', ['type' => 'scheme_published', 'workbook_id' => $workbookId, 'staff_id' => $staff], 'info');
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            return $this->handleException($e);
+        }
+        return successResponse(['workbook_id' => $workbookId, 'status' => 'published'], 'Scheme of work published to parents');
+    }
+
     public function approveSchemeOfWork($id, $data = [])
     {
         try {
@@ -4213,19 +4239,20 @@ return errorResponse($e->getMessage(), 400);
             $linkedWorkbookId = (int)($workbookLookup->fetchColumn() ?: 0);
             if ($linkedWorkbookId) return $this->approveSchemeWorkbook($linkedWorkbookId, $data);
 
+            if (!$this->isAcademicHead()) return errorResponse('Only the academic heads can approve a scheme of work', 403);
             $stmt = $this->db->prepare("
                 UPDATE schemes_of_work
                 SET status = 'approved', approved_by = ?
-                WHERE id = ?
+                WHERE id = ? AND status = 'draft'
             ");
-            $approvedBy = $data['approved_by'] ?? $this->getCurrentStaffId();
+            $approvedBy = $this->getCurrentStaffId();
             $stmt->execute([$approvedBy, $id]);
 
             $workbook = $this->db->prepare('SELECT scheme_workbook_id FROM schemes_of_work WHERE id=?');
             $workbook->execute([(int)$id]);
             $workbookId = (int)($workbook->fetchColumn() ?: 0);
             if ($workbookId) {
-                $pending = $this->db->prepare("SELECT COUNT(*) FROM schemes_of_work WHERE scheme_workbook_id=? AND status <> 'approved'");
+                $pending = $this->db->prepare("SELECT COUNT(*) FROM schemes_of_work WHERE scheme_workbook_id=? AND status NOT IN ('approved','published')");
                 $pending->execute([$workbookId]);
                 if ((int)$pending->fetchColumn() === 0) {
                     $this->db->prepare("UPDATE scheme_workbooks SET status='approved', approved_by=?, updated_at=NOW() WHERE id=? AND status='submitted'")->execute([$approvedBy, $workbookId]);
@@ -5887,6 +5914,9 @@ return errorResponse($e->getMessage(), 400);
             if ((int) $plan['teacher_id'] !== (int) $this->getCurrentStaffId()) {
                 return errorResponse('Only the assigned teacher can edit this lesson plan', 403);
             }
+            if (!in_array((string) $plan['status'], ['draft'], true)) {
+                return errorResponse('This lesson plan is with the academic heads or already published. Ask the heads to return it if it needs changes.', 409);
+            }
 
             // Lesson plans are author-published delivery records, not reviewed
             // academic documents. The assigned author may update a published
@@ -5968,12 +5998,12 @@ return errorResponse($e->getMessage(), 400);
                     $planParams[] = $calendarDayId;
                 }
             }
-            if (in_array((string) ($data['status'] ?? ''), ['published', 'approved'], true)
+            if (in_array((string) ($data['status'] ?? ''), ['submitted', 'published', 'approved'], true)
                 && $plan['status'] === 'draft') {
                 $planUpdates[] = 'status = ?';
-                $planParams[] = 'approved';
-                $planUpdates[] = 'approved_by = ?';
-                $planParams[] = $this->getCurrentStaffId();
+                $planParams[] = 'submitted';
+                $planUpdates[] = 'submitted_at = NOW()';
+                $planUpdates[] = 'review_note = NULL';
             }
             if (!empty($planUpdates)) {
                 $planParams[] = $id;
@@ -6021,9 +6051,9 @@ return errorResponse($e->getMessage(), 400);
                 return errorResponse('Only the assigned teacher can archive this lesson plan', 403);
             }
 
-            // Prevent deleting approved plans
-            if ($plan['status'] === 'approved') {
-                return errorResponse('Cannot delete approved lesson plan');
+            // Only drafts can be archived by the teacher.
+            if ($plan['status'] !== 'draft') {
+                return errorResponse('Only a draft lesson plan can be archived. Submitted, approved and published plans stay on record.');
             }
 
             // Soft delete by archiving
@@ -6045,129 +6075,141 @@ return errorResponse($e->getMessage(), 400);
         }
     }
 
-    public function approveLessonPlan($id, $data)
+    /**
+     * Lesson plan workflow (the school's two approvals):
+     *   draft      the AI assistant's draft, reviewed and edited by the teacher
+     *   submitted  the subject teacher validated it and sent it to the heads
+     *   approved   the academic heads approved it (the lesson's formative
+     *              assessment is created now)
+     *   published  the School Administrator published it; parents see it
+     * Heads can return a submitted or approved plan to the teacher with a note.
+     */
+    private function roleNames(): array
+    {
+        $userId = $this->getCurrentUserId();
+        if (!$userId) return [];
+        $ids = $this->db->prepare('SELECT role_id FROM user_roles WHERE user_id = ?');
+        $ids->execute([(int) $userId]);
+        $roleIds = array_map('intval', $ids->fetchAll(PDO::FETCH_COLUMN));
+        if (!$roleIds) return [];
+        $stmt = $this->db->prepare('SELECT LOWER(name) FROM roles WHERE id IN (' . implode(',', array_fill(0, count($roleIds), '?')) . ')');
+        $stmt->execute($roleIds);
+        return array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    /** Academic heads review and approve: Deputy Head (Academic), Headteacher, and those above them. */
+    private function isAcademicHead(): bool
+    {
+        foreach ($this->roleNames() as $r) {
+            if (preg_match('/^(deputy head ?- ?academic|headteacher|head teacher|school administrator|director|system administrator)$/', $r)) return true;
+        }
+        return false;
+    }
+
+    /** Publishing to parents: School Administrator (and Director / System Administrator). */
+    private function canPublishLearning(): bool
+    {
+        foreach ($this->roleNames() as $r) {
+            if (preg_match('/^(school administrator|director|system administrator)$/', $r)) return true;
+        }
+        return false;
+    }
+
+    private function lessonPlanRow($id): ?array
+    {
+        $stmt = $this->db->prepare('SELECT id, status, teacher_id FROM lesson_plans WHERE id = ?');
+        $stmt->execute([(int) $id]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    private function syncLessonAssessment(int $planId): void
     {
         try {
-            if (!$this->isAcademicLeader()) {
-                return errorResponse('Only an academic leader can approve lesson plans', 403);
-            }
-            $this->db->beginTransaction();
-
-            // Check if plan exists
-            $stmt = $this->db->prepare("SELECT id, status FROM lesson_plans WHERE id = ?");
-            $stmt->execute([$id]);
-            $plan = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$plan) {
-                return errorResponse('Lesson plan not found');
-            }
-
-            if ($plan['status'] !== 'draft') {
-                return errorResponse('Only draft lesson plans can be approved');
-            }
-
-            $approverId = is_array($data) ? ($data['approved_by'] ?? $this->getCurrentStaffId()) : $this->getCurrentStaffId();
-
-            $sql = "UPDATE lesson_plans SET status = 'approved', approved_by = ? WHERE id = ?";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$approverId, $id]);
-
-            $this->db->commit();
-            try { (new \App\API\Services\LessonPlanAssessmentService($this->db))->ensureFor((int) $id); } catch (\Throwable $assessmentError) { \App\API\Includes\FileLogger::write('academic', ['type' => 'lesson_assessment_not_synced', 'lesson_plan_id' => (int) $id, 'reason' => mb_substr($assessmentError->getMessage(), 0, 200)], 'warning'); }
-            $this->logAction('update', $id, "Approved lesson plan");
-
-            return successResponse([
-                'status' => 'success',
-                'message' => 'Lesson plan approved successfully'
-            ]);
-        } catch (Exception $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-            return $this->handleException($e);
+            (new \App\API\Services\LessonPlanAssessmentService($this->db))->ensureFor($planId);
+        } catch (\Throwable $e) {
+            \App\API\Includes\FileLogger::write('academic', ['type' => 'lesson_assessment_not_synced', 'lesson_plan_id' => $planId, 'reason' => mb_substr($e->getMessage(), 0, 200)], 'warning');
         }
     }
 
-    /**
-     * Reject a lesson plan (returns it to draft for revision).
-     */
-    public function rejectLessonPlan($id, $data = [])
-    {
-        try {
-            if (!$this->isAcademicLeader()) {
-                return errorResponse('Only an academic leader can reject lesson plans', 403);
-            }
-            $this->db->beginTransaction();
-
-            $stmt = $this->db->prepare("SELECT id, status FROM lesson_plans WHERE id = ?");
-            $stmt->execute([$id]);
-            $plan = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$plan) {
-                return errorResponse('Lesson plan not found');
-            }
-
-            if (!in_array($plan['status'], ['draft', 'approved'])) {
-                return errorResponse('Lesson plan cannot be rejected in its current state');
-            }
-
-            $sql = "UPDATE lesson_plans SET status = 'draft', approved_by = NULL WHERE id = ?";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$id]);
-
-            $this->db->commit();
-            $this->logAction('update', $id, "Rejected lesson plan");
-
-            return successResponse([
-                'status' => 'success',
-                'message' => 'Lesson plan rejected (returned to draft)'
-            ]);
-        } catch (Exception $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-            return $this->handleException($e);
-        }
-    }
-
-    /**
-     * Backward-compatible endpoint. Lesson plans are published by the author
-     * after their scheme is approved; they are not submitted for review.
-     */
+    /** Teacher: validated the assistant's draft, send it to the academic heads. */
     public function submitLessonPlan($id, $data = [])
     {
         try {
-            $this->db->beginTransaction();
-
-            $stmt = $this->db->prepare("SELECT id, status, teacher_id FROM lesson_plans WHERE id = ?");
-            $stmt->execute([$id]);
-            $plan = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$plan) {
-                return errorResponse('Lesson plan not found');
-            }
-
+            $plan = $this->lessonPlanRow($id);
+            if (!$plan) return errorResponse('Lesson plan not found', 404);
             if ((int) $plan['teacher_id'] !== (int) $this->getCurrentStaffId()) {
-                return errorResponse('Only the assigned teacher can submit this lesson plan', 403);
+                return errorResponse('Only the subject teacher who owns this lesson plan can submit it', 403);
             }
+            if ($plan['status'] !== 'draft') return errorResponse('Only a draft lesson plan can be submitted', 409);
+            $this->db->prepare("UPDATE lesson_plans SET status = 'submitted', submitted_at = NOW(), review_note = NULL WHERE id = ? AND status = 'draft'")->execute([(int) $id]);
+            $this->logAction('update', $id, 'Submitted lesson plan to the academic heads');
+            return successResponse(['status' => 'submitted', 'message' => 'Lesson plan submitted to the academic heads for review']);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
 
-            if ($plan['status'] !== 'draft') {
-                return errorResponse('Only draft lesson plans can be published');
+    /** Academic heads: approve a submitted plan. */
+    public function approveLessonPlan($id, $data)
+    {
+        try {
+            if (!$this->isAcademicHead()) return errorResponse('Only the academic heads can approve lesson plans', 403);
+            $plan = $this->lessonPlanRow($id);
+            if (!$plan) return errorResponse('Lesson plan not found', 404);
+            if ($plan['status'] === 'approved') return successResponse(['status' => 'approved', 'message' => 'Lesson plan is already approved']);
+            if ($plan['status'] !== 'submitted') return errorResponse('Only a lesson plan the teacher has submitted can be approved', 409);
+            $this->db->prepare("UPDATE lesson_plans SET status = 'approved', approved_by = ?, approved_at = NOW(), review_note = NULL WHERE id = ? AND status = 'submitted'")
+                ->execute([$this->getCurrentStaffId(), (int) $id]);
+            $this->syncLessonAssessment((int) $id);
+            $this->logAction('update', $id, 'Approved lesson plan');
+            return successResponse(['status' => 'approved', 'message' => 'Lesson plan approved. The School Administrator can now publish it to parents.']);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /** Academic heads: return a submitted or approved plan to the teacher with a note. */
+    public function rejectLessonPlan($id, $data = [])
+    {
+        try {
+            if (!$this->isAcademicHead()) return errorResponse('Only the academic heads can return lesson plans', 403);
+            $plan = $this->lessonPlanRow($id);
+            if (!$plan) return errorResponse('Lesson plan not found', 404);
+            if (!in_array($plan['status'], ['submitted', 'approved'], true)) {
+                return errorResponse('Only a submitted or approved lesson plan can be returned to the teacher', 409);
             }
+            $note = mb_substr(trim((string) ($data['reason'] ?? $data['review_note'] ?? $data['feedback'] ?? $data['comments'] ?? '')), 0, 500);
+            if ($note === '') return errorResponse('Tell the teacher what to change', 422);
+            $this->db->prepare("UPDATE lesson_plans SET status = 'draft', approved_by = NULL, approved_at = NULL, review_note = ? WHERE id = ?")
+                ->execute([$note, (int) $id]);
+            $this->logAction('update', $id, 'Returned lesson plan to the teacher');
+            return successResponse(['status' => 'draft', 'message' => 'Lesson plan returned to the teacher']);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
 
-            $update = $this->db->prepare("UPDATE lesson_plans SET status = 'approved', approved_by = ? WHERE id = ?");
-            $update->execute([$this->getCurrentStaffId(), $id]);
-            $this->db->commit();
-            $this->logAction('update', $id, "Published lesson plan");
-
+    /** School Administrator: publish approved plans so parents can see them. */
+    public function publishLessonPlans(array $ids): array
+    {
+        try {
+            if (!$this->canPublishLearning()) return errorResponse('Only the School Administrator can publish lesson plans', 403);
+            $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+            if (!$ids) return errorResponse('Choose the lesson plans to publish', 422);
+            $done = 0; $skipped = [];
+            $stmt = $this->db->prepare("UPDATE lesson_plans SET status = 'published', published_by = ?, published_at = NOW() WHERE id = ? AND status = 'approved'");
+            foreach ($ids as $planId) {
+                $stmt->execute([$this->getCurrentStaffId(), $planId]);
+                if ($stmt->rowCount()) { $done++; $this->syncLessonAssessment($planId); }
+                else $skipped[] = $planId;
+            }
+            $this->logAction('update', null, "Published {$done} lesson plan(s)");
             return successResponse([
-                'status' => 'success',
-                'message' => 'Lesson plan published successfully'
+                'published' => $done,
+                'skipped' => $skipped,
+                'message' => $done ? "{$done} lesson plan" . ($done === 1 ? '' : 's') . ' published to parents' : 'Nothing published: only approved lesson plans can be published',
             ]);
         } catch (Exception $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
             return $this->handleException($e);
         }
     }

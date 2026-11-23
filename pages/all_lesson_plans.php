@@ -38,7 +38,7 @@
         <div class="col-md-3">
             <div class="card border-success">
                 <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Approved</h6>
+                    <h6 class="text-muted mb-2">Approved or published</h6>
                     <h3 class="text-success mb-0" id="approvedPlans">0</h3>
                 </div>
             </div>
@@ -46,7 +46,7 @@
         <div class="col-md-3">
             <div class="card border-warning">
                 <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Pending</h6>
+                    <h6 class="text-muted mb-2">Waiting for review</h6>
                     <h3 class="text-warning mb-0" id="pendingPlans">0</h3>
                 </div>
             </div>
@@ -54,7 +54,7 @@
         <div class="col-md-3">
             <div class="card border-danger">
                 <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Rejected</h6>
+                    <h6 class="text-muted mb-2">Returned to teachers</h6>
                     <h3 class="text-danger mb-0" id="rejectedPlans">0</h3>
                 </div>
             </div>
@@ -82,11 +82,11 @@
                 </div>
                 <div class="col-md-2">
                     <select class="form-select" id="statusFilterLP">
-                        <option value="">All Status</option>
-                        <option value="approved">Approved</option>
-                        <option value="pending">Pending</option>
-                        <option value="rejected">Rejected</option>
-                        <option value="draft">Draft</option>
+                        <option value="">All statuses</option>
+                        <option value="draft">Draft (with the teacher)</option>
+                        <option value="submitted">Submitted for review</option>
+                        <option value="approved">Approved, awaiting publishing</option>
+                        <option value="published">Published to parents</option>
                     </select>
                 </div>
                 <div class="col-md-2">

@@ -81,10 +81,11 @@
                 </div>
                 <div class="col-md-2">
                     <select class="form-select" id="approvalStatusFilter">
-                        <option value="submitted">Pending Review</option>
-                        <option value="">All Status</option>
-                        <option value="approved">Approved</option>
-                        <option value="rejected">Rejected</option>
+                        <option value="submitted">Submitted for review</option>
+                        <option value="">All statuses</option>
+                        <option value="approved">Approved, awaiting publishing</option>
+                        <option value="published">Published to parents</option>
+                        <option value="draft">Returned / draft</option>
                     </select>
                 </div>
             </div>

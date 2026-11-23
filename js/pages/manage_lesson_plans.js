@@ -29,18 +29,20 @@ const lessonPlansController = (() => {
   const statusBadge = (s) => {
     const normalized = String(s || "draft").toLowerCase();
     const m = {
+      published: "primary",
       approved: "success",
       submitted: "warning",
       draft: "secondary",
-      rejected: "danger",
-      completed: "info",
+      delivered: "info",
     };
+    // Teacher validates the assistant's draft and submits; the academic heads
+    // approve; the School Administrator publishes to parents.
     const labels = {
-      approved: "Published",
-      submitted: "Pending Review",
+      published: "Published to parents",
+      approved: "Approved, awaiting publishing",
+      submitted: "With the academic heads",
       draft: "Draft",
-      rejected: "Rejected",
-      completed: "Completed",
+      delivered: "Taught",
     };
     return `<span class="badge bg-${m[normalized] || "secondary"}">${labels[normalized] || esc(s)}</span>`;
   };
@@ -160,7 +162,7 @@ const lessonPlansController = (() => {
       );
       pendingPlans = allPlans.filter((p) => p.status === "submitted");
       approvedPlans = allPlans.filter(
-        (p) => p.status === "approved",
+        (p) => ["approved", "published", "delivered"].includes(p.status),
       );
       updateStats();
       renderTab("allLessons", allPlans);
@@ -240,11 +242,12 @@ const lessonPlansController = (() => {
                 <td>${esc(p.class_name)}</td>
                 ${personalMode ? "" : `<td>${esc(p.teacher_name)}</td>`}
                 <td>${esc(p.lesson_date)}</td>
-                <td>${statusBadge(p.status)}</td>
+                <td>${statusBadge(p.status)}${p.status === "draft" && p.review_note ? `<div class="small text-warning-emphasis mt-1">Returned by the academic heads: ${esc(p.review_note)}</div>` : ""}</td>
                 <td>
                     <div class="btn-group btn-group-sm">
                         <button class="btn btn-outline-primary" data-kw-onclick="lessonPlansController.viewPlan(${Number(p.id) || 0})" title="View"><i class="bi bi-eye"></i></button>
-                        ${personalMode && p.status !== "archived" ? `<button class="btn btn-outline-warning" data-kw-onclick="lessonPlansController.editPlan(${Number(p.id) || 0})" title="Edit" data-year-write><i class="bi bi-pencil"></i></button>` : ""}
+                        ${personalMode && p.status === "draft" ? `<button class="btn btn-outline-warning" data-kw-onclick="lessonPlansController.editPlan(${Number(p.id) || 0})" title="Edit" data-year-write><i class="bi bi-pencil"></i></button>` : ""}
+                        ${personalMode && p.status === "draft" ? `<button class="btn btn-outline-success" data-kw-onclick="lessonPlansController.submitPlan(${Number(p.id) || 0})" title="Submit to the academic heads" data-year-write><i class="bi bi-send"></i></button>` : ""}
                         ${personalMode && p.status === "draft" ? `<button class="btn btn-outline-danger" data-kw-onclick="lessonPlansController.deletePlan(${Number(p.id) || 0})" title="Archive" data-year-write><i class="bi bi-trash"></i></button>` : ""}
                         ${personalMode ? `<button class="btn btn-outline-secondary" data-kw-onclick="lessonPlansController.duplicatePlan(${Number(p.id) || 0})" title="Duplicate" data-year-write><i class="bi bi-files"></i></button>` : ""}
                     </div>
@@ -343,7 +346,7 @@ const lessonPlansController = (() => {
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button class="btn btn-outline-primary" data-kw-onclick="lessonPlansController.savePlan(${Number(plan?.id) || "null"}, 'draft')" data-year-write><i class="bi bi-save"></i> Save Draft</button>
-                <button class="btn btn-primary" data-kw-onclick="lessonPlansController.savePlan(${Number(plan?.id) || "null"}, 'published')" data-year-write><i class="bi bi-send"></i> ${isEdit ? "Update & Publish" : "Publish Lesson Plan"}</button>
+                <button class="btn btn-primary" data-kw-onclick="lessonPlansController.savePlan(${Number(plan?.id) || "null"}, 'submitted')" data-year-write><i class="bi bi-send"></i> ${isEdit ? "Save and submit to the academic heads" : "Submit to the academic heads"}</button>
             </div>
         </div></div></div>`;
     document.body.appendChild(m);
@@ -471,14 +474,13 @@ const lessonPlansController = (() => {
   }
 
   async function submitPlan(id) {
-    if (!(await window.confirmAction('Confirm', "Submit this lesson plan for headteacher review?"))) return;
+    if (!(await window.confirmAction('Submit lesson plan', "You have reviewed the assistant's draft and it is ready. Submit it to the academic heads?"))) return;
     try {
       await API.academic.submitLessonPlan({ plan_id: id });
       await loadPlans();
-      await window.infoDialog('Notice', "Lesson plan submitted for review.");
+      window.showNotification?.("Lesson plan submitted to the academic heads.", "success");
     } catch (e) {
-      console.error("Submit:", e);
-      await window.infoDialog('Notice', "Failed to submit.");
+      window.showNotification?.(e.message || "The lesson plan could not be submitted.", "danger");
     }
   }
 

@@ -16,7 +16,8 @@ use RuntimeException;
  *   - term result: the computed term score and grade (term_subject_scores),
  *     only where evidence exists; otherwise "not assessed";
  *   - summative: each approved exam/test result;
- *   - formative: approved formative evidence grouped by strand and
+ *   - formative: every saved formative mark (formative needs no sign-off;
+ *     marks can only be saved while the teacher has marking open), grouped by strand and
  *     sub-strand.
  *
  * Scoping rules (the same as every year-aware report):
@@ -224,7 +225,7 @@ class LearnerAcademicRecordService
             "SELECT a.id AS assessment_id, a.title, a.assessment_date, a.learning_area_id, a.academic_year_term_id,
                     a.status AS assessment_status, a.strand_id, a.sub_strand_id,
                     s.name AS strand_name, ss.name AS sub_strand_name,
-                    (a.status = 'approved') AS approved
+                    1 AS approved
              FROM " . $this->ref('assessments') . " a
              LEFT JOIN " . $this->ref('strands') . " s ON s.id = a.strand_id
              LEFT JOIN " . $this->ref('sub_strands') . " ss ON ss.id = a.sub_strand_id
@@ -238,7 +239,7 @@ class LearnerAcademicRecordService
         if ($formativeAssessments) {
             $ids = array_keys($formativeAssessments);
             foreach ($this->rows(
-                'SELECT assessment_id, score, max_score, percentage, cbc_grade, remarks
+                'SELECT assessment_id, score, max_score, percentage, remarks
                  FROM formative_scores
                  WHERE student_id = ? AND assessment_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')',
                 array_merge([$studentId], $ids)
@@ -291,7 +292,7 @@ class LearnerAcademicRecordService
                 'score' => $row['score'] !== null ? (float) $row['score'] : null,
                 'out_of' => $row['max_score'] !== null ? (float) $row['max_score'] : null,
                 'percentage' => $row['percentage'] !== null ? round((float) $row['percentage'], 1) : null,
-                'grade' => $row['cbc_grade'],
+                'grade' => (new CbcGradingService($this->db))->codeForPercentage($row['percentage'], isset($row['academic_year_term_id']) ? (int) $row['academic_year_term_id'] : null),
                 'entry_status' => 'present',
                 'remarks' => $row['remarks'],
             ]);

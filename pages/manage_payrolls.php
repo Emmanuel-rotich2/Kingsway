@@ -244,9 +244,9 @@
     <div class="payroll-panel">
         <div class="filter-row">
             <div class="filter-group">
-                <label class="form-label">Month</label>
-                <select id="filterMonth" class="form-select" data-kw-onchange="PayrollManagerController.applyFilters()">
-                    <option value="">All Months</option>
+                <label class="form-label">Month from</label>
+                <select id="filterMonthFrom" class="form-select" data-kw-onchange="PayrollManagerController.applyFilters()">
+                    <option value="">Any</option>
                     <option value="1">January</option>
                     <option value="2">February</option>
                     <option value="3">March</option>
@@ -262,9 +262,33 @@
                 </select>
             </div>
             <div class="filter-group">
-                <label class="form-label">Year</label>
-                <select id="filterYear" class="form-select" data-kw-onchange="PayrollManagerController.applyFilters()">
-                    <option value="">All Years</option>
+                <label class="form-label">Year from</label>
+                <select id="filterYearFrom" class="form-select" data-kw-onchange="PayrollManagerController.applyFilters()">
+                    <option value="">Any</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label class="form-label">Month to</label>
+                <select id="filterMonthTo" class="form-select" data-kw-onchange="PayrollManagerController.applyFilters()">
+                    <option value="">Any</option>
+                    <option value="1">January</option>
+                    <option value="2">February</option>
+                    <option value="3">March</option>
+                    <option value="4">April</option>
+                    <option value="5">May</option>
+                    <option value="6">June</option>
+                    <option value="7">July</option>
+                    <option value="8">August</option>
+                    <option value="9">September</option>
+                    <option value="10">October</option>
+                    <option value="11">November</option>
+                    <option value="12">December</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label class="form-label">Year to</label>
+                <select id="filterYearTo" class="form-select" data-kw-onchange="PayrollManagerController.applyFilters()">
+                    <option value="">Any</option>
                 </select>
             </div>
             <div class="filter-group">
