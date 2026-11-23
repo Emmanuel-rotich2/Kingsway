@@ -1706,38 +1706,10 @@ const staffManagementController = {
 
   printPayslip: function () {
     const payslip = this.currentPayslip;
-    if (!payslip || !window.PrintManager?.printDedicatedPayslip) return;
-    const amount = (value) => Number.parseFloat(value) || 0;
-    return window.PrintManager.printDedicatedPayslip({
-      title: "Staff Payslip",
-      period: `${this.getMonthName(payslip.payroll_month || payslip.month)} ${payslip.payroll_year || payslip.year || ""}`,
-      employeeName: `${payslip.first_name || ""} ${payslip.last_name || ""}`.trim() || payslip.staff_name,
-      staffNo: payslip.staff_no,
-      department: payslip.department_name || payslip.department,
-      designation: payslip.position || payslip.designation,
-      kraPin: payslip.kra_pin,
-      basicSalary: amount(payslip.basic_salary || payslip.salary),
-      allowances: [{ name: "Allowances", amount: amount(payslip.allowances_total || payslip.allowances || payslip.other_allowances) }],
-      deductions: [
-        { name: "Other deductions", amount: amount(payslip.other_deductions) },
-        { name: "Children Fee Deductions", amount: amount(payslip.children_fee_deduction) },
-      ].filter((item) => item.amount > 0),
-      statutory: {
-        paye: amount(payslip.paye || payslip.tax),
-        nssf: amount(payslip.nssf_deduction || payslip.nssf),
-        nhif_shif: amount(payslip.nhif_deduction || payslip.nhif || payslip.shif),
-        housing_levy: amount(payslip.housing_levy),
-      },
-      grossPay: amount(payslip.gross_pay || payslip.gross_salary),
-      totalDeductions: amount(payslip.total_deductions),
-      netPay: amount(payslip.net_pay || payslip.net_salary),
-      bankAccount: payslip.bank_account || payslip.bank_account_number || "",
-      filename: `payslip_${payslip.staff_no || payslip.staff_id || "staff"}`,
-      signatureSection: [
-        { label: "Accounts Officer", dateLine: true },
-        { label: "Employee Acknowledgement", dateLine: true },
-      ],
-    });
+    const payrollId = payslip?.id || payslip?.payslip_id;
+    if (!payrollId || !window.PrintManager?.printDedicatedPayslip) return;
+    // Authoritative payslip: server loads all financial data.
+    return window.PrintManager.printDedicatedPayslip({ payroll_id: payrollId });
   },
 
   generatePayslip: async function (staffId) {

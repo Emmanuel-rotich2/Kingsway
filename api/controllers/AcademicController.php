@@ -411,6 +411,10 @@ return $this->error('An internal error occurred.');
     public function postSchemeWorkbookApprove($id = null, $data = [], $segments = [])
     { return $this->handleResponse($this->api->approveSchemeWorkbook((int)($id ?? ($data['workbook_id'] ?? 0)), $data)); }
 
+    /** POST /api/academic/scheme-workbook-publish/{id} — School Administrator publishes an approved scheme. */
+    public function postSchemeWorkbookPublish($id = null, $data = [], $segments = [])
+    { return $this->handleResponse($this->api->publishSchemeWorkbook((int)($id ?? ($data['workbook_id'] ?? 0)))); }
+
     public function getSchemeWorkbook($id = null, $data = [], $segments = [])
     { return $this->handleResponse($this->api->getSchemeWorkbook((int)$id)); }
 
@@ -3503,6 +3507,16 @@ return $this->serverError('An internal error occurred.');
         $planId = $data['plan_id'] ?? $id ?? null;
         $result = $this->api->submitLessonPlan($planId, $data);
         return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/academic/lesson-plans-publish — School Administrator publishes
+     * approved lesson plans to parents. Body: {ids: [..]} or {plan_id}.
+     */
+    public function postLessonPlansPublish($id = null, $data = [], $segments = [])
+    {
+        $ids = is_array($data['ids'] ?? null) ? $data['ids'] : [($data['plan_id'] ?? $id ?? 0)];
+        return $this->handleResponse($this->api->publishLessonPlans($ids));
     }
 
     /**

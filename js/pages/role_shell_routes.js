@@ -90,7 +90,7 @@
             continue;
           }
           const script = document.createElement('script');
-          script.src = src;
+          script.src = window.kwVersionedUrl ? window.kwVersionedUrl(src) : src;
           script.async = false;
           script.dataset.kingswayScriptState = 'loading';
           await new Promise((resolve, reject) => {

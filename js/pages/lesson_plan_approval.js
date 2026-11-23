@@ -91,11 +91,12 @@ const LessonPlanApprovalController = (() => {
     const today = new Date().toISOString().split("T")[0];
     const approvedToday = data.filter(
       (p) =>
-        (p.status || "").toLowerCase() === "approved" &&
+        ["approved", "published"].includes((p.status || "").toLowerCase()) &&
         (p.approved_at || p.approved_date || "").startsWith(today),
     ).length;
+    // "Returned" plans are drafts carrying the heads' note.
     const rejected = data.filter(
-      (p) => (p.status || "").toLowerCase() === "rejected",
+      (p) => (p.status || "").toLowerCase() === "draft" && p.review_note,
     ).length;
 
     document.getElementById("pendingApproval").textContent = pending;

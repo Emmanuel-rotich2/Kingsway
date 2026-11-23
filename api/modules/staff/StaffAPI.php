@@ -988,7 +988,7 @@ class StaffAPI extends BaseAPI {
         $stmt = $this->db->prepare("
             SELECT
                 COUNT(*) AS total,
-                SUM(CASE WHEN lp.status = 'approved' THEN 1 ELSE 0 END) AS approved,
+                SUM(CASE WHEN lp.status IN ('approved', 'published', 'delivered') THEN 1 ELSE 0 END) AS approved,
                 SUM(CASE WHEN lp.status = 'delivered' THEN 1 ELSE 0 END) AS submitted,
                 SUM(CASE WHEN lp.status = 'draft' THEN 1 ELSE 0 END) AS drafts,
                 MAX(acd.date) AS latest_lesson_date

@@ -16,6 +16,29 @@ if (!function_exists('asset_version')) {
     }
 }
 
+if (!function_exists('asset_build_id')) {
+    /**
+     * One stamp for the JavaScript that pages load on demand (newest change
+     * time under js/). Scripts loaded dynamically by the page shell carry it
+     * as ?v=, so every deploy gives them new URLs and browsers never keep
+     * running stale code (static assets are served with long cache lifetimes).
+     */
+    function asset_build_id(): string
+    {
+        static $id = null;
+        if ($id !== null) return $id;
+        $root = (defined('APP_BASE_PATH') ? APP_BASE_PATH : dirname(__DIR__)) . '/js';
+        $latest = 0;
+        if (is_dir($root)) {
+            $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
+            foreach ($files as $file) {
+                if ($file->isFile() && $file->getExtension() === 'js') $latest = max($latest, $file->getMTime());
+            }
+        }
+        return $id = (string) $latest;
+    }
+}
+
 if (!function_exists('app_base_path')) {
     /**
      * URL path prefix for the application, derived from the configured

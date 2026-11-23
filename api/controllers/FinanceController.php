@@ -1982,6 +1982,31 @@ class FinanceController extends BaseController
      * GET /api/finance/fee-structures/list
      * Get fee structures with permission-aware filtering
      */
+    /**
+     * GET /api/finance/fee-revenue-breakdown?academic_year=2026 (or academic_year_id=)&term_id=
+     * How the expected revenue is made up: by grade and stream, learner type,
+     * term and fee item (same source as the Expected Revenue figure).
+     */
+    public function getFeeRevenueBreakdown($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.view', 'finance_view', 'fee_structure_view', 'fee_structure_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions');
+        }
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        try {
+            $service = new \App\API\Services\FeeRevenueBreakdownService(\App\Database\Database::getInstance()->getConnection());
+            $yearId = (int) ($filters['academic_year_id'] ?? 0)
+                ?: $service->yearIdFor((string) ($filters['academic_year'] ?? ''))
+                ?: $service->currentYearId();
+            if (!$yearId) return $this->badRequest('academic_year_id is required');
+            $termId = !empty($filters['term_id']) ? (int) $filters['term_id'] : null;
+            return $this->success($service->breakdown($yearId, $termId), 'Revenue breakdown');
+        } catch (\Throwable $e) {
+            \App\API\Includes\FileLogger::write('finance', ['type' => 'fee_revenue_breakdown_failed', 'error' => mb_substr($e->getMessage(), 0, 300)], 'error');
+            return $this->serverError('The revenue breakdown could not be loaded.');
+        }
+    }
+
     public function getFeeStructuresList($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['finance.view', 'finance_view', 'fee_structure_view', 'fee_structure_manage'], [3, 4, 10])) {

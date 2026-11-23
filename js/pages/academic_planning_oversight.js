@@ -4,7 +4,7 @@ const academicPlanningOversight = {
   setHTML(selector, html) { const target = document.querySelector(selector); if (target) target.innerHTML = html; },
   setText(id, value) { const target = document.getElementById(id); if (target) target.textContent = String(value); },
   rows(items, cols, text = 'No records found for the selected year and term.') { return items.length ? items : [{ __empty: true, __text: text, __cols: cols }]; },
-  status(v) { const s = String(v || 'not_started').toLowerCase(); const cls = s === 'approved' ? 'success' : (s === 'submitted' || s === 'pending') ? 'warning text-dark' : s === 'rejected' ? 'danger' : 'secondary'; return `<span class="badge bg-${cls}">${this.esc(s.replace(/_/g, ' '))}</span>`; },
+  status(v) { const s = String(v || 'not_started').toLowerCase(); const cls = s === 'published' ? 'primary' : s === 'approved' ? 'success' : (s === 'submitted' || s === 'pending') ? 'warning text-dark' : s === 'rejected' ? 'danger' : 'secondary'; return `<span class="badge bg-${cls}">${this.esc(s.replace(/_/g, ' '))}</span>`; },
   emptyRow(x) { return x.__empty ? `<tr><td colspan="${x.__cols}" class="text-center text-muted apo-empty">${this.esc(x.__text)}</td></tr>` : ''; },
   scope: { yearId: 0, termId: 0, label: '' },
   getContext() { return { academic_year_id: this.scope.yearId || '', term_id: this.scope.termId || '' }; },
@@ -76,14 +76,15 @@ const academicPlanningOversight = {
     const workbookStatus = String(group.workbook_status || '').toLowerCase();
     if (workbookStatus) return workbookStatus === 'submitted' ? 'submitted' : workbookStatus;
     const statuses = group.rows.map(x => String(x.status || 'draft').toLowerCase());
-    if (statuses.every(x => x === 'approved')) return 'approved';
+    if (statuses.every(x => x === 'published')) return 'published';
+    if (statuses.every(x => x === 'approved' || x === 'published')) return 'approved';
     if (statuses.some(x => x === 'submitted' || x === 'pending')) return 'submitted';
-    if (statuses.some(x => x === 'approved')) return 'in progress';
+    if (statuses.some(x => x === 'approved' || x === 'published')) return 'in progress';
     return statuses[0] || 'draft';
   },
   schemeProgress(group) {
     const total = group.weeks.length || 1;
-    const complete = group.rows.filter(x => ['approved','submitted'].includes(String(x.status || '').toLowerCase())).length;
+    const complete = group.rows.filter(x => ['approved','submitted','published'].includes(String(x.status || '').toLowerCase())).length;
     const pct = Math.min(100, Math.round((complete / total) * 100));
     return `<div class="progress apo-progress"><div class="progress-bar bg-success" style="width:${pct}%"></div></div><small>${pct}%</small>`;
   },
@@ -97,12 +98,46 @@ const academicPlanningOversight = {
     document.getElementById('apoSchemeModalBody').innerHTML = weekKeys.map(week => `<section class="card border-0 shadow-sm mb-3"><div class="card-header bg-success-subtle d-flex justify-content-between"><strong>Week ${this.esc(week)}</strong><small>${this.esc(weeks[week][0].week_start || '')}${weeks[week][0].week_end ? ' to ' + this.esc(weeks[week][0].week_end) : ''}</small></div><div class="card-body"><div class="row g-3">${weeks[week].map(x => `<div class="col-12"><div class="border rounded p-3"><div class="d-flex justify-content-between gap-2"><strong>${this.esc(x.title || 'Scheme entry')}</strong>${this.status(x.status)}</div><div class="small text-success mt-1"><strong>Strand:</strong> ${this.esc(x.strand_name || '—')} &nbsp; <strong>Sub-strand:</strong> ${this.esc(x.sub_strand_name || '—')}</div><div class="row g-2 mt-2 small"><div class="col-md-4"><strong>Learning activities</strong><div class="text-muted">${this.esc(x.activities || 'Not recorded')}</div></div><div class="col-md-4"><strong>Resources</strong><div class="text-muted">${this.esc(x.resources || 'Not recorded')}</div></div><div class="col-md-4"><strong>Assessment approach</strong><div class="text-muted">${this.esc(x.assessment_methods || 'Not recorded')}</div></div></div></div></div>`).join('')}</div></div></section>`).join('') || '<div class="apo-empty text-muted">No weekly entries found.</div>';
     const approve = document.getElementById('apoApproveScheme');
     if (approve) { approve.classList.toggle('d-none', !(group.scheme_workbook_id && this.groupStatus(group) === 'submitted')); approve.onclick = () => this.approveWorkbook(group.scheme_workbook_id); }
+    const publish = document.getElementById('apoPublishScheme');
+    if (publish) { publish.classList.toggle('d-none', !(group.scheme_workbook_id && this.groupStatus(group) === 'approved' && this.canPublish())); publish.onclick = () => this.publishWorkbook(group.scheme_workbook_id); }
     bootstrap.Modal.getOrCreateInstance(document.getElementById('apoSchemeModal')).show();
   },
   async approveWorkbook(workbookId) {
     if (!workbookId || !(await window.confirmAction('Approve complete workbook', 'Approve this complete scheme as the official version?'))) return;
     try { await window.API.academic.approveSchemeWorkbook(workbookId); window.showNotification?.('Complete scheme workbook approved and locked.', 'success'); bootstrap.Modal.getInstance(document.getElementById('apoSchemeModal'))?.hide(); await this.load(); }
     catch (error) { window.showNotification?.(error.message || 'Unable to approve workbook', 'danger'); }
+  },
+  // The academic heads approve; the School Administrator publishes to parents.
+  canApprove() { const A = window.AuthContext; return !!A?.hasRole && ['Headteacher', 'Deputy Head - Academic', 'School Administrator', 'Director', 'System Administrator'].some(r => A.hasRole(r)); },
+  canPublish() { const A = window.AuthContext; return !!A?.hasRole && ['School Administrator', 'Director', 'System Administrator'].some(r => A.hasRole(r)); },
+  async publishWorkbook(workbookId) {
+    if (!workbookId || !(await window.confirmAction('Publish scheme of work', 'Publish this approved scheme? Parents will see it on the parent portal.'))) return;
+    try { await window.API.academic.publishSchemeWorkbook(workbookId); window.showNotification?.('Scheme of work published to parents.', 'success'); bootstrap.Modal.getInstance(document.getElementById('apoSchemeModal'))?.hide(); await this.load(); }
+    catch (error) { window.showNotification?.(error.message || 'Unable to publish the scheme', 'danger'); }
+  },
+  async lessonAction(action, ids, groupIndex) {
+    ids = (Array.isArray(ids) ? ids : [ids]).map(Number).filter(Boolean);
+    if (!ids.length) return;
+    try {
+      if (action === 'publish') {
+        const r = await window.API.academic.publishLessonPlans(ids);
+        const d = r?.data ?? r ?? {};
+        window.showNotification?.(d.message || 'Published.', 'success');
+      } else if (action === 'approve') {
+        for (const id of ids) await window.API.academic.approveLessonPlan({ plan_id: id });
+        window.showNotification?.(ids.length === 1 ? 'Lesson plan approved.' : `${ids.length} lesson plans approved.`, 'success');
+      } else if (action === 'return') {
+        const reason = window.prompt('What should the teacher change?', '');
+        if (!reason || !reason.trim()) return;
+        await window.API.academic.rejectLessonPlan({ plan_id: ids[0], reason: reason.trim() });
+        window.showNotification?.('Lesson plan returned to the teacher.', 'success');
+      }
+      bootstrap.Modal.getInstance(document.getElementById('apoLessonModal'))?.hide();
+      await this.load();
+      if (groupIndex !== undefined && this.lessonGroups[groupIndex]) this.viewLessons(groupIndex);
+    } catch (error) {
+      window.showNotification?.(error.message || 'The action could not be completed', 'danger');
+    }
   },
   async reopenRevision(workbookId) {
     const reason = window.prompt('Why should this workbook be revised?', 'Please add or correct the required planning details');
@@ -128,9 +163,10 @@ const academicPlanningOversight = {
   lessonGroups: [],
   lessonGroupStatus(group) {
     const statuses = group.plans.map(x => String(x.status || 'draft').toLowerCase());
-    if (statuses.every(x => x === 'approved')) return 'approved';
+    if (statuses.every(x => x === 'published')) return 'published';
+    if (statuses.every(x => x === 'approved' || x === 'published')) return 'approved';
     if (statuses.some(x => x === 'submitted' || x === 'pending')) return 'submitted';
-    if (statuses.some(x => x === 'approved')) return 'in progress';
+    if (statuses.some(x => x === 'approved' || x === 'published')) return 'in progress';
     return statuses[0] || 'draft';
   },
   lessonDateRange(plans) {
@@ -143,7 +179,18 @@ const academicPlanningOversight = {
     document.getElementById('apoLessonModalTitle').textContent = `${group.subject_name || 'Learning Area'} · ${group.class_name || 'Class'}${group.stream_name ? ' · ' + group.stream_name : ''}`;
     document.getElementById('apoLessonModalMeta').textContent = `${group.teacher_name || 'Unassigned teacher'} · ${group.plans.length} lesson plan${group.plans.length === 1 ? '' : 's'} · ${this.lessonGroupStatus(group).replace(/_/g, ' ')}`;
     const plans = [...group.plans].sort((a,b) => String(a.lesson_date || a.date || '').localeCompare(String(b.lesson_date || b.date || '')));
-    document.getElementById('apoLessonModalBody').innerHTML = `<div class="table-responsive"><table class="table table-hover apo-table"><thead><tr><th>Date</th><th>Lesson</th><th>Week</th><th>Scheme Link</th><th>Status</th></tr></thead><tbody>${plans.map(x => `<tr><td>${this.esc(x.lesson_date || x.date || '—')}</td><td>${this.esc(x.title || x.topic || '—')}</td><td>${this.esc(x.week_number ? 'Week ' + x.week_number : '—')}</td><td>${x.scheme_of_work_id ? '<span class="badge bg-success">Linked</span>' : '<span class="badge bg-warning text-dark">Missing</span>'}</td><td>${this.status(x.status)}</td></tr>`).join('')}</tbody></table></div>`;
+    document.getElementById('apoLessonModalBody').innerHTML = `<div class="table-responsive"><table class="table table-hover apo-table"><thead><tr><th>Date</th><th>Lesson</th><th>Week</th><th>Scheme Link</th><th>Status</th><th class="text-end">Action</th></tr></thead><tbody>${plans.map(x => { const st = String(x.status || '').toLowerCase(); const acts = [
+        st === 'submitted' && this.canApprove() ? `<button type="button" class="btn btn-sm btn-outline-success" data-apo-lesson="approve" data-id="${Number(x.id)}">Approve</button>` : '',
+        ['submitted', 'approved'].includes(st) && this.canApprove() ? `<button type="button" class="btn btn-sm btn-outline-warning" data-apo-lesson="return" data-id="${Number(x.id)}">Return</button>` : '',
+        st === 'approved' && this.canPublish() ? `<button type="button" class="btn btn-sm btn-success" data-apo-lesson="publish" data-id="${Number(x.id)}">Publish</button>` : '',
+      ].join(' '); return `<tr><td>${this.esc(x.lesson_date || x.date || '—')}</td><td>${this.esc(x.title || x.topic || '—')}${x.review_note && st === 'draft' ? `<div class="small text-warning-emphasis">Returned: ${this.esc(x.review_note)}</div>` : ''}</td><td>${this.esc(x.week_number ? 'Week ' + x.week_number : '—')}</td><td>${x.scheme_of_work_id ? '<span class="badge bg-success">Linked</span>' : '<span class="badge bg-warning text-dark">Missing</span>'}</td><td>${this.status(x.status)}</td><td class="text-end text-nowrap">${acts}</td></tr>`; }).join('')}</tbody></table></div>`;
+    document.querySelectorAll('#apoLessonModalBody [data-apo-lesson]').forEach(b => b.addEventListener('click', () => this.lessonAction(b.dataset.apoLesson, Number(b.dataset.id), index)));
+    const submittedIds = plans.filter(x => String(x.status || '').toLowerCase() === 'submitted').map(x => Number(x.id));
+    const approvedIds = plans.filter(x => String(x.status || '').toLowerCase() === 'approved').map(x => Number(x.id));
+    const approveAll = document.getElementById('apoApproveAllLessons');
+    if (approveAll) { approveAll.classList.toggle('d-none', !(submittedIds.length > 1 && this.canApprove())); approveAll.onclick = () => this.lessonAction('approve', submittedIds, index); }
+    const publishAll = document.getElementById('apoPublishAllLessons');
+    if (publishAll) { publishAll.classList.toggle('d-none', !(approvedIds.length && this.canPublish())); publishAll.onclick = () => this.lessonAction('publish', approvedIds, index); }
     bootstrap.Modal.getOrCreateInstance(document.getElementById('apoLessonModal')).show();
   },
   renderClasses() {
@@ -151,7 +198,7 @@ const academicPlanningOversight = {
   },
   renderTeachers() {
     const map = {};
-    this.lessons.forEach(x => { const k = x.teacher_name || 'Unassigned'; map[k] ||= { name:k, plans:0, approved:0, pending:0 }; map[k].plans++; if (x.status === 'approved') map[k].approved++; if (['submitted','draft','pending'].includes(String(x.status || '').toLowerCase())) map[k].pending++; });
+    this.lessons.forEach(x => { const k = x.teacher_name || 'Unassigned'; map[k] ||= { name:k, plans:0, approved:0, pending:0 }; map[k].plans++; if (['approved','published','delivered'].includes(String(x.status || '').toLowerCase())) map[k].approved++; if (['submitted','draft','pending'].includes(String(x.status || '').toLowerCase())) map[k].pending++; });
     const items = Object.values(map).map(x => ({ ...x, coverage: x.plans ? Math.round((x.approved / x.plans) * 100) : 0 }));
     this.setHTML('#apoTeachersTable tbody', this.rows(items, 5, 'No lesson plans have been recorded for teachers in the current term.').map(x => this.emptyRow(x) || `<tr><td>${this.esc(x.name)}</td><td>${x.plans}</td><td>${x.approved}</td><td>${x.pending}</td><td>${x.coverage}%</td></tr>`).join(''));
   },

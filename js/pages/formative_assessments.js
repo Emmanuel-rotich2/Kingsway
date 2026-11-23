@@ -471,12 +471,31 @@ const fAssCtrl = {
     }
   },
 
-  RUBRIC_LEVELS: [
-    { level: 4, label: '4 Exceeding expectations' },
-    { level: 3, label: '3 Meeting expectations' },
-    { level: 2, label: '2 Approaching expectations' },
-    { level: 1, label: '1 Below expectations' },
-  ],
+  // Legacy rubric numbers (before level codes) mean these 4-level groups.
+  LEGACY_LEVELS: { 4: 'EE', 3: 'ME', 2: 'AE', 1: 'BE' },
+
+  /**
+   * Level choices on the school's grading scale, grouped: each 4-level group
+   * (e.g. Meeting Expectation) offers the group itself and its 8 levels.
+   */
+  _levelOptions: function (rules, current) {
+    const groups = [];
+    (rules || []).forEach((r) => {
+      const code = String(r.grade_code || '');
+      const g = (window.CbcLevels && window.CbcLevels.group(code)) || code;
+      let entry = groups.find((x) => x.code === g);
+      if (!entry) { entry = { code: g, levels: [] }; groups.push(entry); }
+      if (code !== g) entry.levels.push(r);
+    });
+    const sel = (v) => (String(current || '').toUpperCase() === v ? 'selected' : '');
+    const names = (window.CbcLevels && window.CbcLevels.names) || {};
+    return '<option value="">Not assessed</option>' + groups.map((g) => {
+      const label = names[g.code] ? `${g.code} · ${names[g.code]}` : g.code;
+      const own = `<option value="${this._esc(g.code)}" ${sel(g.code)}>${this._esc(label)}</option>`;
+      if (!g.levels.length) return own;
+      return `<optgroup label="${this._esc(label)}">${own}${g.levels.map((r) => `<option value="${this._esc(r.grade_code)}" ${sel(String(r.grade_code).toUpperCase())}>${this._esc(r.grade_code)} · ${this._esc(r.grade_name || '')}</option>`).join('')}</optgroup>`;
+    }).join('');
+  },
 
   loadMarksEntry: async function () {
     const container = document.getElementById('faMarksContainer');
@@ -517,30 +536,35 @@ const fAssCtrl = {
           <button class="btn btn-sm btn-success" data-kw-onclick="fAssCtrl.openMarking(${assessmentId})" data-year-write><i class="bi bi-unlock me-1"></i>Open marking</button></div>`;
         return;
       }
-      // Rubric mode: record a CBC level (1 to 4) per learner instead of marks.
-      const rubricMode = this._rubricMode ?? marks.some(m => m.rubric_level != null);
+      // Level mode: record a level on the school scale per learner (an 8-level
+      // code or its 4-level group) instead of marks.
+      const levelOf = (m) => m.level_code || (m.rubric_level != null ? this.LEGACY_LEVELS[Number(m.rubric_level)] : '');
+      const rubricMode = this._rubricMode ?? marks.some(m => levelOf(m));
       this._rubricMode = rubricMode;
-      const levelOptions = (current) => '<option value="">Not assessed</option>' + this.RUBRIC_LEVELS
-        .map(l => `<option value="${l.level}" ${Number(current) === l.level ? 'selected' : ''}>${l.label}</option>`).join('');
+      let scaleRules = [];
+      if (rubricMode) {
+        try { scaleRules = (await window.GradingScale?.preload?.())?.rules || []; } catch (_) { scaleRules = []; }
+      }
+      const levelOptions = (current) => this._levelOptions(scaleRules, current);
 
       const rows = marks.map(m => {
         const pct    = m.percentage ?? '';
         const grade  = m.cbc_grade  ?? '';
-        const badgeCls = grade ? `grade-${grade}` : '';
+        const badgeCls = grade ? `grade-${(window.CbcLevels && window.CbcLevels.group(grade)) || grade}` : '';
         return `<tr data-student="${m.student_id}">
           <td class="fw-semibold">${this._esc(m.first_name + ' ' + m.last_name)}</td>
           <td>${this._esc(m.admission_no || '—')}</td>
           <td class="text-center" style="width:${rubricMode ? 230 : 120}px;">
             ${rubricMode
-              ? `<select class="form-select form-select-sm rubric-input" data-student="${m.student_id}" aria-label="Rubric level" data-year-write>${levelOptions(m.rubric_level)}</select>`
+              ? `<select class="form-select form-select-sm rubric-input" data-student="${m.student_id}" aria-label="Level" data-year-write>${levelOptions(levelOf(m))}</select>`
               : `<input type="number" class="form-control form-control-sm text-center marks-input"
-              data-student="${m.student_id}" value="${m.rubric_level != null ? '' : (m.score ?? '')}"
+              data-student="${m.student_id}" value="${levelOf(m) ? '' : (m.score ?? '')}"
               min="0" max="${maxMarks}" step="0.5"
               data-kw-onchange="fAssCtrl._onMarkChange(this, ${maxMarks})"
               placeholder="/${maxMarks}" aria-label="Score" data-year-write>`}
           </td>
           <td class="text-center pct-cell">${pct ? pct + '%' : '—'}</td>
-          <td class="text-center grade-cell">${grade ? `<span class="${badgeCls}">${grade}</span>` : '—'}</td>
+          <td class="text-center grade-cell">${grade ? `<span class="${badgeCls}">${this._esc(window.CbcLevels ? window.CbcLevels.format(grade) : grade)}</span>` : '—'}</td>
           <td><input type="text" class="form-control form-control-sm remarks-input" data-student="${m.student_id}"
             value="${this._esc(m.remarks || '')}" placeholder="Optional remarks" maxlength="255" data-year-write></td>
         </tr>`;
@@ -552,7 +576,7 @@ const fAssCtrl = {
             <strong>${marks.length} learners</strong>
             <div class="btn-group btn-group-sm" role="group" aria-label="How to record">
               <button type="button" class="btn ${rubricMode ? 'btn-outline-secondary' : 'btn-secondary'}" data-kw-onclick="fAssCtrl.setRubricMode(false)">Marks out of ${maxMarks}</button>
-              <button type="button" class="btn ${rubricMode ? 'btn-secondary' : 'btn-outline-secondary'}" data-kw-onclick="fAssCtrl.setRubricMode(true)">Rubric level</button>
+              <button type="button" class="btn ${rubricMode ? 'btn-secondary' : 'btn-outline-secondary'}" data-kw-onclick="fAssCtrl.setRubricMode(true)">Level on the scale</button>
             </div>
           </div>
           <button class="btn btn-success" data-kw-onclick="fAssCtrl.saveAllMarks(${assessmentId}, ${maxMarks})" data-year-write>
@@ -563,7 +587,7 @@ const fAssCtrl = {
           <table class="table table-sm table-hover align-middle" id="marksTable">
             <thead class="table-light"><tr>
               <th>Student</th><th>Adm No</th>
-              <th class="text-center">${rubricMode ? 'Rubric level' : 'Score (/' + maxMarks + ')'}</th>
+              <th class="text-center">${rubricMode ? 'Level' : 'Score (/' + maxMarks + ')'}</th>
               <th class="text-center">%</th>
               <th class="text-center">Grade</th>
               <th>Remarks</th>
@@ -611,7 +635,7 @@ const fAssCtrl = {
       if (!select.value) return;
       const studentId = parseInt(select.dataset.student);
       const remarksInput = document.querySelector(`.remarks-input[data-student="${studentId}"]`);
-      marks.push({ student_id: studentId, rubric_level: parseInt(select.value), remarks: remarksInput?.value.trim() || null });
+      marks.push({ student_id: studentId, level_code: select.value, remarks: remarksInput?.value.trim() || null });
     });
 
     document.querySelectorAll('#marksTable .marks-input').forEach(input => {

@@ -62,13 +62,15 @@ const allLessonPlansController = {
     const plans = this.state.filtered; const start = (this.state.page - 1) * this.state.pageSize; const visible = plans.slice(start, start + this.state.pageSize);
     const body = document.getElementById('lessonPlansTableBody');
     if (body) body.innerHTML = visible.length ? visible.map((p, index) => {
-      const status = String(p.status || 'draft').toLowerCase(); const color = status === 'approved' ? 'success' : ['pending', 'submitted', 'pending_review'].includes(status) ? 'warning' : status === 'rejected' ? 'danger' : 'secondary';
-      return `<tr><td>${start + index + 1}</td><td>${this.esc(p.title || p.topic || '—')}</td><td>${this.esc(p.teacher_name || '—')}</td><td>${this.esc(p.subject_name || p.learning_area_name || '—')}</td><td>${this.esc(p.class_name || '—')}</td><td>${this.date(p.lesson_date || p.date)}</td><td><span class="badge text-bg-${color}">${this.esc(status.replaceAll('_', ' '))}</span></td><td>${this.assessmentCell(p.formative_assessment)}</td><td><button type="button" class="btn btn-sm btn-outline-primary" data-plan-id="${Number(p.id)}" title="View details"><i class="bi bi-eye"></i></button></td></tr>`;
+      const status = String(p.status || 'draft').toLowerCase(); const color = status === 'published' ? 'primary' : status === 'approved' ? 'success' : status === 'submitted' ? 'warning' : 'secondary';
+      const label = { published: 'Published', approved: 'Approved, awaiting publishing', submitted: 'With the academic heads', draft: 'Draft', delivered: 'Taught' }[status] || status.replaceAll('_', ' ');
+      const canPublish = status === 'approved' && ['School Administrator', 'Director', 'System Administrator'].some((r) => window.AuthContext?.hasRole?.(r));
+      return `<tr><td>${start + index + 1}</td><td>${this.esc(p.title || p.topic || '—')}</td><td>${this.esc(p.teacher_name || '—')}</td><td>${this.esc(p.subject_name || p.learning_area_name || '—')}</td><td>${this.esc(p.class_name || '—')}</td><td>${this.date(p.lesson_date || p.date)}</td><td><span class="badge text-bg-${color}">${this.esc(label)}</span></td><td>${this.assessmentCell(p.formative_assessment)}</td><td><button type="button" class="btn btn-sm btn-outline-primary" data-plan-id="${Number(p.id)}" title="View details"><i class="bi bi-eye"></i></button>${canPublish ? ` <button type="button" class="btn btn-sm btn-success" data-publish-id="${Number(p.id)}" title="Publish to parents"><i class="bi bi-broadcast"></i><span class="visually-hidden">Publish</span></button>` : ''}</td></tr>`;
     }).join('') : '<tr><td colspan="9" class="text-center py-4 text-muted">No lesson plans match these filters.</td></tr>';
     this.text('totalPlans', this.state.plans.length);
-    this.text('approvedPlans', this.state.plans.filter((x) => String(x.status).toLowerCase() === 'approved').length);
-    this.text('pendingPlans', this.state.plans.filter((x) => ['pending', 'submitted', 'pending_review'].includes(String(x.status).toLowerCase())).length);
-    this.text('rejectedPlans', this.state.plans.filter((x) => String(x.status).toLowerCase() === 'rejected').length);
+    this.text('approvedPlans', this.state.plans.filter((x) => ['approved', 'published', 'delivered'].includes(String(x.status).toLowerCase())).length);
+    this.text('pendingPlans', this.state.plans.filter((x) => String(x.status).toLowerCase() === 'submitted').length);
+    this.text('rejectedPlans', this.state.plans.filter((x) => String(x.status).toLowerCase() === 'draft' && x.review_note).length);
     this.text('totalRecords', plans.length); this.text('showingFrom', visible.length ? start + 1 : 0); this.text('showingTo', start + visible.length);
     this.renderPagination();
   },
@@ -134,7 +136,15 @@ const allLessonPlansController = {
   bind() {
     ['teacherFilterLP', 'subjectFilterLP', 'classFilterLP', 'statusFilterLP'].forEach((id) => document.getElementById(id)?.addEventListener('change', () => this.load()));
     let timer; document.getElementById('searchLessonPlans')?.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => { this.state.page = 1; this.applyFilters(); }, 200); });
-    document.getElementById('lessonPlansTableBody')?.addEventListener('click', (event) => { const button = event.target.closest('[data-plan-id]'); if (button) this.viewPlan(button.dataset.planId); });
+    document.getElementById('lessonPlansTableBody')?.addEventListener('click', async (event) => {
+      const publish = event.target.closest('[data-publish-id]');
+      if (publish) {
+        try { const r = await window.API.academic.publishLessonPlans([Number(publish.dataset.publishId)]); window.showNotification?.((r?.data ?? r)?.message || 'Published to parents.', 'success'); await this.load(); }
+        catch (error) { window.showNotification?.(error?.message || 'Could not publish.', 'error'); }
+        return;
+      }
+      const button = event.target.closest('[data-plan-id]'); if (button) this.viewPlan(button.dataset.planId);
+    });
     document.getElementById('pagination')?.addEventListener('click', (event) => { const button = event.target.closest('[data-page]'); if (!button || button.closest('.disabled')) return; this.state.page = Number(button.dataset.page); this.render(); });
     document.getElementById('exportLessonPlansBtn')?.addEventListener('click', () => this.exportCSV());
     document.getElementById('printLessonPlansBtn')?.addEventListener('click', () => this.print());

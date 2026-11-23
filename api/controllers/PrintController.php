@@ -475,23 +475,337 @@ return formatResponse(false, null, 'An internal error occurred.');
     /**
      * Generate payslip PDF.
      * POST /api/print/payslip
+     *
+     * Requires payroll_id only; loads authoritative payslip data server-side.
+     * Client-supplied financial values are rejected.
      */
     public function postPayslip($id = null, $data = [])
     {
         if ($guard = $this->guardPrint()) return $guard;
+
+        // Authorization: require finance payroll view permission
+        if (!$this->userHasAny(['finance_view', 'finance.view', 'finance_payroll_view', 'finance.payroll_view'], [2, 3, 4, 10], ['system administrator', 'director', 'school administrator', 'accountant'])) {
+            return $this->forbidden('Insufficient permissions to view payroll');
+        }
+
         try {
-            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
-            $pdfPath = $this->prints()->printPayslip($data);
+            $input = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $payrollId = (int) ($input['payroll_id'] ?? $input['payslip_id'] ?? $id ?? 0);
+
+            if ($payrollId <= 0) {
+                return $this->badRequest('payroll_id is required');
+            }
+
+            // Load authoritative payslip data from FinanceAPI
+            $financeApi = $this->contract('App\API\Modules\finance\FinanceAPI');
+            $result = $financeApi->getDetailedPayslip($payrollId);
+
+            if (($result['status'] ?? '') !== 'success' || empty($result['data'])) {
+                return formatResponse(false, null, $result['message'] ?? 'Payslip not found', 404);
+            }
+
+            $payroll = $result['data'];
+
+            // Prepare data for PrintService (server-side authoritative values only)
+            $payslipData = $this->buildPayslipPrintData($payroll);
+
+            $pdfPath = $this->prints()->printPayslip($payslipData);
             $pdfUrl = $this->getPrintUrl($pdfPath);
+
             return formatResponse(true, [
                 'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
                 'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
                 'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
             ], 'Payslip PDF generated');
+
         } catch (\Exception $e) {
-            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
         }
+    }
+
+    /**
+     * Generate batch payslips PDF (multiple payslips in one document).
+     * POST /api/print/payslips-batch
+     *
+     * Accepts:
+     * - payroll_ids: array of payslip IDs
+     * - OR payroll_run_id: single payroll run ID (prints all payslips in that run)
+     * - OR staff_id + year/month range: all payslips for a staff member
+     * - format: 'pdf' (default), 'zip', 'csv', 'excel'
+     */
+    public function postPayslipsBatch($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+
+        // Authorization: require finance payroll view permission
+        if (!$this->userHasAny(['finance_view', 'finance.view', 'finance_payroll_view', 'finance.payroll_view'], [2, 3, 4, 10], ['system administrator', 'director', 'school administrator', 'accountant'])) {
+            return $this->forbidden('Insufficient permissions to view payroll');
+        }
+
+        try {
+            $input = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+
+            $format = strtolower($input['format'] ?? 'pdf');
+            $allowedFormats = ['pdf', 'zip', 'csv', 'excel', 'tsv'];
+            if (!in_array($format, $allowedFormats, true)) {
+                return $this->badRequest('Invalid format. Allowed: ' . implode(', ', $allowedFormats));
+            }
+
+            $financeApi = $this->contract('App\API\Modules\finance\FinanceAPI');
+            $payrolls = [];
+
+            // Case 1: Explicit payroll IDs
+            if (!empty($input['payroll_ids']) && is_array($input['payroll_ids'])) {
+                $ids = array_map('intval', $input['payroll_ids']);
+                $ids = array_filter($ids, fn($i) => $i > 0);
+                foreach ($ids as $pid) {
+                    $result = $financeApi->getDetailedPayslip($pid);
+                    if (($result['status'] ?? '') === 'success' && !empty($result['data'])) {
+                        $payrolls[] = $result['data'];
+                    }
+                }
+            }
+            // Case 2: Payroll run ID - get all payslips in that run
+            elseif (!empty($input['payroll_run_id'])) {
+                $runId = (int) $input['payroll_run_id'];
+                $result = $financeApi->getPayrollList(['payroll_run_id' => $runId]);
+                if (($result['status'] ?? '') === 'success' && !empty($result['data'])) {
+                    // Get detailed payslip for each
+                    foreach ($result['data'] as $summary) {
+                        $detailResult = $financeApi->getDetailedPayslip($summary['id']);
+                        if (($detailResult['status'] ?? '') === 'success' && !empty($detailResult['data'])) {
+                            $payrolls[] = $detailResult['data'];
+                        }
+                    }
+                }
+            }
+            // Case 3: Staff ID with year/month range
+            elseif (!empty($input['staff_id'])) {
+                $staffId = (int) $input['staff_id'];
+                $yearFrom = (int) ($input['year_from'] ?? date('Y'));
+                $yearTo = (int) ($input['year_to'] ?? date('Y'));
+                $monthFrom = (int) ($input['month_from'] ?? 1);
+                $monthTo = (int) ($input['month_to'] ?? 12);
+
+                for ($year = $yearFrom; $year <= $yearTo; $year++) {
+                    $mFrom = ($year === $yearFrom) ? $monthFrom : 1;
+                    $mTo = ($year === $yearTo) ? $monthTo : 12;
+                    for ($month = $mFrom; $month <= $mTo; $month++) {
+                        // Find payslip for this staff/period
+                        $listResult = $financeApi->getPayrollList([
+                            'staff_id' => $staffId,
+                            'year' => $year,
+                            'month' => $month,
+                        ]);
+                        if (($listResult['status'] ?? '') === 'success' && !empty($listResult['data'])) {
+                            foreach ($listResult['data'] as $summary) {
+                                $detailResult = $financeApi->getDetailedPayslip($summary['id']);
+                                if (($detailResult['status'] ?? '') === 'success' && !empty($detailResult['data'])) {
+                                    $payrolls[] = $detailResult['data'];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Case 4: Year/Month range for all staff (school payroll summary)
+            elseif (!empty($input['year_from']) || !empty($input['month_from'])) {
+                $yearFrom = (int) ($input['year_from'] ?? date('Y'));
+                $yearTo = (int) ($input['year_to'] ?? date('Y'));
+                $monthFrom = (int) ($input['month_from'] ?? 1);
+                $monthTo = (int) ($input['month_to'] ?? 12);
+
+                for ($year = $yearFrom; $year <= $yearTo; $year++) {
+                    $mFrom = ($year === $yearFrom) ? $monthFrom : 1;
+                    $mTo = ($year === $yearTo) ? $monthTo : 12;
+                    for ($month = $mFrom; $month <= $mTo; $month++) {
+                        $listResult = $financeApi->getPayrollList([
+                            'year' => $year,
+                            'month' => $month,
+                        ]);
+                        if (($listResult['status'] ?? '') === 'success' && !empty($listResult['data'])) {
+                            foreach ($listResult['data'] as $summary) {
+                                $detailResult = $financeApi->getDetailedPayslip($summary['id']);
+                                if (($detailResult['status'] ?? '') === 'success' && !empty($detailResult['data'])) {
+                                    $payrolls[] = $detailResult['data'];
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                return $this->badRequest('Provide payroll_ids, payroll_run_id, staff_id, or year/month range');
+            }
+
+            if (empty($payrolls)) {
+                return formatResponse(false, null, 'No payslips found for the given criteria', 404);
+            }
+
+            // Sort by period then staff name
+            usort($payrolls, function ($a, $b) {
+                $periodA = ($a['payroll_year'] ?? 0) * 100 + ($a['payroll_month'] ?? 0);
+                $periodB = ($b['payroll_year'] ?? 0) * 100 + ($b['payroll_month'] ?? 0);
+                if ($periodA !== $periodB) return $periodA - $periodB;
+                return strcmp($a['staff_name'] ?? $a['first_name'] . ' ' . $a['last_name'] ?? '', $b['staff_name'] ?? $b['first_name'] . ' ' . $b['last_name'] ?? '');
+            });
+
+            // Generate output based on format
+            $timestamp = date('Ymd_His');
+            $filenameBase = 'payslips_batch_' . $timestamp;
+
+            switch ($format) {
+                case 'pdf':
+                    $pdfPath = $this->prints()->printPayslipsBatch($payrolls, [
+                        'filename' => $filenameBase,
+                        'title' => 'Batch Payslips',
+                    ]);
+                    $pdfUrl = $this->getPrintUrl($pdfPath);
+                    return formatResponse(true, [
+                        'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                        'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                        'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+                        'count' => count($payrolls),
+                    ], 'Batch payslips PDF generated');
+
+                case 'zip':
+                    $zipPath = $this->prints()->exportPayslipsZip($payrolls, $filenameBase . '.zip');
+                    $zipUrl = $this->getPrintUrl($zipPath);
+                    return formatResponse(true, [
+                        'file' => ['filename' => basename($zipPath), 'mime_type' => 'application/zip', 'url' => $zipUrl, 'download_url' => $zipUrl],
+                        'files' => [['filename' => basename($zipPath), 'mime_type' => 'application/zip', 'url' => $zipUrl, 'download_url' => $zipUrl]],
+                        'download_url' => $zipUrl, 'filename' => basename($zipPath),
+                        'count' => count($payrolls),
+                    ], 'Batch payslips ZIP generated');
+
+                case 'csv':
+                    $csvPath = $this->prints()->exportPayslipsCsv($payrolls, $filenameBase . '.csv');
+                    $csvUrl = $this->getPrintUrl($csvPath);
+                    return formatResponse(true, [
+                        'file' => ['filename' => basename($csvPath), 'mime_type' => 'text/csv', 'url' => $csvUrl, 'download_url' => $csvUrl],
+                        'files' => [['filename' => basename($csvPath), 'mime_type' => 'text/csv', 'url' => $csvUrl, 'download_url' => $csvUrl]],
+                        'download_url' => $csvUrl, 'filename' => basename($csvPath),
+                        'count' => count($payrolls),
+                    ], 'Batch payslips CSV generated');
+
+                case 'excel':
+                    $excelPath = $this->prints()->exportPayslipsExcel($payrolls, $filenameBase . '.xlsx');
+                    $excelUrl = $this->getPrintUrl($excelPath);
+                    return formatResponse(true, [
+                        'file' => ['filename' => basename($excelPath), 'mime_type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'url' => $excelUrl, 'download_url' => $excelUrl],
+                        'files' => [['filename' => basename($excelPath), 'mime_type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'url' => $excelUrl, 'download_url' => $excelUrl]],
+                        'download_url' => $excelUrl, 'filename' => basename($excelPath),
+                        'count' => count($payrolls),
+                    ], 'Batch payslips Excel generated');
+
+                case 'tsv':
+                    $tsvPath = $this->prints()->exportPayslipsTsv($payrolls, $filenameBase . '.tsv');
+                    $tsvUrl = $this->getPrintUrl($tsvPath);
+                    return formatResponse(true, [
+                        'file' => ['filename' => basename($tsvPath), 'mime_type' => 'text/tab-separated-values', 'url' => $tsvUrl, 'download_url' => $tsvUrl],
+                        'files' => [['filename' => basename($tsvPath), 'mime_type' => 'text/tab-separated-values', 'url' => $tsvUrl, 'download_url' => $tsvUrl]],
+                        'download_url' => $tsvUrl, 'filename' => basename($tsvPath),
+                        'count' => count($payrolls),
+                    ], 'Batch payslips TSV generated');
+            }
+
+        } catch (\Exception $e) {
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Build authoritative payslip print data from FinanceAPI payload.
+     * Returns only server-computed values; ignores any client-supplied fields.
+     */
+    private function buildPayslipPrintData(array $payroll): array
+    {
+        $number = fn ($v) => (float) ($v ?? 0);
+        $monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        $period = ($monthNames[(int) ($payroll['payroll_month'] ?? $payroll['month'] ?? 0)] ?? "-") . " " . ($payroll['payroll_year'] ?? $payroll['year'] ?? "-");
+
+        $children = [];
+        foreach ((array) ($payroll['children_deductions'] ?? []) as $child) {
+            $children[] = [
+                'student_name' => $child['student_name'] ?? $child['name'] ?? 'Child',
+                'class_name' => $child['class_name'] ?? '',
+                'deducted_amount' => $number($child['deducted_amount'] ?? $child['amount'] ?? 0),
+            ];
+        }
+
+        $mode = $payroll['payment_mode'] ?? $payroll['payment_method'] ?? '';
+        $modeLabels = ['bank' => 'Bank Transfer', 'cash' => 'Cash', 'mpesa' => 'M-Pesa', 'airtel_money' => 'Airtel Money'];
+        $paymentMethod = $mode ? ($modeLabels[$mode] ?? $mode) : 'Not Recorded';
+
+        $paidDateValue = $payroll['paid_at'] ?? $payroll['payment_date'] ?? null;
+        $datePaid = $paidDateValue ? (new \DateTime($paidDateValue))->format('d M Y H:i') : 'Not Paid';
+
+        $status = strtolower(trim((string) ($payroll['status'] ?? $payroll['payslip_status'] ?? $payroll['payment_status'] ?? 'unknown')));
+        $statusLabels = ['draft' => 'Draft', 'pending' => 'Pending', 'processing' => 'Processing', 'approved' => 'Approved', 'paid' => 'Paid', 'cancelled' => 'Cancelled'];
+        $statusLabel = $statusLabels[$status] ?? ucfirst($status);
+
+        $school = $payroll['school_profile'] ?? [];
+
+        // Build deduction breakdown for the template
+        $deductionBreakdown = [
+            'paye' => $number($payroll['paye_tax'] ?? $payroll['paye_deduction'] ?? 0),
+            'nssf' => $number($payroll['nssf_contribution'] ?? $payroll['nssf_deduction'] ?? 0),
+            'shif' => $number($payroll['shif_contribution'] ?? $payroll['shif_deduction'] ?? $payroll['nhif_contribution'] ?? $payroll['nhif_deduction'] ?? 0),
+            'housing_levy' => $number($payroll['housing_levy'] ?? 0),
+            'loan' => $number($payroll['loan_deduction'] ?? 0),
+            'sacco' => $number($payroll['sacco_deduction'] ?? 0),
+            'salary_advance' => $number($payroll['salary_advance_deduction'] ?? 0),
+            'child_fees' => $number($payroll['total_children_fees'] ?? 0),
+            'other' => $number($payroll['other_deductions_total'] ?? $payroll['other_deductions'] ?? 0),
+        ];
+
+        return [
+            'title' => 'Staff Payslip',
+            'subtitle' => $period,
+            'employeeName' => trim(($payroll['first_name'] ?? '') . ' ' . ($payroll['last_name'] ?? '')) ?: ($payroll['staff_name'] ?? '—'),
+            'staffNo' => $payroll['staff_no'] ?? $payroll['staff_number'] ?? '—',
+            'department' => $payroll['department'] ?? '—',
+            'designation' => $payroll['position'] ?? $payroll['designation'] ?? '—',
+            'kraPin' => $payroll['kra_pin'] ?? '—',
+            'nssfNo' => $payroll['nssf_no'] ?? '—',
+            'shifNo' => $payroll['shif_no'] ?? $payroll['nhif_no'] ?? '—',
+            'period' => $period,
+            'basicSalary' => $number($payroll['basic_salary'] ?? $payroll['basic']),
+            'allowances' => [['name' => 'Allowances', 'amount' => $number($payroll['allowances_total'] ?? $payroll['allowances'] ?? $payroll['total_allowances'] ?? 0)]],
+            'statutory' => [
+                'paye' => $number($payroll['paye_tax'] ?? $payroll['paye_deduction'] ?? 0),
+                'nssf' => $number($payroll['nssf_contribution'] ?? $payroll['nssf_deduction'] ?? 0),
+                'nhif_shif' => $number($payroll['shif_contribution'] ?? $payroll['shif_deduction'] ?? $payroll['nhif_contribution'] ?? $payroll['nhif_deduction'] ?? 0),
+                'housing_levy' => $number($payroll['housing_levy'] ?? 0),
+            ],
+            'childrenDeductions' => $children,
+            'otherDeductions' => $number($payroll['other_deductions_total'] ?? $payroll['other_deductions'] ?? 0),
+            'deduction_breakdown' => $deductionBreakdown,
+            'deductions' => [], // legacy fallback; not used when statutory/children/other are present
+            'grossPay' => $number($payroll['gross_salary'] ?? $payroll['gross_pay'] ?? 0),
+            'totalDeductions' => $number($payroll['total_deductions'] ?? $payroll['employee_deductions_total'] ?? 0),
+            'netPay' => $number($payroll['net_salary'] ?? $payroll['net_pay'] ?? 0),
+            'employerNssf' => $number($payroll['employer_nssf_contribution'] ?? 0),
+            'employerHousing' => $number($payroll['employer_housing_levy'] ?? 0),
+            'bankName' => $payroll['bank_name'] ?? '—',
+            'bankAccountNumber' => $payroll['bank_account_number'] ?? $payroll['bank_account'] ?? '—',
+            'bankAccount' => implode(' / ', array_filter([$payroll['bank_name'] ?? null, $payroll['bank_account_number'] ?? $payroll['bank_account'] ?? null])) ?: '—',
+            'paymentMethod' => $paymentMethod,
+            'paymentReference' => $payroll['payment_reference'] ?? '—',
+            'datePaid' => $datePaid,
+            'status' => $statusLabel,
+            'generatedOn' => (new \DateTime())->format('d/m/Y'),
+            'schoolName' => $school['school_name'] ?? 'Kingsway Preparatory School',
+            'schoolLogo' => $school['logo_url'] ?? null,
+            'schoolMotto' => $school['motto'] ?? null,
+            'filename' => 'staff_payslip_' . ($payroll['payroll_year'] ?? date('Y')) . '_' . ($payroll['payroll_month'] ?? ''),
+            'reportCode' => 'PAYSLIP-' . $payrollId,
+            'signatureSection' => [
+                ['label' => 'Accounts Officer', 'dateLine' => true],
+                ['label' => 'Employee Acknowledgement', 'dateLine' => true],
+            ],
+        ];
     }
 
     /**

@@ -73,11 +73,42 @@ const payslipsController = {
       : '<i class="bi bi-person me-2 text-primary"></i>My Payslips &amp; P9 Forms';
   },
 
-  _populateYearFilter: function () {
+  _populateYearFilter: async function () {
     const sel  = document.getElementById('psYear');
-    const year = new Date().getFullYear();
-    for (let y = year; y >= year - 4; y--) {
-      sel.add(new Option(y, y, y === year, y === year));
+    if (!sel) return;
+
+    // Fetch academic years from the API
+    let years = [];
+    try {
+      const response = await window.API.academic.getAllAcademicYears();
+      const data = response?.data ?? response;
+      if (Array.isArray(data)) {
+        years = data
+          .map((y) => y.year_code || y.year_name || y.id)
+          .filter((y) => y)
+          .map((y) => String(y).replace(/[^0-9]/g, ''))
+          .filter((y) => y.length === 4)
+          .map((y) => parseInt(y, 10));
+      }
+    } catch (error) {
+      console.warn('Failed to fetch academic years, falling back to calendar years:', error);
+    }
+
+    // Fallback to calendar years if no academic years
+    if (years.length === 0) {
+      const year = new Date().getFullYear();
+      for (let y = year; y >= year - 4; y--) {
+        years.push(y);
+      }
+    }
+
+    // Deduplicate and sort
+    years = [...new Set(years)].sort((a, b) => b - a);
+
+    sel.replaceChildren();
+    years.forEach((y) => sel.add(new Option(y, y)));
+    if (years.length > 0) {
+      sel.value = String(years[0]);
     }
   },
 
@@ -204,61 +235,10 @@ const payslipsController = {
 
   _printRow: function (row) {
     if (!window.PrintManager?.printDedicatedPayslip) return;
-
-    // payslips has no total_deductions column. Derive the figure from the
-    // authoritative stored Gross and Net so the printed document reconciles
-    // with its own NET PAY line rather than implying a zero-total document.
-    const grossPay = Number(row.gross_salary ?? row.gross_pay ?? 0);
-    const netPay   = Number(row.net_salary ?? row.net_pay ?? 0);
-    const totalDeductions = (grossPay || netPay)
-      ? Math.max(0, grossPay - netPay)
-      : 0;
-
-    const statutory = {
-      paye: row.paye_tax || row.paye_deduction || 0,
-      nssf: row.nssf_contribution || row.nssf_deduction || 0,
-      nhif_shif: row.shif_contribution || row.shif_deduction || row.nhif_contribution || 0,
-      housing_levy: row.housing_levy || 0,
-    };
-
-    const parseJson = (value) => {
-      if (Array.isArray(value)) return value;
-      if (typeof value === 'string' && value) {
-        try { const v = JSON.parse(value); return Array.isArray(v) ? v : []; }
-        catch (_) { return []; }
-      }
-      return [];
-    };
-    const allowances = parseJson(row.allowances_breakdown);
-    const childrenDeductions = parseJson(row.child_fees_breakdown);
-
-    return window.PrintManager.printDedicatedPayslip({
-      employeeName: row.staff_name || '',
-      staffNo: row.staff_no || row.staff_number || '',
-      designation: row.position || row.designation || '',
-      department: row.department || row.department_name || '',
-      kraPin: row.kra_pin || '',
-      nssfNo: row.nssf_no || '',
-      shifNo: row.shif_no || row.nhif_no || '',
-      bankName: row.bank_name || '',
-      bankAccountNumber: row.bank_account_number || row.bank_account || '',
-      paymentMethod: row.payment_method || row.payment_mode || '',
-      paymentReference: row.payment_reference || '',
-      datePaid: row.payment_date || row.paid_at || '',
-      status: row.payslip_status || row.payment_status || row.status || '',
-      period: row.period_display || row.month_label || `${row.payroll_year}-${String(row.payroll_month).padStart(2, '0')}`,
-      basicSalary: row.basic_salary || 0,
-      allowances,
-      statutory,
-      grossPay,
-      netPay,
-      totalDeductions,
-      employerNssf: row.employer_nssf_contribution || 0,
-      employerHousing: row.employer_housing_levy || 0,
-      otherDeductions: row.other_deductions_total != null ? row.other_deductions_total : null,
-      childrenDeductions,
-      filename: `payslip_${row.staff_no || row.staff_id}_${row.payroll_year}_${row.payroll_month}`,
-    });
+    const payrollId = Number(row.id || row.payslip_id);
+    if (!payrollId) return;
+    // Authoritative payslip: server loads all financial data.
+    return window.PrintManager.printDedicatedPayslip({ payroll_id: payrollId });
   },
 
   shareSelected: async function (channel) {

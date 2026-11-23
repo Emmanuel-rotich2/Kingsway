@@ -196,7 +196,7 @@ const PageShell = (() => {
 
             return new Promise((resolve, reject) => {
                 const script = document.createElement('script');
-                script.src = src;
+                script.src = window.kwVersionedUrl ? window.kwVersionedUrl(src) : src;
                 script.async = false;
                 script.dataset.kingswayScriptState = 'loading';
                 script.addEventListener('load', () => {

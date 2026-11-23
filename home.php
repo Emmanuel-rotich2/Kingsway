@@ -105,6 +105,12 @@ if (!headers_sent()) {
 
     <script nonce="<?= csp_nonce() ?>">
         window.APP_BASE = <?= json_encode($appBase) ?>;
+        // Build stamp for scripts loaded on demand: new URL on every deploy.
+        window.KW_ASSET_BUILD = <?= json_encode(asset_build_id()) ?>;
+        window.kwVersionedUrl = function (src) {
+            if (!src || /[?&]v=/.test(src) || !window.KW_ASSET_BUILD) return src;
+            return src + (src.indexOf('?') === -1 ? '?' : '&') + 'v=' + window.KW_ASSET_BUILD;
+        };
         window.UPLOAD_URL = <?= json_encode(defined('UPLOAD_URL') ? rtrim((string) UPLOAD_URL, '/') : rtrim($appBase, '/') . '/uploads') ?>;
         window.REQUESTED_ROUTE = <?= json_encode($route) ?>;
         window.AUTH_SESSION_CONFIG = {

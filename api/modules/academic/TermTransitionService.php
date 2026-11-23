@@ -78,7 +78,7 @@ class TermTransitionService
     {
         $stmt = $this->db->prepare(
             "SELECT
-                SUM(CASE WHEN lp.status = 'approved' THEN 1 ELSE 0 END) AS approved,
+                SUM(CASE WHEN lp.status IN ('approved', 'published', 'delivered') THEN 1 ELSE 0 END) AS approved,
                 SUM(CASE WHEN lp.status IN ('draft', 'submitted') THEN 1 ELSE 0 END) AS pending
              FROM " . ReadReplicaService::qualifiedRef('lesson_plans') . " lp
              LEFT JOIN " . ReadReplicaService::qualifiedRef('academic_year_calendar_days') . " aycd
