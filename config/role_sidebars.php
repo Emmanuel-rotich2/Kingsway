@@ -510,7 +510,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-wallet',
             'subitems' => [
-                ['label' => 'Create Payroll', 'url' => 'manage_payrolls'],            // Admin drafts payroll
+                ['label' => 'Manage Payrolls', 'url' => 'manage_payrolls'],            // Admin drafts payroll
                 ['label' => 'Payroll Records', 'url' => 'payroll'],
                 ['label' => 'Statutory Remittances', 'url' => 'statutory_remittances'],
             ]

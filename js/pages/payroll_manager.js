@@ -57,7 +57,7 @@ const PayrollManagerController = {
       document.getElementById("payrollMonth").value = now.getMonth() + 1;
 
       // Populate year filters
-      this.populateYearFilters();
+      await this.populateYearFilters();
 
       // Load initial data
       await Promise.all([
