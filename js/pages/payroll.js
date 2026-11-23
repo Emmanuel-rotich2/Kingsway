@@ -53,7 +53,7 @@
             }
 
             this.configureCapabilities();
-            this.populateYearOptions();
+            await this.populateYearOptions();
             this.restoreFilters();
             this.bindEvents();
             this.updateActionState();
@@ -97,13 +97,17 @@
             });
 
             document.getElementById('clearPayrollFilters')?.addEventListener('click', () => {
-                const currentYear = String(new Date().getFullYear());
-                const year = document.getElementById('payrollYearFilter');
-                const month = document.getElementById('payrollMonthFilter');
+                const yearFrom = document.getElementById('payrollYearFromFilter');
+                const yearTo = document.getElementById('payrollYearToFilter');
+                const monthFrom = document.getElementById('payrollMonthFromFilter');
+                const monthTo = document.getElementById('payrollMonthToFilter');
                 const status = document.getElementById('payrollStatusFilter');
                 const searchInput = document.getElementById('payrollSearchFilter');
-                if (year) year.value = currentYear;
-                if (month) month.value = '';
+                // Reset to "Any" (empty value) for all filters
+                if (yearFrom) yearFrom.value = '';
+                if (yearTo) yearTo.value = '';
+                if (monthFrom) monthFrom.value = '';
+                if (monthTo) monthTo.value = '';
                 if (status) status.value = '';
                 if (searchInput) searchInput.value = '';
                 this.loadLedger();
