@@ -303,6 +303,96 @@
     return out;
   }
 
+  /* Prefix rules: any route whose name starts with one of these keywords
+     inherits role-specific tasks — this is what takes coverage from a few
+     dozen hand-listed pages to effectively every page in the system. */
+  const PREFIX_TASKS = [
+    ['system_', 'security_', 'api_', 'log', 'audit', 'session', 'backup', 'permission', 'role_', 'manage_user', 'error', 'maintenance', 'metric', 'monitor', 'health', 'notification_log',
+      { '2': [['Explain this system page', 'Explain what this system page shows, its health, and whether anything needs attention.'], ['Ops note', 'Draft a short operations note about this page for the sysadmin log.'], ['Security check', 'Review this page from a security standpoint: risks, anomalies, recommended checks.']] }],
+    ['report_', 'analytics', 'dashboard', 'kpi', 'metric', 'trend', 'comparative',
+      { '3': [['Director summary', 'Write a director-level summary of this report: outcomes, risks, decisions needed.'], ['Briefing paragraph', 'Write a short briefing paragraph from this report for the senior team.']],
+        '5': [['Leadership summary', 'Summarise this report for headteacher review: what is fine, what needs action.'], ['Action list', 'Turn this report into a prioritised action list.']],
+        '6': [['Academic brief', 'Summarise this report academically: coverage, gaps, recommended actions.']],
+        '7': [['Class takeaway', 'Write talking points from this report I can use with my class or their parents.']],
+        '8': [['Subject takeaway', 'Summarise what this report means for my subject areas and suggest one improvement.']],
+        '4': [['Ops summary', 'Summarise this report and list any operational issues to resolve.']] }],
+    ['finance', 'payment', 'fee', 'budget', 'account', 'bank', 'invoice', 'reconcil', 'expense', 'payroll',
+      { '10': [['Variance explanation', 'Explain the largest variances and suggest causes to verify.'], ['Reconciliation note', 'Draft a reconciliation note explaining differences found.']],
+        '4': [['Finance note', 'Explain this finance page in plain language and list actions needed.']],
+        '3': [['Finance briefing', 'Write a director-level finance briefing: position, variances, decisions needed.']] }],
+    ['staff', 'hr', 'leave', 'appraisal', 'recruit', 'onboard', 'teacher',
+      { '4': [['HR note', 'Summarise what this page shows for staff administration and list actions.'], ['Letter draft', 'Draft a professional staff letter based on this page.']],
+        '5': [['Staff briefing', 'Summarise this for headteacher review: concerns, decisions needed.']] }],
+    ['attendance', 'absentee',
+      { '7': [['Parent letters', 'Draft short absence-notification letters to parents for learners with repeated absences.'], ['Class note', 'Write a class attendance summary I can share with my head of department.']],
+        '6': [['Department brief', 'Write a department-level attendance brief: trends, concerns, recommended actions.']],
+        '5': [['School alert', 'Summarise school-wide attendance for leadership: who is affected and what to do.']],
+        '63': [['Home-visit points', 'Prepare talking points for a home visit about a learner\'s attendance.']] }],
+    ['discipline', 'conduct', 'behavior', 'behaviour', 'incident', 'case',
+      { '63': [['Case summary', 'Draft a clear case summary: facts, dates, actions taken, recommended next step.'], ['Parent letter', 'Write a firm but pastoral letter to a parent about this case.'], ['Hearing minutes', 'Draft minutes for a hearing: attendees, statements, decision, follow-up.']],
+        '5': [['Case review', 'Summarise this case for headteacher review: severity, pattern, recommendation.']],
+        '7': [['Classroom follow-up', 'Suggest classroom-level follow-up steps after this incident.']] }],
+    ['transport', 'vehicle', 'driver', 'route', 'trip',
+      { '23': [['Route note', 'Draft a note about today\'s routes or any transport issues for the log.']],
+        '4': [['Transport brief', 'Summarise transport operations on this page and list issues to resolve.']] }],
+    ['boarding', 'hostel', 'matron', 'exeat',
+      { '18': [['Boarding note', 'Draft a brief boarding note for the log based on this page.']],
+        '5': [['Boarding briefing', 'Summarise boarding matters on this page for leadership.']] }],
+    ['health', 'clinic', 'counsel', 'pastoral', 'chaplain', 'welfare',
+      { '24': [['Welfare note', 'Draft a confidential pastoral note based on this page.']],
+        '6': [['Welfare brief', 'Summarise welfare matters for the deputy head: concerns, referrals needed.']] }],
+    ['inventory', 'store', 'asset', 'purchase', 'stock', 'catalog', 'product',
+      { '14': [['Stock note', 'Summarise stock levels or issues on this page and suggest reorders.'], ['Purchase justification', 'Draft a purchase justification note for items flagged here.']],
+        '4': [['Inventory brief', 'Summarise inventory matters and list actions for the school administrator.']] }],
+    ['catering', 'kitchen', 'meal', 'food', 'diet',
+      { '16': [['Catering note', 'Draft a catering note about meals, consumption or issues on this page.']],
+        '4': [['Catering brief', 'Summarise catering operations and flag issues for the administrator.']] }],
+    ['exam', 'assessment', 'grade', 'result', 'mark', 'test', 'quiz',
+      { '8': [['Question draft', 'Draft exam-style questions with mark allocations for the topic I name.'], ['Rubric descriptors', 'Write rubric descriptors: beginning, developing, secure, outstanding.']],
+        '7': [['Class test draft', 'Draft a short class test: 10 questions covering this topic, with answers.']],
+        '6': [['Assessment blueprint', 'Propose an assessment blueprint: topics, weightings, question types, duration.']],
+        '5': [['Exam readiness', 'Write an exam-readiness note for leadership: coverage, risks, invigilation needs.']] }],
+    ['lesson', 'scheme', 'cbc', 'curriculum', 'academic', 'syllabus', 'strand',
+      { '8': [['Lesson outline', 'Outline a 40-minute CBC lesson on the topic I describe: objectives, activities, assessment.'], ['Differentiation', 'Suggest 3 ways to differentiate this lesson for mixed-ability learners.']],
+        '7': [['Class lesson plan', 'Draft a simple lesson plan for my class: starter, main activity, plenary, homework.']],
+        '6': [['Coverage check', 'Review which CBC strands this term\'s plans cover and what is missing.']],
+        '5': [['Coverage report', 'Summarise academic coverage across the school and flag gaps.']] }],
+    ['admission', 'enrol', 'enroll', 'application', 'interview', 'placement', 'prospect',
+      { '5': [['Admission note', 'Draft an admission decision or interview note based on this page.']],
+        '4': [['Placement brief', 'Summarise admission/placement matters and list actions.']],
+        '6': [['Class fit', 'Suggest class/stream placement considerations based on this application.']] }],
+    ['communicat', 'announce', 'message', 'sms', 'email', 'notification', 'newsletter', 'circular',
+      { '4': [['Staff circular', 'Draft a staff circular with clear sections: purpose, actions required, deadline.']],
+        '5': [['Official announcement', 'Draft an official headteacher announcement with appropriate tone and formality.']],
+        '7': [['Class parent note', 'Draft a friendly note to parents of my class about an upcoming activity or request.']],
+        '8': [['Subject update', 'Draft a short update to parents about my subject this week.']] }],
+    ['student', 'learner', 'pupil', 'class_', 'stream', 'grade', 'school_',
+      { '7': [['Class note', 'Help me write a note about my class or a learner based on this page.'], ['Parent message', 'Draft a friendly message to parents related to what this page shows.']],
+        '8': [['Subject note', 'Relate what this page shows to my subject and suggest one improvement.']],
+        '5': [['Leadership summary', 'Summarise this for headteacher review: what is fine, what needs action.']] }],
+    ['parent', 'guardian',
+      { '4': [['Parent comms', 'Draft a parent-facing message based on this page.']],
+        '7': [['Class parent note', 'Draft a note to parents of my class.']] }],
+    ['website', 'news', 'event', 'gallery', 'download', 'job', 'career', 'inquir', 'vacanc',
+      { '4': [['Parent update', 'Draft a parent-facing update in plain, reassuring language.'], ['Announcement', 'Draft a short announcement for the website or newsletter.']],
+        '5': [['Headteacher message', 'Draft a headteacher message for the website or newsletter.']] }],
+  ];
+
+  function prefixTasksFor(route, roles) {
+    const r = String(route || '');
+    for (const [prefixes, byRole] of PREFIX_TASKS) {
+      if (!prefixes.some((p) => r === p || r.startsWith(p))) continue;
+      const out = [];
+      for (const k of roles) {
+        const list = byRole[k];
+        if (list) { list.forEach(([l, p]) => out.push({ label: l, prompt: `${p} Page: ${r.replace(/_/g, ' ')}.` })); break; }
+      }
+      if (!out.length) (byRole['*'] || []).forEach(([l, p]) => out.push({ label: l, prompt: `${p} Page: ${r.replace(/_/g, ' ')}.` }));
+      return out;
+    }
+    return [];
+  }
+
   function pageTasksFor(route, roles) {
     const reg = window.AI_PAGE_TASKS || {};
     const page = reg[route] && route !== '*' ? reg[route] : null;
@@ -312,8 +402,9 @@
       roles.forEach((k) => push(page[k]));
       push(page['*']);
     }
-    // Role-flavoured tasks for this route come before the global fallback so
-    // every page suggests things that match what THIS user does here.
+    // Route-family tasks (reports, finance, HR…) apply even without a
+    // hand-written entry for this exact page.
+    prefixTasksFor(route, roles).forEach((t) => out.push(t));
     generatedRoleTasks(roles, route).forEach((t) => out.push(t));
     if (page !== reg['*']) push(reg['*'] && reg['*']['*']);
     // de-dupe by label
