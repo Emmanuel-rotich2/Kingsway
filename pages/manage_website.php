@@ -40,32 +40,134 @@
 .kw-web .btn-icon.danger:hover { color: var(--web-danger); border-color: var(--web-danger); }
 .kw-web :focus-visible { outline: 3px solid rgba(46,139,87,.45); outline-offset: 2px; }
 
-/* Desk: rail | canvas | up next. With the app sidebar open, three columns
-   only fit on wide screens; below that "Up next" sits above the canvas. */
-.kw-web .web-desk { display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; grid-template-areas: "rail canvas next"; gap: 20px; align-items: start; }
+/* Desk: rail | canvas | up next. Three columns with independent scrolling.
+   Each column scrolls independently; the whole page scrolls when inner scrolls are exhausted. */
+.kw-web .web-desk {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 300px;
+  grid-template-areas: "rail canvas next";
+  gap: 20px;
+  height: calc(100vh - 130px); /* viewport minus header + padding */
+  min-height: 600px;
+}
 .kw-web .web-rail { grid-area: rail; }
 .kw-web .web-canvas { grid-area: canvas; min-width: 0; }
 .kw-web .web-next { grid-area: next; }
+
+/* Each column is a flex column with independent vertical scrolling */
+.kw-web .web-desk > * {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: 100%;
+}
+
+/* Rail: sticky header within its own scroll, then scrollable groups */
+.kw-web .web-rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.kw-web .web-rail > .web-rail-group:first-child {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--web-paper);
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--web-line);
+}
+
+/* Canvas: scrolls independently */
+.kw-web .web-canvas {
+  position: relative;
+}
+
+/* Next panel: sticky header within its own scroll */
+.kw-web .web-next {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.kw-web .web-next > .web-next-card:first-child {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--web-maize-tint);
+  border: 1px solid #EFD9A0;
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+/* Scrollbar styling for webkit */
+.kw-web .web-desk > *::-webkit-scrollbar {
+  width: 6px;
+}
+.kw-web .web-desk > *::-webkit-scrollbar-track {
+  background: transparent;
+}
+.kw-web .web-desk > *::-webkit-scrollbar-thumb {
+  background: var(--web-line);
+  border-radius: 3px;
+}
+.kw-web .web-desk > *::-webkit-scrollbar-thumb:hover {
+  background: var(--web-muted);
+}
+
+/* Responsive: Tablet - rail + next on left, canvas on right */
 @media (max-width: 1699.98px) {
-  .kw-web .web-desk { grid-template-columns: 210px minmax(0, 1fr); grid-template-areas: "rail next" "rail canvas"; }
-  .kw-web .web-next { position: static; }
-  .kw-web .web-next .web-next-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); align-items: stretch; }
+  .kw-web .web-desk {
+    grid-template-columns: 210px minmax(0, 1fr);
+    grid-template-areas:
+      "rail next"
+      "rail canvas";
+    grid-template-rows: auto 1fr;
+    height: calc(100vh - 130px);
+  }
+  .kw-web .web-next {
+    grid-area: next;
+  }
+  .kw-web .web-next .web-next-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    align-items: stretch;
+  }
   .kw-web .web-next:not(.is-expanded) .web-next-item:nth-child(n+4) { display: none; }
   .kw-web .web-next-more:not([hidden]) { display: inline-block; }
 }
-.kw-web .web-next-more { display: none; background: none; border: 0; color: #6B5A33; font-size: .8125rem; font-weight: 600; padding: 6px 0 0; text-decoration: underline; }
-@media (max-width: 991.98px) {
-  .kw-web .web-desk { grid-template-columns: 1fr; grid-template-areas: "rail" "next" "canvas"; }
-  .kw-web { padding: 14px; }
-}
 
-.kw-web .web-rail { position: sticky; top: 76px; display: flex; flex-direction: column; gap: 14px; align-self: start; }
+/* Responsive: Mobile - single column stack */
 @media (max-width: 991.98px) {
-  .kw-web .web-rail { position: static; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding-bottom: 6px; scrollbar-width: thin; }
+  .kw-web .web-desk {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "rail"
+      "next"
+      "canvas";
+    grid-template-rows: auto auto 1fr;
+    height: auto;
+    min-height: auto;
+  }
+  .kw-web { padding: 14px; }
+  .kw-web .web-rail {
+    position: static;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 6px;
+    padding-bottom: 6px;
+    scrollbar-width: thin;
+    max-height: none;
+  }
   .kw-web .web-rail .web-rail-group { display: contents; }
   .kw-web .web-rail .web-rail-group-label { display: none; }
   .kw-web .web-rail .web-rail-group button { width: auto; flex: 0 0 auto; border: 1px solid var(--web-line); background: var(--web-card); }
   .kw-web .web-rail .web-rail-group button[aria-current="page"] { background: var(--web-green); border-color: var(--web-green); }
+  .kw-web .web-rail > .web-rail-group:first-child { position: static; }
+  .kw-web .web-next > .web-next-card:first-child { position: static; }
 }
 .kw-web .web-rail-group { display: flex; flex-direction: column; gap: 2px; }
 .kw-web .web-rail-group-label { font-size: .75rem; font-weight: 600; color: var(--web-muted); padding: 0 10px 4px; }
@@ -112,7 +214,7 @@
 .kw-web .web-tile.is-hidden img, .kw-web .web-tile.is-hidden video { opacity: .45; }
 
 /* Up next */
-.kw-web .web-next { position: sticky; top: 76px; }
+.kw-web .web-next { position: relative; }
 .kw-web .web-next-card { background: var(--web-maize-tint); border: 1px solid #EFD9A0; border-radius: 16px; padding: 16px; }
 .kw-web .web-next-card h2 { display: flex; align-items: center; gap: 8px; }
 .kw-web .web-next-card h2 i { color: #A87410; }
