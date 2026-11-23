@@ -222,7 +222,9 @@ echo '<script nonce="' . csp_nonce() . '">window.APP_SW_VERSION = ' . ($__swMtim
 $files = [
     'js/api.js',
     'js/config/ai-features.js',
+    'js/config/ai_page_tasks.js',
     'js/components/agent_task_panel.js',
+    'js/components/ai_inline_draft.js',
     'js/core/frontend_logger.js',
     'js/core/grading_scale.js',
     'js/core/session_manager.js',

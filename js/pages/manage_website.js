@@ -3,8 +3,8 @@
  *
  * Sections: news & announcements, events, photos & videos, downloads
  * (uploaded files + system documents), vacancies, applications, enquiries,
- * page text, about the school, school details; "Up next" posting
- * suggestions and an in-place preview of the public site.
+ * page text, about the school, school details; and an in-place preview of
+ * the public site.
  *
  * All calls go through window.callAPI. GET filters are passed as query
  * parameters (the 4th argument): a GET body is never sent.
@@ -122,58 +122,18 @@ const manageWebsiteController = {
   },
 
   /* ════════════════════════════════════════════════════════════════════════
-     UP NEXT
+     INBOX BADGE — unread enquiries count on the rail button
   ════════════════════════════════════════════════════════════════════════ */
-  async loadSuggestions() {
-    const list = this.$('webNextList');
-    if (!list) return;
-    list.innerHTML = '<li class="small" style="color:#6B5A33">Checking the calendar…</li>';
+  async refreshInboxBadge() {
+    const badge = this.$('webInboxCount');
+    if (!badge) return;
     try {
       const r = await this.API('GET', 'website/posting-suggestions');
-      const items = r?.items || [];
-      this.state.suggestions = items;
-      const inbox = items.find((i) => i.kind === 'reply');
-      const badge = this.$('webInboxCount');
-      if (badge) {
-        const n = inbox ? parseInt(inbox.title.replace(/\D+/g, ''), 10) : 0;
-        badge.textContent = n ? String(n) : '';
-        badge.classList.toggle('d-none', !n);
-      }
-      if (!items.length) {
-        list.innerHTML = '<li class="small" style="color:#6B5A33">Nothing is waiting. The website is up to date with the school calendar.</li>';
-        return;
-      }
-      const more = this.$('webNextMore');
-      if (more) { more.hidden = items.length <= 3; more.textContent = `Show all ${items.length} suggestions`; }
-      list.innerHTML = items.map((s, i) => {
-        const label = { announce: 'Write it', reminder: 'Write it', recap: 'Upload photos', refresh: 'Write an update', reply: 'Open enquiries', tidy: 'Review vacancies', downloads: 'Open downloads' }[s.kind] || 'Open';
-        const canDraft = !!s.action?.compose && ['announce', 'reminder', 'refresh'].includes(s.kind);
-        return `<li class="web-next-item ${s.priority === 1 ? 'p1' : ''}">
-          <h3>${this.esc(s.title)}</h3>
-          <p>${this.esc(s.reason)}</p>
-          <div class="web-next-actions">
-            <button type="button" class="btn web-next-go" data-action="next-go" data-index="${i}">${label}</button>
-            ${canDraft ? `<button type="button" class="btn web-next-ai" data-action="next-ai" data-index="${i}"><i class="bi bi-stars me-1"></i>Draft with the assistant</button>` : ''}
-          </div>
-        </li>`;
-      }).join('');
-    } catch (e) {
-      list.innerHTML = '<li class="small" style="color:#6B5A33">Suggestions are unavailable right now. Your sections still work.</li>';
-    }
-  },
-
-  runSuggestion(index, withAssistant) {
-    const s = this.state.suggestions?.[index];
-    if (!s) return;
-    const tab = s.action?.tab;
-    if (tab) this.switchTab(tab);
-    const compose = s.action?.compose;
-    if (tab === 'news' && compose) {
-      this.openNewsComposer(null, { kind: compose.category === 'Announcement' ? 'announcement' : 'news', ...compose });
-      if (withAssistant) this.askAssistantForNews();
-    } else if (tab === 'gallery' && compose) {
-      this.openGalleryUploader({ caption: compose.caption, category: compose.category });
-    }
+      const inbox = (r?.items || []).find((i) => i.kind === 'reply');
+      const n = inbox ? parseInt(inbox.title.replace(/\D+/g, ''), 10) : 0;
+      badge.textContent = n ? String(n) : '';
+      badge.classList.toggle('d-none', !n);
+    } catch (_) { /* badge is decorative; sections still work without it */ }
   },
 
   /* ════════════════════════════════════════════════════════════════════════
@@ -361,18 +321,105 @@ const manageWebsiteController = {
     }
   },
 
-  askAssistantForNews() {
-    const kind = this.state.newsKind === 'announcement' ? 'a short school announcement' : 'a school news article';
-    const title = this.$('newsTitle').value.trim();
-    const excerpt = this.$('newsExcerpt').value.trim();
-    const prompt = `Draft ${kind} for the Kingsway Preparatory School website${title ? ` titled "${title}"` : ''}.`
-      + `${excerpt ? ` Key facts: ${excerpt}` : ''} Use plain, warm language for parents, keep it under 200 words, and do not name learners.`;
-    if (window.KingswayAssistant?.ask) {
-      window.KingswayAssistant.ask(prompt);
-      this.notify('The assistant is drafting. Paste the parts you want into the story, then save.', 'info');
-    } else {
-      this.notify('The assistant is not available on this page right now.', 'warning');
-    }
+  /* ── Inline AI drafting: streams into the open form/modal, no redirect ── */
+  mountAiDrafts() {
+    if (!window.AiInlineDraft) return;
+    const route = 'manage_website', moduleName = 'website';
+    const set = (id, v) => {
+      const el = this.$(id);
+      if (!el) return;
+      el.value = String(v ?? '').slice(0, el.maxLength || String(v ?? '').length);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    // News / announcement: TITLE/EXCERPT/BODY markers stream into the story,
+    // then distribute into the three fields on completion.
+    window.AiInlineDraft.mount({
+      button: '#newsAiDraftBtn', host: '#newsAiDraftHost', route, module: moduleName,
+      liveTarget: '#newsContent',
+      prompt: () => {
+        const kind = this.state.newsKind === 'announcement' ? 'a short school announcement' : 'a school news article';
+        const title = this.$('newsTitle').value.trim();
+        const excerpt = this.$('newsExcerpt').value.trim();
+        return `Draft ${kind} for the Kingsway Preparatory School website${title ? ` titled "${title}"` : ''}.`
+          + `${excerpt ? ` Key facts: ${excerpt}` : ''} Use plain, warm language for parents, keep it under 200 words, and do not name learners.`
+          + ` Reply in exactly this format and nothing else:\nTITLE: <headline>\nEXCERPT: <one or two sentences>\nBODY:\n<the full story>`;
+      },
+      apply: (text) => {
+        const m = text.match(/TITLE:\s*([^\n]+)\s*\nEXCERPT:\s*([^\n]+)\s*\nBODY:\s*([\s\S]*)/i);
+        if (m) {
+          set('newsTitle', m[1].trim());
+          set('newsExcerpt', m[2].trim());
+          set('newsContent', m[3].trim());
+          this.updateNewsPreview?.();
+        }
+      },
+    });
+
+    // Event: description only.
+    window.AiInlineDraft.mount({
+      button: '#eventAiDraftBtn', host: '#eventAiDraftHost', route, module: moduleName,
+      liveTarget: '#eventDescription',
+      prompt: () => {
+        const facts = [
+          this.$('eventTitle').value.trim() && `Event: ${this.$('eventTitle').value.trim()}`,
+          this.$('eventDate').value && `Date: ${this.$('eventDate').value}`,
+          this.$('eventLocation').value.trim() && `Location: ${this.$('eventLocation').value.trim()}`,
+          `Kind: ${this.$('eventCategory').value}`,
+        ].filter(Boolean).join('\n');
+        return `Write "What families should know" for this school event: 2-4 sentences, warm and practical, no learner names.\n${facts}`;
+      },
+    });
+
+    // Gallery caption.
+    window.AiInlineDraft.mount({
+      button: '#galleryCaptionAiBtn', host: '#galleryCaptionAiHost', route, module: moduleName,
+      liveTarget: '#galleryCaptionAll',
+      prompt: () => `Write one short caption (under 12 words) for a photo album on the Kingsway Preparatory School website. Album: ${this.$('galleryCategory').value}. Reply with the caption only.`,
+    });
+
+    // Download description.
+    window.AiInlineDraft.mount({
+      button: '#dlDescAiBtn', host: '#dlDescAiHost', route, module: moduleName,
+      liveTarget: '#dlDesc',
+      prompt: () => {
+        const t = this.$('dlTitle').value.trim();
+        return `Write a one-line description (under 20 words) for a downloadable document on a Kenyan primary school website. Title: "${t || 'untitled'}", group: ${this.$('dlCategory').value}. Reply with the description only.`;
+      },
+    });
+
+    // Vacancy: three textareas via DESCRIPTION/REQUIREMENTS/RESPONSIBILITIES markers.
+    window.AiInlineDraft.mount({
+      button: '#jobAiDraftBtn', host: '#jobAiDraftHost', route, module: moduleName,
+      liveTarget: '#jobDescription',
+      prompt: () => {
+        const t = this.$('jobTitle').value.trim();
+        const loc = this.$('jobLocation').value.trim() || 'Londiani, Kenya';
+        return `Draft a job vacancy for the Kingsway Preparatory School careers page${t ? ` for "${t}"` : ''} (location: ${loc}, Kenya).`
+          + ` Reply in exactly this format and nothing else:\nDESCRIPTION:\n<2-3 sentences about the role>\nREQUIREMENTS:\n<one requirement per line>\nRESPONSIBILITIES:\n<one responsibility per line>`;
+      },
+      apply: (text) => {
+        const grab = (label) => {
+          const m = text.match(new RegExp(label + ':\\s*([\\s\\S]*?)(?=[A-Z][A-Z ]+:|$)', 'i'));
+          return m ? m[1].trim() : '';
+        };
+        const desc = grab('DESCRIPTION'), req = grab('REQUIREMENTS'), resp = grab('RESPONSIBILITIES');
+        if (desc || req || resp) {
+          set('jobDescription', desc); set('jobRequirements', req); set('jobResponsibilities', resp);
+        }
+      },
+    });
+
+    // Enquiry reply (modal opened per enquiry; prompt reads live context).
+    window.AiInlineDraft.mount({
+      button: '#replyAiDraftBtn', host: '#replyAiDraftHost', route, module: moduleName,
+      liveTarget: '#replyText',
+      prompt: () => {
+        const ctx = this.$('replyContext')?.textContent || '';
+        return `Draft a polite reply email from the Kingsway Preparatory School office to this website enquiry. Sign off as "Kingsway Preparatory School". Keep it under 150 words, warm and professional.\nEnquiry: ${ctx}`;
+      },
+    });
   },
 
   async saveNews() {
@@ -397,7 +444,7 @@ const manageWebsiteController = {
       else await this.API('POST', 'website/news', payload);
       this.notify(payload.status === 'published' ? 'Published on the website' : payload.status === 'draft' ? 'Draft saved' : 'Archived');
       this.modal('wsNewsModal').hide();
-      this.loadNews(); this.loadSuggestions();
+      this.loadNews();
     } catch (e) { this.notify(e.message || 'The post could not be saved.', 'danger'); }
     finally { this.busy(btn, false); this.updateNewsSubmitLabel(); }
   },
@@ -500,7 +547,7 @@ const manageWebsiteController = {
       else await this.API('POST', 'website/events', payload);
       this.notify(id ? 'Event updated' : 'Event added');
       this.modal('wsEventModal').hide();
-      this.loadEvents(); this.loadSuggestions();
+      this.loadEvents();
     } catch (e) { this.notify(e.message || 'The event could not be saved.', 'danger'); }
   },
 
@@ -618,7 +665,7 @@ const manageWebsiteController = {
     }
     this.busy(btn, false);
     this.$('galleryUploadState').textContent = failed ? `${done} added, ${failed} need another try.` : `${done} added to the website.`;
-    if (done) { this.notify(`${done} ${done === 1 ? 'item' : 'items'} added to the website`); this.loadGallery(); this.loadSuggestions(); }
+    if (done) { this.notify(`${done} ${done === 1 ? 'item' : 'items'} added to the website`); this.loadGallery(); }
     if (!failed && done) setTimeout(() => this.modal('wsGalleryModal').hide(), 700);
   },
 
@@ -812,7 +859,6 @@ const manageWebsiteController = {
       this.renderDownloadsConfig();
       this.$('dlConfigState').textContent = 'Saved. Families see this now.';
       this.notify('Downloads page updated');
-      this.loadSuggestions();
     } catch (e) { this.$('dlConfigState').textContent = ''; this.notify(e.message || 'The downloads page could not be saved.', 'danger'); }
     finally { this.busy(btn, false); }
   },
@@ -908,13 +954,13 @@ const manageWebsiteController = {
       else await this.API('POST', 'website/jobs', payload);
       this.notify(id ? 'Vacancy updated' : 'Vacancy posted on the Careers page');
       this.modal('wsJobModal').hide();
-      this.loadJobs(); this.loadSuggestions();
+      this.loadJobs();
     } catch (e) { this.notify(e.message || 'The vacancy could not be saved.', 'danger'); }
   },
 
   async closeJob(id, title) {
     if (!(await window.confirmAction('Close vacancy', `Close "${title}"? It will no longer accept applications.`, { confirmText: 'Close vacancy' }))) return;
-    try { await this.API('PUT', `website/jobs/${id}`, { status: 'closed' }); this.notify('Vacancy closed'); this.loadJobs(); this.loadSuggestions(); }
+    try { await this.API('PUT', `website/jobs/${id}`, { status: 'closed' }); this.notify('Vacancy closed'); this.loadJobs(); }
     catch (e) { this.notify(e.message, 'danger'); }
   },
 
@@ -983,6 +1029,7 @@ const manageWebsiteController = {
     try {
       const r = await this.API('GET','website/inquiries');
       const items = r?.items || [];
+      this.state.inquiries = items;
       if (!items.length) { body.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">No enquiries yet.</td></tr>'; return; }
       body.innerHTML = items.map(q => `
         <tr>
@@ -1004,15 +1051,33 @@ const manageWebsiteController = {
   },
 
   async wsUpdateInquiryStatus(id, status) {
-    try { await this.API('PUT',`website/inquiries/${id}`,{status}); this.notify('Status updated'); }
+    try { await this.API('PUT',`website/inquiries/${id}`,{status}); this.notify('Status updated'); this.refreshInboxBadge(); }
     catch(e) { this.notify(e.message,'danger'); }
   },
 
   async wsReplyInquiry(id) {
-    const reply = window.prompt('Reply to this inquiry:');
-    if (!reply || !reply.trim()) return;
-    try { await this.API('PUT', `website/inquiries/${id}`, { reply: reply.trim() }); this.notify('Reply queued for email delivery'); this.loadInquiries(); }
-    catch(e) { this.notify(e.message, 'danger'); }
+    const q = (this.state.inquiries || []).find((x) => Number(x.id) === Number(id));
+    if (!q) { this.notify('That enquiry is no longer listed — refresh and try again.', 'warning'); return; }
+    this.$('replyEditId').value = id;
+    this.$('replyText').value = '';
+    this.$('replyContext').textContent = `${q.full_name} <${q.email || 'no email'}> — ${q.subject || 'no subject'}: ${(q.message || '').slice(0, 300)}`;
+    this.modal('wsReplyModal').show();
+  },
+
+  async sendInquiryReply() {
+    const id = this.$('replyEditId').value;
+    const reply = this.$('replyText').value.trim();
+    if (!reply) return this.notify('Write or draft a reply first.', 'warning');
+    const btn = this.$('replySendBtn');
+    this.busy(btn, true, 'Sending…');
+    try {
+      await this.API('PUT', `website/inquiries/${id}`, { reply });
+      this.notify('Reply queued for email delivery');
+      this.modal('wsReplyModal').hide();
+      this.loadInquiries();
+      this.refreshInboxBadge();
+    } catch(e) { this.notify(e.message, 'danger'); }
+    finally { this.busy(btn, false); }
   },
 
   /* ════════════════════════════════════════════════════════════════════════════
@@ -1613,14 +1678,6 @@ const manageWebsiteController = {
     const root = this.$('kwWeb');
     const actions = {
       'preview': (el) => this.openPreview(el.dataset.previewPage || ''),
-      'refresh-next': () => this.loadSuggestions(),
-      'toggle-next': (el) => {
-        const box = el.closest('.web-next');
-        const open = box.classList.toggle('is-expanded');
-        el.textContent = open ? 'Show fewer' : `Show all ${this.state.suggestions?.length || ''} suggestions`;
-      },
-      'next-go': (el) => this.runSuggestion(Number(el.dataset.index), false),
-      'next-ai': (el) => this.runSuggestion(Number(el.dataset.index), true),
       'compose-news': (el) => this.openNewsComposer(null, { kind: el.dataset.kind || 'news', category: el.dataset.kind === 'announcement' ? 'Announcement' : undefined }),
       'edit-news': (el) => this.openNewsComposer(el.dataset.id),
       'news-status': (el) => this.setNewsStatus(el.dataset.id, el.dataset.status),
@@ -1649,7 +1706,7 @@ const manageWebsiteController = {
     const modalActions = {
       'save-news': () => this.saveNews(),
       'clear-news-image': () => { this.setNewsImage('', ''); this.$('newsImageLink').value = ''; },
-      'ai-draft-news': () => this.askAssistantForNews(),
+      'send-reply': () => this.sendInquiryReply(),
       'save-gallery': () => this.saveGallery(),
       'save-gallery-edit': () => this.saveGalleryEdit(),
       'save-event': () => this.saveEvent(),
@@ -1664,7 +1721,7 @@ const manageWebsiteController = {
       map[el.dataset.action](el);
     };
     root.addEventListener('click', route(actions));
-    ['wsNewsModal', 'wsGalleryModal', 'wsGalleryEditModal', 'wsEventModal', 'wsDownloadModal', 'wsJobModal', 'wsPreviewModal']
+    ['wsNewsModal', 'wsGalleryModal', 'wsGalleryEditModal', 'wsEventModal', 'wsDownloadModal', 'wsJobModal', 'wsPreviewModal', 'wsReplyModal']
       .forEach((id) => this.$(id)?.addEventListener('click', route({ ...modalActions, ...actions })));
 
     // News filters (auto-load on change)
@@ -1745,7 +1802,8 @@ const manageWebsiteController = {
     });
     this.setupEventListeners();
     this.initTabs();
-    this.loadSuggestions();
+    this.mountAiDrafts();
+    this.refreshInboxBadge();
   },
 };
 
