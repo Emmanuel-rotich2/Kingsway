@@ -160,7 +160,8 @@ final class TestDataManagementService
             'SELECT TABLE_NAME FROM information_schema.COLUMNS
              WHERE TABLE_SCHEMA=DATABASE() AND COLUMN_NAME=? AND TABLE_NAME NOT LIKE ?'
         );
-        $stmt->execute([$column, 'vw\_%']);
+        // Exclude all views (typically prefixed with v_ or vw_)
+        $stmt->execute([$column, 'v\_%']);
         foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $table) {
             if (in_array($table, $excluded, true)) continue;
             $this->deleteIds((string) $table, $column, $ids);
@@ -175,9 +176,9 @@ final class TestDataManagementService
              FROM information_schema.KEY_COLUMN_USAGE k
              JOIN information_schema.COLUMNS c
                ON c.TABLE_SCHEMA=k.TABLE_SCHEMA AND c.TABLE_NAME=k.TABLE_NAME AND c.COLUMN_NAME=k.COLUMN_NAME
-             WHERE k.TABLE_SCHEMA=DATABASE() AND k.REFERENCED_TABLE_NAME=?'
+             WHERE k.TABLE_SCHEMA=DATABASE() AND k.REFERENCED_TABLE_NAME=? AND k.TABLE_NAME NOT LIKE ?'
         );
-        $stmt->execute([$parent]);
+        $stmt->execute([$parent, 'v\_%']);
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $reference) {
             $table = (string) $reference['TABLE_NAME'];
             if (in_array($table, $excluded, true)) continue;
@@ -213,9 +214,9 @@ final class TestDataManagementService
              FROM information_schema.KEY_COLUMN_USAGE k
              JOIN information_schema.REFERENTIAL_CONSTRAINTS r
                ON r.CONSTRAINT_SCHEMA=k.CONSTRAINT_SCHEMA AND r.CONSTRAINT_NAME=k.CONSTRAINT_NAME
-             WHERE k.TABLE_SCHEMA=DATABASE() AND k.REFERENCED_TABLE_NAME=?'
+             WHERE k.TABLE_SCHEMA=DATABASE() AND k.REFERENCED_TABLE_NAME=? AND k.TABLE_NAME NOT LIKE ?'
         );
-        $references->execute([$table]);
+        $references->execute([$table, 'v\_%']);
         foreach ($references->fetchAll(PDO::FETCH_ASSOC) as $reference) {
             if (in_array($reference['DELETE_RULE'], ['CASCADE', 'SET NULL'], true)) continue;
             $parentValues = $this->db->prepare(
