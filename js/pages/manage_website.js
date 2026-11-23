@@ -1737,6 +1737,12 @@ const manageWebsiteController = {
 
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
+    // Viewport-locked workspace: rail/canvas/"Up next" scroll independently.
+    // Removed again by the page-will-load listener below on soft navigation.
+    document.body.classList.add('kw-web-workspace');
+    window.addEventListener('kingsway:page-will-load', () => {
+      document.body.classList.remove('kw-web-workspace');
+    });
     this.setupEventListeners();
     this.initTabs();
     this.loadSuggestions();
