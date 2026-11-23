@@ -110,7 +110,12 @@ class FeeStructureAdminController {
     document.querySelectorAll("[data-rb-view]").forEach((tab) => tab.addEventListener("click", () => {
       document.querySelectorAll("[data-rb-view]").forEach((t) => { t.classList.toggle("active", t === tab); t.setAttribute("aria-selected", t === tab ? "true" : "false"); });
       this.rbView = tab.dataset.rbView;
-      this.renderRevenueBreakdown();
+      this.toggleComparisonPanel(this.rbView === "comparison");
+      if (this.rbView !== "comparison") {
+        this.renderRevenueBreakdown();
+      } else {
+        this.populateComparisonYears();
+      }
     }));
     document.getElementById("rbExportCsv")?.addEventListener("click", () => this.exportRevenueBreakdown());
     document.getElementById("rbPrint")?.addEventListener("click", () => {
@@ -118,6 +123,11 @@ class FeeStructureAdminController {
       if (window.PrintManager?.printElement) window.PrintManager.printElement("revenueBreakdownCard", { title: "How the expected revenue is made up" });
       else window.print();
     });
+    document.getElementById("rbPrintReport")?.addEventListener("click", () => this.printFullReport());
+
+    // Comparison tab events
+    document.getElementById("cmpRun")?.addEventListener("click", () => this.runComparison());
+    document.getElementById("cmpType")?.addEventListener("change", () => this.runComparison());
 
     window.exportFeeStructures = () => this.exportFeeStructures();
     window.printActiveFeeStructure = () => this.printActiveFeeStructure();
@@ -1804,6 +1814,241 @@ class FeeStructureAdminController {
     const q = (x) => `"${String(x ?? "").replace(/"/g, '""')}"`;
     const lines = [v.csv.head, ...v.csv.rows, ["Total", "", this.rb.totals?.billed || 0]].map((r) => r.map(q).join(","));
     window.KingswayFileLifecycle?.exportText?.(lines.join("\r\n"), `expected-revenue-by-${this.rbView}.csv`, "text/csv;charset=utf-8");
+  }
+
+  // ==================== Comparison Tab ====================
+
+  toggleComparisonPanel(show) {
+    const panel = document.getElementById("rbComparisonPanel");
+    const card = document.getElementById("revenueBreakdownCard");
+    if (panel) panel.style.display = show ? "block" : "none";
+    if (card) card.style.display = show ? "none" : "block";
+  }
+
+  populateComparisonYears() {
+    const fromSelect = document.getElementById("cmpYearFrom");
+    const toSelect = document.getElementById("cmpYearTo");
+    if (!fromSelect || !toSelect) return;
+
+    const years = this.academicYears
+      .map((y) => this.parseAcademicYear(y.year_code || y.year_name || y.year || y.id))
+      .filter((y) => y)
+      .sort((a, b) => b - a);
+
+    [fromSelect, toSelect].forEach((sel) => {
+      const current = sel.value;
+      sel.innerHTML = "";
+      years.forEach((y) => sel.append(new Option(y, y)));
+      if (sel === fromSelect && years[1]) sel.value = String(years[1]);
+      if (sel === toSelect && years[0]) sel.value = String(years[0]);
+    });
+  }
+
+  async runComparison() {
+    const yearFrom = document.getElementById("cmpYearFrom")?.value;
+    const yearTo = document.getElementById("cmpYearTo")?.value;
+    const type = document.getElementById("cmpType")?.value;
+
+    if (!yearFrom || !yearTo) {
+      this.showError("Please select both years");
+      return;
+    }
+
+    const tableBody = document.getElementById("cmpTable")?.tBodies[0];
+    if (tableBody) tableBody.innerHTML = '<tr><td colspan="5" class="text-center py-4"><div class="spinner-border spinner-border-sm me-2"></div>Loading comparison…</td></tr>';
+
+    try {
+      const [respFrom, respTo] = await Promise.all([
+        API.finance.getRevenueBreakdown({ year: yearFrom }),
+        API.finance.getRevenueBreakdown({ year: yearTo }),
+      ]);
+
+      const dataFrom = respFrom?.data || respFrom || {};
+      const dataTo = respTo?.data || respTo || {};
+
+      if (type === "revenue") {
+        this.renderRevenueComparison(dataFrom, dataTo, yearFrom, yearTo);
+      } else {
+        this.renderStructureComparison(dataFrom, dataTo, yearFrom, yearTo);
+      }
+    } catch (error) {
+      console.error("Comparison failed:", error);
+      this.showError("Failed to run comparison");
+    }
+  }
+
+  renderRevenueComparison(dataFrom, dataTo, yearFrom, yearTo) {
+    const tableBody = document.getElementById("cmpTable")?.tBodies[0];
+    const tableFoot = document.getElementById("cmpTable")?.tFoot;
+    if (!tableBody) return;
+
+    const items = this.buildComparisonItems(dataFrom, dataTo);
+    const kes = (n) => `KES ${Math.round(Number(n || 0)).toLocaleString("en-KE")}`;
+
+    tableBody.innerHTML = items.map((item) => {
+      const change = item.incoming - item.outgoing;
+      const changePct = item.outgoing ? ((change / item.outgoing) * 100).toFixed(1) : "N/A";
+      const changeClass = change > 0 ? "text-success" : change < 0 ? "text-danger" : "";
+      return `<tr>
+        <td>${this._esc(item.label)}</td>
+        <td class="text-end">${kes(item.outgoing)}</td>
+        <td class="text-end">${kes(item.incoming)}</td>
+        <td class="text-end ${changeClass}">${change >= 0 ? "+" : ""}${kes(change)}</td>
+        <td class="text-end ${changeClass}">${change >= 0 ? "+" : ""}${changePct}%</td>
+      </tr>`;
+    }).join("");
+
+    const totals = items.reduce(
+      (acc, item) => ({ outgoing: acc.outgoing + item.outgoing, incoming: acc.incoming + item.incoming }),
+      { outgoing: 0, incoming: 0 }
+    );
+    const totalChange = totals.incoming - totals.outgoing;
+    const totalChangePct = totals.outgoing ? ((totalChange / totals.outgoing) * 100).toFixed(1) : "N/A";
+    const changeClass = totalChange > 0 ? "text-success" : totalChange < 0 ? "text-danger" : "";
+
+    if (tableFoot) {
+      tableFoot.innerHTML = `<tr class="fw-semibold">
+        <td>Total</td>
+        <td class="text-end">${kes(totals.outgoing)}</td>
+        <td class="text-end">${kes(totals.incoming)}</td>
+        <td class="text-end ${changeClass}">${totalChange >= 0 ? "+" : ""}${kes(totalChange)}</td>
+        <td class="text-end ${changeClass}">${totalChange >= 0 ? "+" : ""}${totalChangePct}%</td>
+      </tr>`;
+    }
+
+    this.renderComparisonChart(items, yearFrom, yearTo);
+  }
+
+  renderStructureComparison(dataFrom, dataTo) {
+    const tableBody = document.getElementById("cmpTable")?.tBodies[0];
+    if (!tableBody) return;
+
+    // Compare structure items (fee items, levels, terms)
+    tableBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">Structure comparison coming soon</td></tr>';
+  }
+
+  buildComparisonItems(dataFrom, dataTo) {
+    const byTypeFrom = dataFrom.by_type || [];
+    const byTypeTo = dataTo.by_type || [];
+    const allTypes = new Set([...byTypeFrom.map((x) => x.id), ...byTypeTo.map((x) => x.id)]);
+
+    const items = [];
+    allTypes.forEach((id) => {
+      const from = byTypeFrom.find((x) => x.id === id) || { billed: 0, learners: 0, name: "" };
+      const to = byTypeTo.find((x) => x.id === id) || { billed: 0, learners: 0, name: "" };
+      items.push({
+        label: from.name || to.name || `Type ${id}`,
+        outgoing: Number(from.billed || 0),
+        incoming: Number(to.billed || 0),
+      });
+    });
+
+    // Add by_stream comparison
+    const streamFrom = dataFrom.by_stream || [];
+    const streamTo = dataTo.by_stream || [];
+    const allStreams = new Set([
+      ...streamFrom.map((x) => `${x.class_name}|${x.stream_name || "—"}`),
+      ...streamTo.map((x) => `${x.class_name}|${x.stream_name || "—"}`),
+    ]);
+
+    allStreams.forEach((key) => {
+      const [className, streamName] = key.split("|");
+      const from = streamFrom.find((x) => x.class_name === className && (x.stream_name || "—") === streamName) || { billed: 0 };
+      const to = streamTo.find((x) => x.class_name === className && (x.stream_name || "—") === streamName) || { billed: 0 };
+      items.push({
+        label: `${className} ${streamName}`,
+        outgoing: Number(from.billed || 0),
+        incoming: Number(to.billed || 0),
+      });
+    });
+
+    return items;
+  }
+
+  renderComparisonChart(items, yearFrom, yearTo) {
+    const canvas = document.getElementById("cmpChart");
+    if (!canvas || typeof Chart === "undefined") return;
+
+    this.charts.cmp?.destroy?.();
+
+    const labels = items.map((i) => i.label);
+    const outgoing = items.map((i) => i.outgoing);
+    const incoming = items.map((i) => i.incoming);
+
+    this.charts.cmp = new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: `Outgoing ${yearFrom}`,
+            data: outgoing,
+            backgroundColor: "#DC3545",
+          },
+          {
+            label: `Incoming ${yearTo}`,
+            data: incoming,
+            backgroundColor: "#198754",
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 300 },
+        plugins: {
+          legend: { display: true, position: "bottom" },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => ` ${ctx.dataset.label}: KES ${Math.round(ctx.parsed.y).toLocaleString("en-KE")}`,
+            },
+          },
+        },
+        scales: {
+          x: { ticks: { maxRotation: 45, minRotation: 45 } },
+          y: { beginAtZero: true, ticks: { callback: (val) => `KES ${Math.round(val).toLocaleString("en-KE")}` } },
+        },
+      },
+    });
+  }
+
+  // ==================== Full Page Report ====================
+
+  async printFullReport() {
+    // Check permission - school admin, director, accountant
+    if (window.AuthContext?.canPrint) {
+      const roles = window.AuthContext?.getRoles?.() || [];
+      const hasRole = roles.some((r) =>
+        ["school administrator", "director", "accountant", "system administrator"].includes(r.toLowerCase())
+      );
+      if (!hasRole && !window.AuthContext.canPrint("finance")) {
+        this.showError("You do not have permission to print this report");
+        return;
+      }
+    }
+
+    if (!window.PrintManager?.printPage) {
+      this.showError("PrintManager not available");
+      return;
+    }
+
+    // Build comprehensive report content
+    const reportTitle = "Fee Structure Report";
+    const yearSelect = document.getElementById("adminMatrixAcademicYearFilter");
+    const yearLabel = yearSelect?.selectedOptions?.[0]?.textContent || "All Years";
+
+    try {
+      await window.PrintManager.printPage({
+        elementId: "fee-structure-content",
+        title: reportTitle,
+        subtitle: `Academic Year: ${yearLabel}`,
+        orientation: "portrait",
+        paperSize: "A4",
+      });
+    } catch (error) {
+      console.error("Print report failed:", error);
+      this.showError("Failed to generate report");
+    }
   }
 
   formatCurrency(amount) {

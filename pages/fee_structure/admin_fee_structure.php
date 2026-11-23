@@ -119,6 +119,7 @@
         <div class="d-flex gap-2 no-print">
             <button class="btn btn-sm btn-outline-secondary" type="button" id="rbExportCsv"><i class="bi bi-filetype-csv me-1"></i>CSV</button>
             <button class="btn btn-sm btn-outline-secondary" type="button" id="rbPrint"><i class="bi bi-printer me-1"></i>Print / PDF</button>
+            <button class="btn btn-sm btn-outline-primary" type="button" id="rbPrintReport"><i class="bi bi-file-earmark-pdf me-1"></i>Print Report</button>
         </div>
     </div>
     <ul class="nav nav-tabs small no-print" role="tablist">
@@ -126,10 +127,61 @@
         <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-rb-view="type" role="tab" aria-selected="false">By learner type</button></li>
         <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-rb-view="term" role="tab" aria-selected="false">By term</button></li>
         <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-rb-view="item" role="tab" aria-selected="false">By fee item</button></li>
+        <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-rb-view="comparison" role="tab" aria-selected="false">Fee Structure Comparison</button></li>
     </ul>
     <div class="pt-3">
         <div class="table-responsive"><table class="table table-sm table-hover align-middle" id="rbTable"><thead></thead><tbody><tr><td class="text-muted">Loading the breakdown…</td></tr></tbody><tfoot></tfoot></table></div>
         <div class="mt-3" id="rbChartWrap" style="position:relative; height:300px"><canvas id="rbChart" aria-label="Revenue breakdown chart" role="img"></canvas></div>
+    </div>
+</div>
+
+<!-- Fee Structure Comparison Tab Panel (hidden by default) -->
+<div class="console-card mb-4" id="rbComparisonPanel" style="display: none;">
+    <div class="card-header d-flex align-items-center justify-content-between">
+        <h5 class="mb-0">Fee Structure Comparison</h5>
+        <small class="text-muted">Outgoing vs Incoming fee structures — revenue impact comparison across years</small>
+    </div>
+    <div class="card-body">
+        <div class="row g-3 mb-3">
+            <div class="col-md-3">
+                <label class="form-label small mb-1">Academic Year (Outgoing)</label>
+                <select class="form-select form-select-sm" id="cmpYearFrom" aria-label="Outgoing academic year"></select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small mb-1">Academic Year (Incoming)</label>
+                <select class="form-select form-select-sm" id="cmpYearTo" aria-label="Incoming academic year"></select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small mb-1">Comparison Type</label>
+                <select class="form-select form-select-sm" id="cmpType">
+                    <option value="revenue">Revenue Comparison</option>
+                    <option value="structure">Structure Changes</option>
+                </select>
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <button class="btn btn-sm btn-primary w-100" type="button" id="cmpRun"><i class="bi bi-arrow-repeat me-1"></i>Run Comparison</button>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle" id="cmpTable">
+                <thead class="table-light">
+                    <tr>
+                        <th>Fee Item / Level</th>
+                        <th class="text-end">Outgoing (KES)</th>
+                        <th class="text-end">Incoming (KES)</th>
+                        <th class="text-end">Change (KES)</th>
+                        <th class="text-end">Change %</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="5" class="text-center text-muted py-4">Select years and click Run Comparison</td></tr>
+                </tbody>
+                <tfoot></tfoot>
+            </table>
+        </div>
+        <div class="mt-3" id="cmpChartWrap" style="position:relative; height:300px">
+            <canvas id="cmpChart" aria-label="Fee structure comparison chart" role="img"></canvas>
+        </div>
     </div>
 </div>
 

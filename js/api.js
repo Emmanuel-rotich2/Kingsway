@@ -6641,6 +6641,10 @@ window.API = {
     getFeeStructuresList: async (params = {}) =>
       apiCall("/finance/fee-structures-list", "GET", null, params),
 
+    // Fee Revenue Breakdown
+    getRevenueBreakdown: async (params = {}) =>
+      apiCall("/finance/fee-revenue-breakdown", "GET", null, params),
+
     // Students
     getStudentPaymentStatusList: async (params = {}) =>
       apiCall("/finance/students/payment-status", "GET", null, params),
