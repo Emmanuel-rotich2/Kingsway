@@ -85,8 +85,6 @@
         const applicableCharges = extraCharges.filter(charge => {
           const classIds = charge.class_ids || (charge.class_id ? [charge.class_id] : []);
           const typeIds = charge.student_type_ids || (charge.student_type_id ? [charge.student_type_id] : []);
-          const studentIds = charge.student_ids || [];
-          const parentIds = charge.parent_ids || [];
           return (!classId || !classIds.length || classIds.map(String).includes(classId)) && (!typeId || !typeIds.length || typeIds.map(String).includes(typeId));
         });
         const extraSection = document.createElement('section');
@@ -95,6 +93,8 @@
         extraSection.innerHTML = `<h6>Extra charges</h6>${applicableCharges.length ? `<div class="table-responsive"><table class="table table-bordered table-sm align-middle"><thead class="table-light"><tr><th>Charge</th><th>Applies to</th><th>Classes</th><th>Learner types</th><th>Selected learners</th><th>Selected parents</th><th>Billing</th><th>Frequency</th><th>Pricing tiers (KES)</th><th>Credit account</th></tr></thead><tbody>${applicableCharges.map(charge => {
           const classIds = charge.class_ids || (charge.class_id ? [charge.class_id] : []);
           const typeIds = charge.student_type_ids || (charge.student_type_id ? [charge.student_type_id] : []);
+          const studentIds = charge.student_ids || [];
+          const parentIds = charge.parent_ids || [];
           const scope = { all_students: 'All learners', existing_students: 'Existing learners', new_admissions: 'New admissions', boarders: 'Boarders', day_students: 'Day learners', specific_class: 'Specific class' }[charge.target_scope] || charge.target_scope || '—';
           const tiers = (charge.pricing_tiers || []).map(tier => { const rule = String(tier.condition || 'default'); const label = rule === 'default' ? 'Default' : rule.replace(/^class:/, 'Class ').replace(/^student_type:/, 'Learner type ').replaceAll('_', ' '); return `<div>${esc(tier.label || label)} · ${esc(label)}: ${Number(tier.amount || 0).toLocaleString('en-KE')}</div>`; }).join('') || Number(charge.amount || 0).toLocaleString('en-KE');
           return `<tr><td>${esc(charge.name)}</td><td>${esc(scope)}</td><td>${esc(names(classIds, classes).join(', ') || 'All classes')}</td><td>${esc(names(typeIds, types).join(', ') || 'All types')}</td><td>${esc(personNames(studentIds, students, 'Learner').join(', ') || 'Any learner in scope')}</td><td>${esc(personNames(parentIds, parents, 'Parent').join(', ') || 'Any parent in scope')}</td><td>${esc(charge.billing_model || '—')}</td><td>${esc(charge.billing_frequency || '—')}</td><td>${tiers}</td><td>${esc(charge.gl_account_name || '—')}</td></tr>`;

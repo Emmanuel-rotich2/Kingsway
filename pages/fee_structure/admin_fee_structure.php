@@ -109,6 +109,30 @@
     </div>
 </div>
 
+<!-- How the expected revenue is made up (same source as the figure above) -->
+<div class="console-card mb-4" id="revenueBreakdownCard">
+    <div class="card-header d-flex flex-wrap align-items-start justify-content-between gap-2">
+        <div>
+            <h5 class="mb-1">How the expected revenue is made up</h5>
+            <p class="text-muted small mb-0" id="rbIntro">Fees billed to learners for the selected year, broken down. Every view adds up to the Expected Revenue figure.</p>
+        </div>
+        <div class="d-flex gap-2 no-print">
+            <button class="btn btn-sm btn-outline-secondary" type="button" id="rbExportCsv"><i class="bi bi-filetype-csv me-1"></i>CSV</button>
+            <button class="btn btn-sm btn-outline-secondary" type="button" id="rbPrint"><i class="bi bi-printer me-1"></i>Print / PDF</button>
+        </div>
+    </div>
+    <ul class="nav nav-tabs small no-print" role="tablist">
+        <li class="nav-item" role="presentation"><button class="nav-link active" type="button" data-rb-view="stream" role="tab" aria-selected="true">By grade and stream</button></li>
+        <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-rb-view="type" role="tab" aria-selected="false">By learner type</button></li>
+        <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-rb-view="term" role="tab" aria-selected="false">By term</button></li>
+        <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-rb-view="item" role="tab" aria-selected="false">By fee item</button></li>
+    </ul>
+    <div class="pt-3">
+        <div class="table-responsive"><table class="table table-sm table-hover align-middle" id="rbTable"><thead></thead><tbody><tr><td class="text-muted">Loading the breakdown…</td></tr></tbody><tfoot></tfoot></table></div>
+        <div class="mt-3" id="rbChartWrap" style="position:relative; height:300px"><canvas id="rbChart" aria-label="Revenue breakdown chart" role="img"></canvas></div>
+    </div>
+</div>
+
 <!-- Submitted structures awaiting review/final approval -->
 <div class="console-card mb-4">
     <div class="card-header d-flex align-items-center justify-content-between">

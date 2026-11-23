@@ -272,7 +272,7 @@ window.DashboardRouter = {
 
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
-      script.src = scriptUrl;
+      script.src = window.kwVersionedUrl ? window.kwVersionedUrl(scriptUrl) : scriptUrl;
       script.onload = () => resolve();
       script.onerror = () => reject(new Error(`Failed to load dashboard script: ${fileName}`));
       document.head.appendChild(script);

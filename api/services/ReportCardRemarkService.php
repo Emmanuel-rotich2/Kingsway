@@ -9,7 +9,7 @@ use PDO;
  * Resolves the remark sections of a report card from data the school already
  * records.
  *
- * The report-card artwork (uploads/templates/report_cards/*.php) renders
+ * The report-card artwork (resources/templates/report_cards/*.php) renders
  * $comments['teacher'|'headteacher'|'next_term_focus'|'pathway_suggestion'] and a
  * per-learning-area $scores[].teacher_comment. Before this resolver those keys
  * were never populated on the official release path, so every PDF fell back to

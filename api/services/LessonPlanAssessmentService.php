@@ -28,7 +28,9 @@ final class LessonPlanAssessmentService
     public function ensureFor(int $lessonPlanId, ?int $staffId = null): ?int
     {
         $plan = $this->row('SELECT * FROM lesson_plans WHERE id = ?', [$lessonPlanId]);
-        if (!$plan || ($plan['status'] ?? '') === 'archived') return null;
+        // The assistant drafts, the teacher validates and submits, the academic
+        // heads approve: the lesson's assessment exists only from approval on.
+        if (!$plan || !in_array((string) ($plan['status'] ?? ''), ['approved', 'published', 'delivered'], true)) return null;
 
         $streamArea = $this->row(
             'SELECT academic_year_class_stream_id, academic_year_class_learning_area_id

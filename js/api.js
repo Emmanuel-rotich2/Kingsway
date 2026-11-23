@@ -2280,6 +2280,9 @@ const ENDPOINT_PERMISSIONS = {
   "/academic/lesson-plans-approval": "lesson_plans_manage",
   "/academic/lesson-plans-review": "lesson_plans_approve",
   "/academic/lesson-plans-bulk-approve": "lesson_plans_approve",
+  // Publishing to parents: the server allows the School Administrator only.
+  "/academic/lesson-plans-publish": null,
+  "/academic/scheme-workbook-publish": null,
   "/academic/performance-overview": "academic_view",
   "/academic/student-results": "academic_view",
   "/academic/custom": {
@@ -5406,6 +5409,10 @@ window.API = {
       apiCall("/academic/lesson-plans-reject", "POST", data),
     submitLessonPlan: async (data) =>
       apiCall("/academic/lesson-plans-submit", "POST", data),
+    publishLessonPlans: async (ids) =>
+      apiCall("/academic/lesson-plans-publish", "POST", { ids }),
+    publishSchemeWorkbook: async (workbookId) =>
+      apiCall(`/academic/scheme-workbook-publish/${Number(workbookId)}`, "POST", {}),
     // Approval page endpoints
     listLessonPlansApproval: async (params) =>
       apiCall("/academic/lesson-plans-approval", "GET", null, params),

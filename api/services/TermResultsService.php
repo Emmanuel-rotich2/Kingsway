@@ -21,6 +21,8 @@ use RuntimeException;
  *   sub-strand assessed five times does not outweigh one assessed once.
  * - Strand results: the same sub-strand groups rolled up per strand, saved
  *   to term_strand_scores for the report book.
+ * - Formative evidence: every saved formative mark. Marks can only be saved
+ *   while the teacher has marking open, and formative needs no sign-off.
  * - Summative percentage: approved, submitted exam marks (marks-weighted).
  */
 final class TermResultsService
@@ -358,7 +360,7 @@ final class TermResultsService
              FROM formative_scores fs
              JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = fs.assessment_id
              WHERE a.academic_year_class_stream_id = ? AND a.academic_year_term_id = ?
-               AND a.is_formative = 1 AND a.status = 'approved'{$areaFilter}
+               AND a.is_formative = 1{$areaFilter}
              UNION ALL
              SELECT sae.student_id, a.learning_area_id, 'summative', ar.marks_obtained,
                     a.max_marks, ar.entry_status, a.strand_id, a.sub_strand_id

@@ -36,6 +36,9 @@ use PDO;
  */
 final class PrintService
 {
+    /** Important notes produced while listing the extra charges. */
+    private array $extraChargeNotes = [];
+
     private string $templatesPath;
     private string $certificatesPath;
     private string $portfolioTemplatesPath;
@@ -1300,12 +1303,6 @@ final class PrintService
      * @param array<string, mixed> $config
      * @throws RuntimeException when template not found
      */
-    /** Tracked report book template (deploys with the code). */
-    private function transcriptTemplatePath(): string
-    {
-        return dirname(__DIR__, 2) . '/resources/report_cards/transcript.php';
-    }
-
     /**
      * Data the report book needs beyond the report data: grading key,
      * learner photo, generated comments when none were written, and a
@@ -1422,13 +1419,12 @@ final class PrintService
     {
         $data = $this->prepareTranscript($data, $config);
         $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
-        if (!defined('KINGSWAY_TRANSCRIPT_RENDER')) define('KINGSWAY_TRANSCRIPT_RENDER', true);
-        return $this->renderPhpTemplate($this->transcriptTemplatePath(), $variables);
+        return $this->renderPhpTemplate(REPORT_CARD_TEMPLATES . '/transcript.php', $variables);
     }
 
     public function printReportCard(array $data, array $config = []): string
     {
-        if (is_file($this->transcriptTemplatePath())) {
+        if (is_file(REPORT_CARD_TEMPLATES . '/transcript.php')) {
             $config = array_merge(
                 $this->defaultReportConfig(),
                 ['filename' => 'report_card_' . date('Ymd_His'), 'orientation' => 'portrait', 'paperSize' => 'A4'],
@@ -1524,7 +1520,7 @@ final class PrintService
      */
     public function buildReportCardHtml(array $data, array $config = []): string
     {
-        if (is_file($this->transcriptTemplatePath())) {
+        if (is_file(REPORT_CARD_TEMPLATES . '/transcript.php')) {
             return $this->renderTranscriptHtml($data, array_merge($this->defaultReportConfig(), $config));
         }
         $config = array_merge(
@@ -4468,11 +4464,16 @@ final class PrintService
             'documentSubtitle'=> 'PRIMARY & JUNIOR SCHOOL',
             'sections'        => $sections,
             'grades'          => $grades,
-            'otherCharges'    => $this->fetchExtraChargesForPrint($db, $yearId, $data),
+            'otherCharges'    => ($otherCharges = $this->fetchExtraChargesForPrint($db, $yearId, $data)),
             'paymentMpesa'    => $data['paymentMpesa'] ?? ($sConfig['mpesa'] ?? []),
             'paymentBank'     => $data['paymentBank']  ?? ($sConfig['bank']  ?? []),
             'paymentMethods'  => $data['paymentMethods'] ?? ($sConfig['paymentMethods'] ?? []),
-            'importantNotes'  => $data['importantNotes'] ?? $this->feeStructureNotes($db, $yearId, $data['paymentMethods'] ?? ($sConfig['paymentMethods'] ?? [])),
+            // Charge details (who pays, how often, transport routes) go into
+            // the notes so each charge prints as one short line.
+            'importantNotes'  => $data['importantNotes'] ?? array_merge(
+                $this->extraChargeNotes,
+                $this->feeStructureNotes($db, $yearId, $data['paymentMethods'] ?? ($sConfig['paymentMethods'] ?? []))
+            ),
             'generatedAt'     => (new \DateTime('now', new \DateTimeZone('Africa/Nairobi')))->format('d M Y H:i'),
         ];
     }
@@ -4544,33 +4545,39 @@ final class PrintService
                  ORDER BY ec.display_order, ec.name, tier.sort_order, tier.id"
             );
             $stmt->execute(array_merge([$yearId, $classId], $typeCodes, [$classId, $classId], $typeCodes, $typeCodes, $typeCodes));
-            $charges = [];
+            // One short line per charge ("Registration fee: KES 3,000"); who
+            // pays it and how often goes into the important notes.
+            $byName = [];
             foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-                // Parents must see who pays a charge and how often, not only
-                // its amount: "Registration Fee (new admissions, once)".
+                $name = trim((string) $row['name']);
+                $amount = (float) ($row['tier_amount'] ?? $row['amount']);
+                $byName[$name]['amounts'][] = $amount;
                 $tier = trim((string) ($row['tier_label'] ?? ''));
-                $showTier = $tier !== '' && !in_array(mb_strtolower($tier), ['standard', 'default'], true);
-                $qualifiers = array_values(array_filter([
-                    self::chargeApplicability($row),
-                    self::chargeFrequencyLabel($row),
-                ]));
-                $name = $row['name'] . ($showTier ? ' — ' . $tier : '');
-                if ($qualifiers) {
-                    $name .= ' (' . implode(', ', $qualifiers) . ')';
+                if ($tier !== '' && !in_array(mb_strtolower($tier), ['standard', 'default'], true)) {
+                    $byName[$name]['tiers'][] = $tier . ' KES ' . number_format($amount);
                 }
-                $charges[] = [
-                    'name' => $name,
-                    'amount' => (float) ($row['tier_amount'] ?? $row['amount']),
-                ];
+                $byName[$name]['qualifiers'] = array_values(array_filter([self::chargeApplicability($row), self::chargeFrequencyLabel($row)]));
             }
-            // Transport is an optional service for day scholars, billed per
-            // month by route; boarders do not use it.
+            $charges = [];
+            $this->extraChargeNotes = [];
+            foreach ($byName as $name => $info) {
+                $amounts = array_values(array_unique($info['amounts']));
+                sort($amounts);
+                $charges[] = count($amounts) === 1
+                    ? ['name' => $name, 'amount' => $amounts[0]]
+                    : ['name' => $name, 'amount' => $amounts[0], 'amount_text' => 'KES ' . number_format($amounts[0]) . ' – ' . number_format(end($amounts))];
+                $detail = [];
+                if (!empty($info['qualifiers'])) $detail[] = 'paid by ' . implode(', ', $info['qualifiers']);
+                if (!empty($info['tiers'])) $detail[] = implode('; ', array_unique($info['tiers']));
+                if ($detail) $this->extraChargeNotes[] = $name . ': ' . implode('. ', $detail) . '.';
+            }
+            // Transport is optional for day scholars and priced by route; the
+            // fee structure points parents to the school office.
             if ($studentType !== 'boarder') {
-                foreach ($db->query("SELECT name, fee FROM transport_routes WHERE status = 'active' AND fee > 0 ORDER BY fee, name")->fetchAll(\PDO::FETCH_ASSOC) as $route) {
-                    $charges[] = [
-                        'name' => 'Transport — ' . $route['name'] . ' (optional, per month)',
-                        'amount' => (float) $route['fee'],
-                    ];
+                $routes = (int) $db->query("SELECT COUNT(*) FROM transport_routes WHERE status = 'active' AND fee > 0")->fetchColumn();
+                if ($routes > 0) {
+                    $charges[] = ['name' => 'Transport', 'amount' => 0, 'amount_text' => 'Contact / visit the school office'];
+                    $this->extraChargeNotes[] = 'Transport is optional for day scholars and is charged per month according to the route. Contact or visit the school office for your route and its fee.';
                 }
             }
             return $charges;
@@ -4921,6 +4928,448 @@ final class PrintService
             'filename' => $config['filename'],
             'showPageNumbers' => false,
         ]);
+    }
+
+    /**
+     * Generate batch payslips PDF (multiple payslips in one document).
+     *
+     * @param array<int, array<string, mixed>> $payrolls
+     * @param array<string, mixed> $config
+     * @return string Path to generated PDF
+     */
+    public function printPayslipsBatch(array $payrolls, array $config = []): string
+    {
+        $config = array_merge($this->defaultReportConfig(), [
+            'title' => 'Batch Payslips',
+            'filename' => 'payslips_batch_' . date('Ymd_His'),
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+        ], $config);
+
+        $templatePath = $this->printTemplatesPath . 'payslip/payslip_batch_template.php';
+        if (!is_file($templatePath)) {
+            throw new RuntimeException("Batch payslip template not found: {$templatePath}");
+        }
+
+        // Build HTML for all payslips
+        $allHtml = '';
+        foreach ($payrolls as $index => $payroll) {
+            $payslipData = $this->buildPayslipDataForTemplate($payroll);
+            $variables = array_merge(
+                $this->buildTemplateVariables($config),
+                $config,
+                $payslipData,
+                [
+                    'useSharedReportShell' => false,
+                    'printStyles' => $this->loadTemplateStylesheet('pay-slip-print.css'),
+                    'isBatch' => true,
+                    'batchIndex' => $index,
+                    'batchTotal' => count($payrolls),
+                ]
+            );
+            $allHtml .= $this->renderPhpTemplate($templatePath, $variables);
+        }
+
+        return $this->generatePDF($allHtml, [
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+            'filename' => $config['filename'],
+            'showPageNumbers' => true,
+        ]);
+    }
+
+    /**
+     * Export payslips to ZIP (individual PDFs).
+     *
+     * @param array<int, array<string, mixed>> $payrolls
+     * @param string $zipFilename
+     * @return string Path to generated ZIP
+     */
+    public function exportPayslipsZip(array $payrolls, string $zipFilename): string
+    {
+        $zipPath = $this->outputPath . $this->safeFilename($zipFilename);
+        $zip = new \ZipArchive();
+        if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            throw new RuntimeException("Unable to create ZIP archive: {$zipPath}");
+        }
+
+        try {
+            foreach ($payrolls as $index => $payroll) {
+                $payslipData = $this->buildPayslipDataForTemplate($payroll);
+                $variables = array_merge(
+                    $this->buildTemplateVariables($this->defaultReportConfig()),
+                    $payslipData,
+                    [
+                        'useSharedReportShell' => false,
+                        'printStyles' => $this->loadTemplateStylesheet('pay-slip-print.css'),
+                    ]
+                );
+                $templatePath = $this->printTemplatesPath . 'payslip/payslip_template.php';
+                $html = $this->renderPhpTemplate($templatePath, $variables);
+
+                // Generate PDF for this payslip
+                $rendered = $this->renderPdfBytes($html, [
+                    'orientation' => 'portrait',
+                    'paperSize' => 'A4',
+                    'filename' => 'payslip_' . $index,
+                    'showPageNumbers' => false,
+                ]);
+
+                $pdfFilename = sprintf(
+                    'payslip_%s_%s_%03d.pdf',
+                    $payslipData['staffNo'] ?? 'unknown',
+                    $payslipData['period'] ?? date('Y-m'),
+                    $index + 1
+                );
+                $zip->addFromString($pdfFilename, $rendered['pdf']);
+            }
+        } finally {
+            $zip->close();
+        }
+
+        return $zipPath;
+    }
+
+    /**
+     * Export payslips to CSV.
+     *
+     * @param array<int, array<string, mixed>> $payrolls
+     * @param string $filename
+     * @return string Path to generated CSV
+     */
+    public function exportPayslipsCsv(array $payrolls, string $filename): string
+    {
+        $headers = [
+            'Payroll ID',
+            'Staff Number',
+            'Staff Name',
+            'Department',
+            'Designation',
+            'Pay Period',
+            'Basic Salary',
+            'Allowances',
+            'Gross Pay',
+            'PAYE Tax',
+            'NSSF',
+            'SHIF',
+            'Housing Levy',
+            'Loan Deduction',
+            'SACCO Deduction',
+            'Salary Advance',
+            'Child Fees Deduction',
+            'Other Deductions',
+            'Total Deductions',
+            'Net Pay',
+            'Employer NSSF',
+            'Employer Housing Levy',
+            'Payment Method',
+            'Payment Reference',
+            'Date Paid',
+            'Status',
+        ];
+
+        $data = [];
+        foreach ($payrolls as $payroll) {
+            $data[] = [
+                'Payroll ID' => $payroll['id'] ?? '',
+                'Staff Number' => $payroll['staff_no'] ?? '',
+                'Staff Name' => trim(($payroll['first_name'] ?? '') . ' ' . ($payroll['last_name'] ?? '')) ?: ($payroll['staff_name'] ?? ''),
+                'Department' => $payroll['department'] ?? '',
+                'Designation' => $payroll['position'] ?? $payroll['designation'] ?? '',
+                'Pay Period' => ($payroll['payroll_month'] ?? 0) . '/' . ($payroll['payroll_year'] ?? ''),
+                'Basic Salary' => (float) ($payroll['basic_salary'] ?? 0),
+                'Allowances' => (float) ($payroll['allowances_total'] ?? $payroll['allowances'] ?? 0),
+                'Gross Pay' => (float) ($payroll['gross_salary'] ?? $payroll['gross_pay'] ?? 0),
+                'PAYE Tax' => (float) ($payroll['paye_tax'] ?? 0),
+                'NSSF' => (float) ($payroll['nssf_contribution'] ?? 0),
+                'SHIF' => (float) ($payroll['shif_contribution'] ?? $payroll['nhif_contribution'] ?? 0),
+                'Housing Levy' => (float) ($payroll['housing_levy'] ?? 0),
+                'Loan Deduction' => (float) ($payroll['loan_deduction'] ?? 0),
+                'SACCO Deduction' => (float) ($payroll['sacco_deduction'] ?? 0),
+                'Salary Advance' => (float) ($payroll['salary_advance_deduction'] ?? 0),
+                'Child Fees Deduction' => (float) ($payroll['child_fees_deduction'] ?? 0),
+                'Other Deductions' => (float) ($payroll['other_deductions_total'] ?? 0),
+                'Total Deductions' => (float) ($payroll['total_deductions'] ?? $payroll['employee_deductions_total'] ?? 0),
+                'Net Pay' => (float) ($payroll['net_salary'] ?? $payroll['net_pay'] ?? 0),
+                'Employer NSSF' => (float) ($payroll['employer_nssf_contribution'] ?? 0),
+                'Employer Housing Levy' => (float) ($payroll['employer_housing_levy'] ?? 0),
+                'Payment Method' => $payroll['payment_method'] ?? $payroll['payment_mode'] ?? '',
+                'Payment Reference' => $payroll['payment_reference'] ?? '',
+                'Date Paid' => $payroll['paid_at'] ?? $payroll['payment_date'] ?? '',
+                'Status' => $payroll['payslip_status'] ?? $payroll['status'] ?? '',
+            ];
+        }
+
+        // Add header row
+        array_unshift($data, array_combine($headers, $headers));
+
+        return $this->exportCSV($data, $filename);
+    }
+
+    /**
+     * Export payslips to Excel (XLSX).
+     *
+     * @param array<int, array<string, mixed>> $payrolls
+     * @param string $filename
+     * @return string Path to generated XLSX
+     */
+    public function exportPayslipsExcel(array $payrolls, string $filename): string
+    {
+        if (!class_exists('PhpOffice\PhpSpreadsheet\Spreadsheet')) {
+            throw new RuntimeException('PhpSpreadsheet is not installed. Run: composer require phpoffice/phpspreadsheet');
+        }
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Payslips');
+
+        $headers = [
+            'Payroll ID', 'Staff Number', 'Staff Name', 'Department', 'Designation', 'Pay Period',
+            'Basic Salary', 'Allowances', 'Gross Pay', 'PAYE Tax', 'NSSF', 'SHIF', 'Housing Levy',
+            'Loan Deduction', 'SACCO Deduction', 'Salary Advance', 'Child Fees Deduction', 'Other Deductions',
+            'Total Deductions', 'Net Pay', 'Employer NSSF', 'Employer Housing Levy',
+            'Payment Method', 'Payment Reference', 'Date Paid', 'Status'
+        ];
+
+        // Header row
+        foreach ($headers as $colIndex => $header) {
+            $cell = $sheet->getCellByColumnAndRow($colIndex + 1, 1);
+            $cell->setValue($header);
+            $cell->getStyle()->getFont()->setBold(true);
+        }
+
+        // Data rows
+        $row = 2;
+        foreach ($payrolls as $payroll) {
+            $values = [
+                $payroll['id'] ?? '',
+                $payroll['staff_no'] ?? '',
+                trim(($payroll['first_name'] ?? '') . ' ' . ($payroll['last_name'] ?? '')) ?: ($payroll['staff_name'] ?? ''),
+                $payroll['department'] ?? '',
+                $payroll['position'] ?? $payroll['designation'] ?? '',
+                ($payroll['payroll_month'] ?? 0) . '/' . ($payroll['payroll_year'] ?? ''),
+                (float) ($payroll['basic_salary'] ?? 0),
+                (float) ($payroll['allowances_total'] ?? $payroll['allowances'] ?? 0),
+                (float) ($payroll['gross_salary'] ?? $payroll['gross_pay'] ?? 0),
+                (float) ($payroll['paye_tax'] ?? 0),
+                (float) ($payroll['nssf_contribution'] ?? 0),
+                (float) ($payroll['shif_contribution'] ?? $payroll['nhif_contribution'] ?? 0),
+                (float) ($payroll['housing_levy'] ?? 0),
+                (float) ($payroll['loan_deduction'] ?? 0),
+                (float) ($payroll['sacco_deduction'] ?? 0),
+                (float) ($payroll['salary_advance_deduction'] ?? 0),
+                (float) ($payroll['child_fees_deduction'] ?? 0),
+                (float) ($payroll['other_deductions_total'] ?? 0),
+                (float) ($payroll['total_deductions'] ?? $payroll['employee_deductions_total'] ?? 0),
+                (float) ($payroll['net_salary'] ?? $payroll['net_pay'] ?? 0),
+                (float) ($payroll['employer_nssf_contribution'] ?? 0),
+                (float) ($payroll['employer_housing_levy'] ?? 0),
+                $payroll['payment_method'] ?? $payroll['payment_mode'] ?? '',
+                $payroll['payment_reference'] ?? '',
+                $payroll['paid_at'] ?? $payroll['payment_date'] ?? '',
+                $payroll['payslip_status'] ?? $payroll['status'] ?? '',
+            ];
+            foreach ($values as $colIndex => $value) {
+                $cell = $sheet->getCellByColumnAndRow($colIndex + 1, $row);
+                $cell->setValue($value);
+                if (is_numeric($value)) {
+                    $cell->getStyle()->getNumberFormat()->setFormatCode('#,##0.00');
+                }
+            }
+            $row++;
+        }
+
+        // Auto-size columns
+        foreach ($headers as $colIndex => $header) {
+            $sheet->getColumnDimensionByColumn($colIndex + 1)->setAutoSize(true);
+        }
+
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $filepath = $this->outputPath . $this->safeFilename($filename);
+        $writer->save($filepath);
+
+        return $filepath;
+    }
+
+    /**
+     * Export payslips to TSV.
+     *
+     * @param array<int, array<string, mixed>> $payrolls
+     * @param string $filename
+     * @return string Path to generated TSV
+     */
+    public function exportPayslipsTsv(array $payrolls, string $filename): string
+    {
+        $headers = [
+            'Payroll ID',
+            'Staff Number',
+            'Staff Name',
+            'Department',
+            'Designation',
+            'Pay Period',
+            'Basic Salary',
+            'Allowances',
+            'Gross Pay',
+            'PAYE Tax',
+            'NSSF',
+            'SHIF',
+            'Housing Levy',
+            'Loan Deduction',
+            'SACCO Deduction',
+            'Salary Advance',
+            'Child Fees Deduction',
+            'Other Deductions',
+            'Total Deductions',
+            'Net Pay',
+            'Employer NSSF',
+            'Employer Housing Levy',
+            'Payment Method',
+            'Payment Reference',
+            'Date Paid',
+            'Status',
+        ];
+
+        $safeFilename = $this->safeFilename($filename);
+        $filepath = $this->outputPath . $safeFilename;
+
+        $handle = fopen($filepath, 'wb');
+        if ($handle === false) {
+            throw new RuntimeException("Unable to open TSV output file: {$filepath}");
+        }
+
+        try {
+            fwrite($handle, "\xEF\xBB\xBF");
+            fputcsv($handle, $headers, "\t", '"', '\\');
+
+            foreach ($payrolls as $payroll) {
+                fputcsv($handle, [
+                    $payroll['id'] ?? '',
+                    $payroll['staff_no'] ?? '',
+                    trim(($payroll['first_name'] ?? '') . ' ' . ($payroll['last_name'] ?? '')) ?: ($payroll['staff_name'] ?? ''),
+                    $payroll['department'] ?? '',
+                    $payroll['position'] ?? $payroll['designation'] ?? '',
+                    ($payroll['payroll_month'] ?? 0) . '/' . ($payroll['payroll_year'] ?? ''),
+                    (float) ($payroll['basic_salary'] ?? 0),
+                    (float) ($payroll['allowances_total'] ?? $payroll['allowances'] ?? 0),
+                    (float) ($payroll['gross_salary'] ?? $payroll['gross_pay'] ?? 0),
+                    (float) ($payroll['paye_tax'] ?? 0),
+                    (float) ($payroll['nssf_contribution'] ?? 0),
+                    (float) ($payroll['shif_contribution'] ?? $payroll['nhif_contribution'] ?? 0),
+                    (float) ($payroll['housing_levy'] ?? 0),
+                    (float) ($payroll['loan_deduction'] ?? 0),
+                    (float) ($payroll['sacco_deduction'] ?? 0),
+                    (float) ($payroll['salary_advance_deduction'] ?? 0),
+                    (float) ($payroll['child_fees_deduction'] ?? 0),
+                    (float) ($payroll['other_deductions_total'] ?? 0),
+                    (float) ($payroll['total_deductions'] ?? $payroll['employee_deductions_total'] ?? 0),
+                    (float) ($payroll['net_salary'] ?? $payroll['net_pay'] ?? 0),
+                    (float) ($payroll['employer_nssf_contribution'] ?? 0),
+                    (float) ($payroll['employer_housing_levy'] ?? 0),
+                    $payroll['payment_method'] ?? $payroll['payment_mode'] ?? '',
+                    $payroll['payment_reference'] ?? '',
+                    $payroll['paid_at'] ?? $payroll['payment_date'] ?? '',
+                    $payroll['payslip_status'] ?? $payroll['status'] ?? '',
+                ], "\t", '"', '\\');
+            }
+        } finally {
+            fclose($handle);
+        }
+
+        return $filepath;
+    }
+
+    /**
+     * Build payslip data array for template rendering.
+     *
+     * @param array<string, mixed> $payroll
+     * @return array<string, mixed>
+     */
+    private function buildPayslipDataForTemplate(array $payroll): array
+    {
+        $number = fn ($v) => (float) ($v ?? 0);
+        $monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        $period = ($monthNames[(int) ($payroll['payroll_month'] ?? $payroll['month'] ?? 0)] ?? "-") . " " . ($payroll['payroll_year'] ?? $payroll['year'] ?? "-");
+
+        $children = [];
+        foreach ((array) ($payroll['children_deductions'] ?? []) as $child) {
+            $children[] = [
+                'student_name' => $child['student_name'] ?? $child['name'] ?? 'Child',
+                'class_name' => $child['class_name'] ?? '',
+                'deducted_amount' => $number($child['deducted_amount'] ?? $child['amount'] ?? 0),
+            ];
+        }
+
+        $mode = $payroll['payment_mode'] ?? $payroll['payment_method'] ?? '';
+        $modeLabels = ['bank' => 'Bank Transfer', 'cash' => 'Cash', 'mpesa' => 'M-Pesa', 'airtel_money' => 'Airtel Money'];
+        $paymentMethod = $mode ? ($modeLabels[$mode] ?? $mode) : 'Not Recorded';
+
+        $paidDateValue = $payroll['paid_at'] ?? $payroll['payment_date'] ?? null;
+        $datePaid = $paidDateValue ? (new \DateTime($paidDateValue))->format('d M Y H:i') : 'Not Paid';
+
+        $status = strtolower(trim((string) ($payroll['status'] ?? $payroll['payslip_status'] ?? $payroll['payment_status'] ?? 'unknown')));
+        $statusLabels = ['draft' => 'Draft', 'pending' => 'Pending', 'processing' => 'Processing', 'approved' => 'Approved', 'paid' => 'Paid', 'cancelled' => 'Cancelled'];
+        $statusLabel = $statusLabels[$status] ?? ucfirst($status);
+
+        $school = $payroll['school_profile'] ?? [];
+
+        $deductionBreakdown = [
+            'paye' => $number($payroll['paye_tax'] ?? $payroll['paye_deduction'] ?? 0),
+            'nssf' => $number($payroll['nssf_contribution'] ?? $payroll['nssf_deduction'] ?? 0),
+            'shif' => $number($payroll['shif_contribution'] ?? $payroll['shif_deduction'] ?? $payroll['nhif_contribution'] ?? $payroll['nhif_deduction'] ?? 0),
+            'housing_levy' => $number($payroll['housing_levy'] ?? 0),
+            'loan' => $number($payroll['loan_deduction'] ?? 0),
+            'sacco' => $number($payroll['sacco_deduction'] ?? 0),
+            'salary_advance' => $number($payroll['salary_advance_deduction'] ?? 0),
+            'child_fees' => $number($payroll['total_children_fees'] ?? 0),
+            'other' => $number($payroll['other_deductions_total'] ?? $payroll['other_deductions'] ?? 0),
+        ];
+
+        return [
+            'title' => 'Staff Payslip',
+            'subtitle' => $period,
+            'employeeName' => trim(($payroll['first_name'] ?? '') . ' ' . ($payroll['last_name'] ?? '')) ?: ($payroll['staff_name'] ?? '—'),
+            'staffNo' => $payroll['staff_no'] ?? $payroll['staff_number'] ?? '—',
+            'department' => $payroll['department'] ?? '—',
+            'designation' => $payroll['position'] ?? $payroll['designation'] ?? '—',
+            'kraPin' => $payroll['kra_pin'] ?? '—',
+            'nssfNo' => $payroll['nssf_no'] ?? '—',
+            'shifNo' => $payroll['shif_no'] ?? $payroll['nhif_no'] ?? '—',
+            'period' => $period,
+            'basicSalary' => $number($payroll['basic_salary'] ?? $payroll['basic']),
+            'allowances' => [['name' => 'Allowances', 'amount' => $number($payroll['allowances_total'] ?? $payroll['allowances'] ?? $payroll['total_allowances'] ?? 0)]],
+            'statutory' => [
+                'paye' => $number($payroll['paye_tax'] ?? $payroll['paye_deduction'] ?? 0),
+                'nssf' => $number($payroll['nssf_contribution'] ?? $payroll['nssf_deduction'] ?? 0),
+                'nhif_shif' => $number($payroll['shif_contribution'] ?? $payroll['shif_deduction'] ?? $payroll['nhif_contribution'] ?? $payroll['nhif_deduction'] ?? 0),
+                'housing_levy' => $number($payroll['housing_levy'] ?? 0),
+            ],
+            'childrenDeductions' => $children,
+            'otherDeductions' => $number($payroll['other_deductions_total'] ?? $payroll['other_deductions'] ?? 0),
+            'deduction_breakdown' => $deductionBreakdown,
+            'deductions' => [],
+            'grossPay' => $number($payroll['gross_salary'] ?? $payroll['gross_pay'] ?? 0),
+            'totalDeductions' => $number($payroll['total_deductions'] ?? $payroll['employee_deductions_total'] ?? 0),
+            'netPay' => $number($payroll['net_salary'] ?? $payroll['net_pay'] ?? 0),
+            'employerNssf' => $number($payroll['employer_nssf_contribution'] ?? 0),
+            'employerHousing' => $number($payroll['employer_housing_levy'] ?? 0),
+            'bankName' => $payroll['bank_name'] ?? '—',
+            'bankAccountNumber' => $payroll['bank_account_number'] ?? $payroll['bank_account'] ?? '—',
+            'bankAccount' => implode(' / ', array_filter([$payroll['bank_name'] ?? null, $payroll['bank_account_number'] ?? $payroll['bank_account'] ?? null])) ?: '—',
+            'paymentMethod' => $paymentMethod,
+            'paymentReference' => $payroll['payment_reference'] ?? '—',
+            'datePaid' => $datePaid,
+            'status' => $statusLabel,
+            'generatedOn' => (new \DateTime())->format('d/m/Y'),
+            'schoolName' => $school['school_name'] ?? 'Kingsway Preparatory School',
+            'schoolLogo' => $school['logo_url'] ?? null,
+            'schoolMotto' => $school['motto'] ?? null,
+            'filename' => 'staff_payslip_' . ($payroll['payroll_year'] ?? date('Y')) . '_' . ($payroll['payroll_month'] ?? ''),
+            'reportCode' => 'PAYSLIP-' . ($payroll['id'] ?? ''),
+            'signatureSection' => [
+                ['label' => 'Accounts Officer', 'dateLine' => true],
+                ['label' => 'Employee Acknowledgement', 'dateLine' => true],
+            ],
+        ];
     }
 
     /**

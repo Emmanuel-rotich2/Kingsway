@@ -1298,7 +1298,7 @@ class ParentPortalManager extends BaseAPI
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id = sw.academic_year_calendar_week_id
                  WHERE aysla.academic_year_class_stream_id = ?
                    AND ac.academic_year_term_id = ?
-                   AND sw.status = 'approved'
+                   AND sw.status = 'published'
                  ORDER BY ac.week_number, la.name, sw.id"
             );
             $scheme->execute([(int) $ctx['academic_year_class_stream_id'], (int) $ctx['academic_year_term_id']]);
@@ -1310,7 +1310,7 @@ class ParentPortalManager extends BaseAPI
                         lt.duration, lt.activities, lt.resources, lt.assessment,
                         sn.name AS strand_name, ss.name AS sub_strand_name
                  FROM " . ReadReplicaService::qualifiedRef("lesson_plans") . " lp
-                 JOIN " . ReadReplicaService::qualifiedRef("schemes_of_work") . " sw ON sw.id = lp.scheme_of_work_id AND sw.status = 'approved'
+                 JOIN " . ReadReplicaService::qualifiedRef("schemes_of_work") . " sw ON sw.id = lp.scheme_of_work_id AND sw.status = 'published'
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " aysla
                    ON aysla.id = lp.academic_year_class_stream_learning_area_id
                   AND aysla.academic_year_class_stream_id = ?
@@ -1321,7 +1321,7 @@ class ParentPortalManager extends BaseAPI
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d ON d.id = lp.academic_year_calendar_day_id
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id = d.academic_year_calendar_id
                  WHERE ac.academic_year_term_id = ?
-                   AND lp.status IN ('approved','delivered')
+                   AND lp.status IN ('published','delivered')
                  ORDER BY d.date, lp.id"
             );
             $plans->execute([(int) $ctx['academic_year_class_stream_id'], (int) $ctx['academic_year_term_id']]);
@@ -1452,7 +1452,7 @@ class ParentPortalManager extends BaseAPI
                  LEFT JOIN scheme_workbook_item_experiences ex ON ex.workbook_item_id = it.id
                  WHERE d.academic_year_class_stream_id = ?
                    AND swb.academic_year_term_id = ?
-                   AND swb.status = 'approved'
+                   AND swb.status = 'published'
                  ORDER BY wbw.week_number, it.sort_order, it.id"
             );
             $workbookStmt->execute([(int) $ctx['academic_year_class_stream_id'], (int) $ctx['academic_year_term_id']]);
@@ -1494,8 +1494,8 @@ class ParentPortalManager extends BaseAPI
     }
 
     /**
-     * Covered content for a parent's child: the approved lesson plans actually
-     * taught this term (approved/delivered) with their learning area, strand,
+     * Covered content for a parent's child: the lesson plans the School
+     * Administrator has published (published/delivered) with their learning area, strand,
      * sub-strand, week and date, plus published assignments with the child's
      * submission state. Grouping into learning area → week → day is done by
      * the frontend from these flat arrays.
@@ -1542,7 +1542,7 @@ class ParentPortalManager extends BaseAPI
                         lt.duration, lt.activities, lt.resources, lt.assessment,
                         sn.name AS strand_name, ss.name AS sub_strand_name
                  FROM " . ReadReplicaService::qualifiedRef("lesson_plans") . " lp
-                 JOIN " . ReadReplicaService::qualifiedRef("schemes_of_work") . " sw ON sw.id = lp.scheme_of_work_id AND sw.status = 'approved'
+                 JOIN " . ReadReplicaService::qualifiedRef("schemes_of_work") . " sw ON sw.id = lp.scheme_of_work_id AND sw.status = 'published'
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " aysla
                    ON aysla.id = lp.academic_year_class_stream_learning_area_id
                   AND aysla.academic_year_class_stream_id = ?
@@ -1553,7 +1553,7 @@ class ParentPortalManager extends BaseAPI
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d ON d.id = lp.academic_year_calendar_day_id
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id = d.academic_year_calendar_id
                  WHERE ac.academic_year_term_id = ?
-                   AND lp.status IN ('approved','delivered')
+                   AND lp.status IN ('published','delivered')
                  ORDER BY ac.week_number, d.date, la.name, lp.id"
             );
             $lessons->execute([(int) $ctx['academic_year_class_stream_id'], (int) $ctx['academic_year_term_id']]);

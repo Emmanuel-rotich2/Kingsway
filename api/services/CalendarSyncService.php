@@ -391,8 +391,8 @@ class CalendarSyncService
      */
     public function getUnifiedEvents(bool $sync = true, ?int $yearId = null): array
     {
-        $this->normalizeStatuses();
         if ($sync) {
+            $this->normalizeStatuses();
             $this->syncAcademicYear($yearId);
         }
 
@@ -629,6 +629,43 @@ class CalendarSyncService
         return 'upcoming';
     }
 
+    /**
+     * Derive an event's live status without changing the stored row.
+     *
+     * The writable event workflow persists status transitions, but the
+     * read-only calendar must not write while it is being viewed. Automatic
+     * statuses are therefore calculated from the event timestamps for display;
+     * explicitly assigned statuses remain authoritative.
+     */
+    private function effectiveStatus(
+        ?string $storedStatus,
+        ?string $startAt,
+        ?string $endAt,
+        ?string $fallbackDate = null
+    ): string {
+        $stored = strtolower(trim((string) $storedStatus));
+        if ($stored !== '' && !in_array($stored, ['upcoming', 'ongoing', 'past'], true)) {
+            return $stored;
+        }
+
+        if ($startAt) {
+            $start = strtotime($startAt);
+            $end = $endAt ? strtotime($endAt) : $start;
+            if ($start !== false) {
+                $now = time();
+                if ($end !== false && $end < $now) return 'past';
+                if ($start <= $now && ($end === false || $end >= $now)) return 'ongoing';
+                if ($start > $now) return 'upcoming';
+            }
+        }
+
+        if ($fallbackDate !== null && $fallbackDate !== '') {
+            return $this->statusFor($fallbackDate);
+        }
+
+        return $stored !== '' ? $stored : 'upcoming';
+    }
+
     private function upsertMirrorEvent(array $day, string $eventType): void
     {
         $title = trim((string) ($day['title'] ?? ''));
@@ -821,7 +858,12 @@ class CalendarSyncService
             }
         }
         $date = substr((string) ($r['start_at'] ?? ''), 0, 10) ?: $r['date'];
-        $status = $r['event_status'] ?: $this->statusFor($r['date']);
+        $status = $this->effectiveStatus(
+            $r['event_status'] ?? null,
+            $r['start_at'] ?? null,
+            $r['end_at'] ?? null,
+            $r['date'] ?? null
+        );
 
         return [
             'id' => $r['event_id'] !== null ? (int) $r['event_id'] : null,
@@ -878,7 +920,12 @@ class CalendarSyncService
             'day_type' => null,
             'location' => $f['location'],
             'venue' => $f['location'],
-            'status' => $f['status'],
+            'status' => $this->effectiveStatus(
+                $f['status'] ?? null,
+                $f['start_at'] ?? null,
+                $f['end_at'] ?? null,
+                $date
+            ),
             'source' => $f['source'],
             'is_manual' => true,
             'term_id' => null,

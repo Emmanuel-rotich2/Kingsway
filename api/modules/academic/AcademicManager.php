@@ -839,11 +839,17 @@ class AcademicManager extends BaseAPI
                 $placeholders = implode(',', array_fill(0, count($assessmentIds), '?'));
                 $marks = $this->dbQuery(
                     "SELECT assessment_id, student_id, score, score AS marks_obtained,
-                            max_score, percentage, cbc_grade AS grade, remarks
+                            max_score, percentage, remarks
                        FROM formative_scores
                       WHERE assessment_id IN ({$placeholders})",
                     $assessmentIds
                 )->fetchAll(PDO::FETCH_ASSOC);
+                // Graded on the term's scale by the shared grader.
+                $grader = new \App\API\Services\CbcGradingService($this->db);
+                $termOf = [];
+                foreach ($assessments as $a) $termOf[(int) $a['assessment_id']] = isset($a['academic_year_term_id']) ? (int) $a['academic_year_term_id'] : null;
+                foreach ($marks as &$m) $m['grade'] = $grader->codeForPercentage($m['percentage'], $termOf[(int) $m['assessment_id']] ?? null);
+                unset($m);
             }
 
             return $this->successResponse([
@@ -2377,7 +2383,7 @@ if ($classId) {
             $rows = $this->dbQuery(
                 "SELECT s.id AS student_id, p.first_name, p.last_name, s.admission_no,
                         fs.score, fs.score AS marks, fs.max_score, fs.rubric_level, fs.percentage,
-                        fs.cbc_grade, fs.cbc_grade AS grade, fs.remarks,
+                        fs.level_code, fs.remarks,
                         fs.updated_at
                  FROM students s
                  JOIN persons p ON p.id = s.person_id
@@ -2389,6 +2395,11 @@ if ($classId) {
                  ORDER BY p.last_name, p.first_name",
                 [':aycs' => (int) $assessment['academic_year_class_stream_id'], ':aid' => $assessmentId]
             )->fetchAll(PDO::FETCH_ASSOC);
+            $grader = new \App\API\Services\CbcGradingService($this->db);
+            foreach ($rows as &$r) {
+                $r['grade'] = $r['cbc_grade'] = $grader->codeForPercentage($r['percentage'], (int) $assessment['academic_year_term_id']);
+            }
+            unset($r);
             return $this->successResponse($rows);
         } catch (Exception $e) {
             $this->logError($e, 'AcademicManager::getFormativeAssessmentMarks');
@@ -2477,9 +2488,9 @@ if ($classId) {
             // Native prepared statements bind each placeholder once, so the
             // ON DUPLICATE KEY UPDATE clause needs its own placeholder names.
             $ins = $this->db->prepare(
-                "INSERT INTO formative_scores (assessment_id, student_id, score, max_score, rubric_level, remarks, entered_by)
-                 VALUES (:aid, :sid, :score, :max, :lvl, :rmk, :eby)
-                 ON DUPLICATE KEY UPDATE score=:score_u, max_score=:max_u, rubric_level=:lvl_u, remarks=:rmk_u, entered_by=:eby_u, updated_at=NOW()"
+                "INSERT INTO formative_scores (assessment_id, student_id, score, max_score, rubric_level, level_code, remarks, entered_by)
+                 VALUES (:aid, :sid, :score, :max, :lvl, :code, :rmk, :eby)
+                 ON DUPLICATE KEY UPDATE score=:score_u, max_score=:max_u, rubric_level=:lvl_u, level_code=:code_u, remarks=:rmk_u, entered_by=:eby_u, updated_at=NOW()"
             );
             foreach ($scores as $entry) {
                 $studentId = (int) ($entry['student_id'] ?? 0);
@@ -2495,16 +2506,23 @@ if ($classId) {
                 if (!$isEnrolled) {
                     throw new \InvalidArgumentException('A submitted learner is not enrolled in the assessment stream');
                 }
-                // A CBC rubric judgement (4 exceeding, 3 meeting, 2 approaching,
-                // 1 below) is stored as level out of 4 so it aggregates with
-                // marked evidence.
+                // A level judgement on the school scale (an 8-level code such as
+                // ME1, or a 4-level group such as ME) is stored at the middle of
+                // that level's range, so averages land on the level the teacher
+                // chose. Legacy rubric numbers 4/3/2/1 mean EE/ME/AE/BE.
                 $rubricLevel = isset($entry['rubric_level']) && $entry['rubric_level'] !== '' ? (int) $entry['rubric_level'] : null;
-                if ($rubricLevel !== null) {
-                    if ($rubricLevel < 1 || $rubricLevel > 4) {
-                        throw new \InvalidArgumentException('A rubric level must be 1, 2, 3 or 4');
-                    }
-                    $score = (float) $rubricLevel;
-                    $rowMax = 4.0;
+                $levelCode = strtoupper(trim((string) ($entry['level_code'] ?? '')));
+                if ($levelCode === '' && $rubricLevel !== null) {
+                    $levelCode = [4 => 'EE', 3 => 'ME', 2 => 'AE', 1 => 'BE'][$rubricLevel] ?? '';
+                    if ($levelCode === '') throw new \InvalidArgumentException('A rubric level must be 1, 2, 3 or 4');
+                }
+                if ($levelCode !== '') {
+                    $scope = new \App\API\Services\GradingScopeService($this->db);
+                    $termSystem = $scope->systemForTerm((int) $asmnt['academic_year_term_id']);
+                    $range = $termSystem ? $scope->levelRange($termSystem, $levelCode) : null;
+                    if (!$range) throw new \InvalidArgumentException("{$levelCode} is not a level on this term's grading scale");
+                    $score = $range['midpoint'];
+                    $rowMax = 100.0;
                 } else {
                     $score = (float) ($entry['marks_obtained'] ?? $entry['score'] ?? 0);
                     $rowMax = $maxMarks;
@@ -2526,11 +2544,13 @@ if ($classId) {
                     ':score' => $score,
                     ':max'   => $rowMax,
                     ':lvl'   => $rubricLevel,
+                    ':code'  => $levelCode !== '' ? $levelCode : null,
                     ':rmk'   => $entry['remarks'] ?? null,
                     ':eby'   => $userId,
                     ':score_u' => $score,
                     ':max_u'   => $rowMax,
                     ':lvl_u'   => $rubricLevel,
+                    ':code_u'  => $levelCode !== '' ? $levelCode : null,
                     ':rmk_u'   => $entry['remarks'] ?? null,
                     ':eby_u'   => $userId,
                 ]);
@@ -3586,14 +3606,20 @@ if ($classId) {
                    AND a.status = 'approved' AND ar.is_submitted = 1 AND ar.is_approved = 1{$filters}
                  UNION ALL
                  SELECT {$columns}, fs.max_score AS max_marks, fs.score,
-                        ROUND(fs.percentage, 1) AS percentage, fs.cbc_grade
+                        ROUND(fs.percentage, 1) AS percentage, NULL AS cbc_grade
                  FROM formative_scores fs
                  JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = fs.assessment_id
                  {$context}
-                 WHERE fs.student_id = :sid2 AND a.status = 'approved'{$filters2}
+                 WHERE fs.student_id = :sid2{$filters2}
                  ORDER BY assessment_date ASC, assessment_id ASC",
                 $params
             )->fetchAll(PDO::FETCH_ASSOC);
+            // Formative marks need no sign-off; their grade comes from the shared grader.
+            $grader = new \App\API\Services\CbcGradingService($this->db);
+            foreach ($rows as &$r) {
+                if ((int) ($r['is_formative'] ?? 0) === 1) $r['cbc_grade'] = $grader->codeForPercentage($r['percentage'], (int) ($r['term_id'] ?? 0) ?: null);
+            }
+            unset($r);
             return $this->successResponse($rows);
         } catch (Exception $e) {
             $this->logError($e, 'AcademicManager::getStudentAssessmentHistory');
@@ -6264,7 +6290,7 @@ la.learning_area_family_id, la.name AS learning_area_family,
                     COUNT(DISTINCT ayc.id) AS classes_count,
                     0 AS lessons_per_week,
                     CASE
-                        WHEN COUNT(DISTINCT CASE WHEN sw.status = 'approved' THEN sw.id END) > 0 THEN 'approved'
+                        WHEN COUNT(DISTINCT CASE WHEN sw.status IN ('approved','published') THEN sw.id END) > 0 THEN 'approved'
                         WHEN COUNT(DISTINCT CASE WHEN sw.status IN ('draft', 'archived') THEN sw.id END) > 0 THEN 'draft'
                         ELSE 'not_started'
                     END AS scheme_status,
@@ -7077,8 +7103,8 @@ la.learning_area_family_id, la.name AS learning_area_family,
 
             $planRows = $this->dbQuery(
                 "SELECT lp.teacher_id,
-                        SUM(CASE WHEN lp.status IN ('delivered', 'approved') THEN 1 ELSE 0 END) AS submitted,
-                        SUM(CASE WHEN lp.status = 'approved' THEN 1 ELSE 0 END) AS approved,
+                        SUM(CASE WHEN lp.status IN ('submitted', 'approved', 'published', 'delivered') THEN 1 ELSE 0 END) AS submitted,
+                        SUM(CASE WHEN lp.status IN ('approved', 'published', 'delivered') THEN 1 ELSE 0 END) AS approved,
                         SUM(CASE WHEN lp.status = 'delivered' THEN 1 ELSE 0 END) AS pending
                  FROM " . ReadReplicaService::qualifiedRef('lesson_plans') . " lp
                  JOIN " . ReadReplicaService::qualifiedRef('academic_year_calendar_days') . " day

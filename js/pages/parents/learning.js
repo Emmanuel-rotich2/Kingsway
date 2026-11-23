@@ -33,7 +33,7 @@
     var items = d.workbook_items || [];
     var outcomes = d.learning_outcomes || [];
     if (!items.length && !outcomes.length) {
-      el.innerHTML = '<div class="alert alert-info">No scheme objectives have been approved for this learner yet.</div>';
+      el.innerHTML = '<div class="alert alert-info">The school has not published the learning plan for this term yet.</div>';
       return;
     }
     var html = '';

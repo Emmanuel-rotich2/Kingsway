@@ -106,6 +106,19 @@ class FeeStructureAdminController {
       () => this.loadFeeStructures(1),
     );
 
+    // Revenue breakdown: view tabs, CSV and print.
+    document.querySelectorAll("[data-rb-view]").forEach((tab) => tab.addEventListener("click", () => {
+      document.querySelectorAll("[data-rb-view]").forEach((t) => { t.classList.toggle("active", t === tab); t.setAttribute("aria-selected", t === tab ? "true" : "false"); });
+      this.rbView = tab.dataset.rbView;
+      this.renderRevenueBreakdown();
+    }));
+    document.getElementById("rbExportCsv")?.addEventListener("click", () => this.exportRevenueBreakdown());
+    document.getElementById("rbPrint")?.addEventListener("click", () => {
+      if (window.AuthContext?.canPrint && !window.AuthContext.canPrint("finance")) return;
+      if (window.PrintManager?.printElement) window.PrintManager.printElement("revenueBreakdownCard", { title: "How the expected revenue is made up" });
+      else window.print();
+    });
+
     window.exportFeeStructures = () => this.exportFeeStructures();
     window.printActiveFeeStructure = () => this.printActiveFeeStructure();
     window.showDuplicateModal = () => this.showDuplicateModal();
@@ -343,6 +356,8 @@ class FeeStructureAdminController {
 
       this.renderFeeStructures(this.currentAggregated);
       this.updateStatistics(this.currentAggregated);
+      // Independent of the charts below, so a chart problem cannot hide it.
+      this.loadRevenueBreakdown();
       this.renderPagination(pagination);
       this.updateCharts(this.currentAggregated);
       await this.loadCanonicalMatrix();
@@ -1689,6 +1704,110 @@ class FeeStructureAdminController {
     const year = document.getElementById("adminMatrixAcademicYearFilter");
     if (year) year.value = this.parseAcademicYear(this.academicYears.find(y => y.is_current)?.year_code || this.academicYears[0]?.year_code || '');
     this.loadFeeStructures(1);
+  }
+
+  /**
+   * How the expected revenue is made up: same source as the Expected Revenue
+   * figure (fees billed to learners), by grade and stream, learner type,
+   * term and fee item. Every view adds up to the headline total.
+   */
+  async loadRevenueBreakdown() {
+    const body = document.querySelector("#rbTable tbody");
+    if (!body) return;
+    const request = (this.rbRequest = (this.rbRequest || 0) + 1);
+    try {
+      const res = await apiCall("/finance/fee-revenue-breakdown", "GET", null, { academic_year: this.selectedMatrixYear() });
+      if (request !== this.rbRequest) return;
+      this.rb = res?.totals ? res : (res?.data ?? null);
+      this.rbView = this.rbView || "stream";
+      this.renderRevenueBreakdown();
+    } catch (error) {
+      if (request !== this.rbRequest) return;
+      body.innerHTML = `<tr><td class="text-danger">${this.escapeRb(error?.message || "The breakdown could not be loaded.")}</td></tr>`;
+    }
+  }
+
+  escapeRb(v) {
+    return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  }
+
+  /** Rows for the current view as {head, rows, foot, chart}. */
+  revenueBreakdownView() {
+    const d = this.rb || {};
+    const total = Number(d.totals?.billed || 0);
+    const learnersTotal = Number(d.totals?.learners || 0);
+    // Whole shillings: the breakdown reads better without ".00" on every cell.
+    const kes = (n) => `KES ${Math.round(Number(n || 0)).toLocaleString("en-KE")}`;
+    const pct = (n) => (total > 0 ? `${((Number(n) / total) * 100).toFixed(1)}%` : "0%");
+    const num = (n) => Number(n || 0).toLocaleString("en-KE");
+    if (this.rbView === "stream") {
+      const types = d.learner_types || [];
+      const head = ["Grade", "Stream", ...types.map((t) => t.name), "Learners", "Billed", "Average per learner", "Share"];
+      const rows = (d.by_stream || []).map((r) => [
+        r.class_name, r.stream_name || "—",
+        ...types.map((t) => { const x = r.by_type?.[t.id] || { learners: 0, billed: 0 }; return x.learners ? `${num(x.learners)} · ${kes(x.billed)}` : "—"; }),
+        num(r.learners), kes(r.billed), kes(r.average_per_learner), pct(r.billed),
+      ]);
+      const typeTotals = types.map((t) => { const sum = (d.by_type || []).find((x) => Number(x.id) === Number(t.id)); return sum ? `${num(sum.learners)} · ${kes(sum.billed)}` : "—"; });
+      return {
+        head, rows,
+        foot: ["Total", "", ...typeTotals, num(learnersTotal), kes(total), learnersTotal ? kes(total / learnersTotal) : "—", "100%"],
+        chart: { type: "bar", labels: (d.by_stream || []).map((r) => `${r.class_name}${r.stream_name ? " " + r.stream_name : ""}`), values: (d.by_stream || []).map((r) => r.billed) },
+        csv: { head, rows: (d.by_stream || []).map((r) => [r.class_name, r.stream_name, ...types.map((t) => (r.by_type?.[t.id]?.billed || 0)), r.learners, r.billed, r.average_per_learner]) },
+      };
+    }
+    const source = { type: d.by_type, term: d.by_term, item: d.by_item }[this.rbView] || [];
+    const label = { type: "Learner type", term: "Term", item: "Fee item" }[this.rbView];
+    const head = [label, "Learners", "Billed", "Average per learner", "Share"];
+    const rows = source.map((r) => [r.name, num(r.learners), kes(r.billed), r.learners ? kes(r.billed / r.learners) : "—", pct(r.billed)]);
+    return {
+      head, rows,
+      foot: ["Total", this.rbView === "type" ? num(learnersTotal) : "", kes(total), "", "100%"],
+      chart: { type: this.rbView === "term" ? "bar" : "doughnut", labels: source.map((r) => r.name), values: source.map((r) => r.billed) },
+      csv: { head: [label, "Learners", "Billed"], rows: source.map((r) => [r.name, r.learners, r.billed]) },
+    };
+  }
+
+  renderRevenueBreakdown() {
+    const table = document.getElementById("rbTable");
+    if (!table || !this.rb) return;
+    const v = this.revenueBreakdownView();
+    const e = (x) => this.escapeRb(x);
+    const yearLabel = document.getElementById("adminMatrixAcademicYearFilter")?.selectedOptions?.[0]?.textContent || "the selected year";
+    const intro = document.getElementById("rbIntro");
+    if (intro) intro.textContent = `Fees billed to ${Number(this.rb.totals?.learners || 0).toLocaleString("en-KE")} learners for ${yearLabel}: KES ${Math.round(Number(this.rb.totals?.billed || 0)).toLocaleString("en-KE")}. Every view adds up to the Expected Revenue figure.`;
+    const wrap = document.getElementById("rbChartWrap");
+    if (wrap) wrap.style.height = this.rbView === "stream" ? `${Math.max(240, (this.rb.by_stream || []).length * 26 + 60)}px` : "280px";
+    const numeric = (i) => i >= v.head.length - 4 || (this.rbView === "stream" && i >= 2);
+    table.tHead.innerHTML = `<tr>${v.head.map((h, i) => `<th class="${numeric(i) ? "text-end" : ""}">${e(h)}</th>`).join("")}</tr>`;
+    table.tBodies[0].innerHTML = v.rows.length
+      ? v.rows.map((r) => `<tr>${r.map((c, i) => `<td class="${numeric(i) ? "text-end text-nowrap" : ""}">${e(c)}</td>`).join("")}</tr>`).join("")
+      : `<tr><td colspan="${v.head.length}" class="text-muted">No fees have been billed for this year yet.</td></tr>`;
+    table.tFoot.innerHTML = `<tr class="fw-semibold">${v.foot.map((c, i) => `<td class="${numeric(i) ? "text-end text-nowrap" : ""}">${e(c)}</td>`).join("")}</tr>`;
+
+    const canvas = document.getElementById("rbChart");
+    if (!canvas || typeof Chart === "undefined") return;
+    this.charts.rb?.destroy?.();
+    const palette = ["#155C3B", "#C99A2E", "#2F6F9F", "#8A4F7D", "#5E8C31", "#B5523B", "#3D5A80", "#7A6C5D"];
+    this.charts.rb = new Chart(canvas, {
+      type: v.chart.type,
+      data: { labels: v.chart.labels, datasets: [{ label: "Billed (KES)", data: v.chart.values, backgroundColor: v.chart.type === "doughnut" ? palette : "#155C3B" }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: { duration: 250 },
+        indexAxis: this.rbView === "stream" ? "y" : "x",
+        plugins: { legend: { display: v.chart.type === "doughnut", position: "bottom" }, tooltip: { callbacks: { label: (ctx) => ` KES ${Math.round(Number(this.rbView === "stream" ? ctx.parsed?.x : (ctx.parsed?.y ?? ctx.parsed))).toLocaleString("en-KE")}` } } },
+        scales: v.chart.type === "doughnut" ? {} : { x: { ticks: { callback: (val) => (this.rbView === "stream" ? Number(val).toLocaleString("en-KE") : undefined) } } },
+      },
+    });
+  }
+
+  exportRevenueBreakdown() {
+    if (!this.rb) return;
+    if (window.AuthContext?.canExport && !window.AuthContext.canExport("finance")) return;
+    const v = this.revenueBreakdownView();
+    const q = (x) => `"${String(x ?? "").replace(/"/g, '""')}"`;
+    const lines = [v.csv.head, ...v.csv.rows, ["Total", "", this.rb.totals?.billed || 0]].map((r) => r.map(q).join(","));
+    window.KingswayFileLifecycle?.exportText?.(lines.join("\r\n"), `expected-revenue-by-${this.rbView}.csv`, "text/csv;charset=utf-8");
   }
 
   formatCurrency(amount) {

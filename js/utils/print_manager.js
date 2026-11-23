@@ -161,6 +161,7 @@ const PrintManager = (() => {
       feeStructureSimple: "/api/print/fee-structure-simple",
       p9Form: "/api/print/p9-form",
       payslip: "/api/print/payslip",
+      payslipBatch: "/api/print/payslips-batch",
       feeStatement: "/api/print/fee-statement",
       classFeeStatement: "/api/print/class-fee-statement",
       schoolFeeStatement: "/api/print/school-fee-statement",
@@ -548,6 +549,9 @@ const PrintManager = (() => {
       const stage = wrapper.querySelector(".kw-viewer-stage");
       const oldFrame = stage.querySelector("iframe");
       if (oldFrame) oldFrame.remove();
+      // Clear any earlier status message (including the one in the initial
+      // markup) so only this load's message can be shown and removed.
+      stage.querySelectorAll(".kw-viewer-state").forEach((el) => el.remove());
       const state = document.createElement("div");
       state.className = "kw-viewer-state";
       state.setAttribute("role", "status");
@@ -1771,18 +1775,49 @@ const PrintManager = (() => {
   async function printDedicatedPayslip(options = {}) {
     const config = normalizeConfig(options);
     try {
-      // Payslip templates are complete documents with their own branded
-      // header/footer. Keep the contract explicit at the client boundary;
-      // the server also enforces this so callers cannot accidentally select
-      // the generic report shell.
+      // Authoritative payslip: send ONLY payroll_id. Server loads all
+      // financial data from FinanceAPI; client-supplied values are rejected.
+      const payrollId = Number(options.payroll_id ?? options.payslip_id);
+      if (!payrollId) {
+        throw new Error("payroll_id is required for dedicated payslip");
+      }
       const response = await request(
         config.endpoints.payslip,
-        { ...options, standaloneDocument: true, useSharedReportShell: false },
+        { payroll_id: payrollId },
         config,
       );
       return handleGeneratedFiles(response, config);
     } catch (error) {
       notify("error", error.message || "Unable to generate the payslip.");
+      throw error;
+    }
+  }
+
+  /**
+   * Generate batch payslips in multiple formats.
+   *
+   * @param {Object} options
+   * @param {number[]} [options.payroll_ids] - Array of payslip IDs
+   * @param {number} [options.payroll_run_id] - Single payroll run ID
+   * @param {number} [options.staff_id] - Staff ID for annual payslips
+   * @param {number} [options.year_from] - Start year (default: current)
+   * @param {number} [options.year_to] - End year (default: current)
+   * @param {number} [options.month_from] - Start month (1-12, default: 1)
+   * @param {number} [options.month_to] - End month (1-12, default: 12)
+   * @param {'pdf'|'zip'|'csv'|'excel'|'tsv'} [options.format='pdf'] - Output format
+   * @param {string} [options.filename] - Custom filename
+   */
+  async function printPayslipsBatch(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(
+        config.endpoints.payslipBatch,
+        options,
+        config,
+      );
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate batch payslips.");
       throw error;
     }
   }
