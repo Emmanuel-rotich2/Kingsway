@@ -51,10 +51,12 @@ const PayrollManagerController = {
       this.renderPayrollHeader();
       this.setupCompensationEvents();
 
-      // Set current month in filters
+      // Set current month/year in filters (using new filter IDs)
       const now = new Date();
-      document.getElementById("filterMonth").value = now.getMonth() + 1;
-      document.getElementById("payrollMonth").value = now.getMonth() + 1;
+      const monthFrom = document.getElementById("filterMonthFrom");
+      const yearFrom = document.getElementById("filterYearFrom");
+      if (monthFrom) monthFrom.value = now.getMonth() + 1;
+      if (yearFrom) yearFrom.value = now.getFullYear();
 
       // Populate year filters
       await this.populateYearFilters();
