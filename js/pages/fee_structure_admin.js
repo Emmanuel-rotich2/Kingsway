@@ -396,18 +396,6 @@ class FeeStructureAdminController {
 
   /** PDF of the active fee structure for the year chosen above the matrix. */
   async printActiveFeeStructure() {
-    // School administrators and directors can print fee structures without restriction
-    if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('fee_structure') && !window.AuthContext.canPrint('finance') && !window.AuthContext.canPrint('fees')) {
-      // Check if user has school administrator or director role
-      const roles = window.AuthContext?.getRoles?.() || [];
-      const isAdminOrDirector = roles.some(role => 
-        ['school administrator', 'director', 'system administrator'].includes(role.toLowerCase())
-      );
-      if (!isAdminOrDirector) {
-        this.showError('You do not have permission to print fee structures');
-        return;
-      }
-    }
     const year = document.getElementById('adminMatrixAcademicYearFilter')?.value || '';
     if (!year) {
       this.showError('Choose an academic year first');
