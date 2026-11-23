@@ -20,7 +20,7 @@
   color: var(--web-ink);
   background: var(--web-paper);
   border-radius: 18px;
-  padding: 22px;
+  padding: 14px;
 }
 /* The hidden attribute always wins over component display rules. */
 .kw-web [hidden], .kw-web-modal [hidden] { display: none !important; }
@@ -61,6 +61,7 @@
   overflow-y: auto;
   overflow-x: hidden;
   max-height: 100%;
+  min-height: 0;
 }
 
 /* Rail: sticky header within its own scroll, then scrollable groups */
@@ -85,23 +86,6 @@
   position: relative;
 }
 
-/* Next panel: sticky header within its own scroll */
-.kw-web .web-next {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-}
-.kw-web .web-next > .web-next-card:first-child {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--web-maize-tint);
-  border: 1px solid #EFD9A0;
-  border-radius: 16px;
-  padding: 16px;
-  margin-bottom: 16px;
-}
-
 /* Scrollbar styling for webkit */
 .kw-web .web-desk > *::-webkit-scrollbar {
   width: 6px;
@@ -117,6 +101,23 @@
   background: var(--web-muted);
 }
 
+/* Locked workspace (body.kw-web-workspace, set by manage_website.js):
+   the app shell stops scrolling as a page; the rail, canvas and "Up next"
+   columns each scroll inside their own fixed-height grid area. */
+body.kw-web-workspace .app-main-column { height: 100vh; height: 100dvh; overflow: hidden; }
+body.kw-web-workspace .app-content { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+body.kw-web-workspace .app-content-inner { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+body.kw-web-workspace .kw-web-page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+body.kw-web-workspace .kw-web { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+body.kw-web-workspace .web-desk { flex: 1 1 auto; min-height: 0; height: auto; gap: 14px; }
+/* Tighter page chrome: the shared shell padding is generous for this dense workspace. */
+body.kw-web-workspace .app-content-inner { padding: 10px 14px 14px !important; }
+body.kw-web-workspace .kw-web-page { padding: 0 !important; }
+body.kw-web-workspace .web-head { margin-bottom: 14px; }
+@media (min-width: 1700px) {
+  body.kw-web-workspace .web-desk { grid-template-rows: minmax(0, 1fr); }
+}
+
 /* Responsive: Tablet - rail + next on left, canvas on right */
 @media (max-width: 1699.98px) {
   .kw-web .web-desk {
@@ -126,6 +127,10 @@
       "rail canvas";
     grid-template-rows: auto 1fr;
     height: calc(100vh - 130px);
+  }
+  body.kw-web-workspace .web-desk {
+    /* Bounded rows: "Up next" cannot grow and squeeze the canvas. */
+    grid-template-rows: minmax(0, 2fr) minmax(0, 3fr);
   }
   .kw-web .web-next {
     grid-area: next;
@@ -167,7 +172,6 @@
   .kw-web .web-rail .web-rail-group button { width: auto; flex: 0 0 auto; border: 1px solid var(--web-line); background: var(--web-card); }
   .kw-web .web-rail .web-rail-group button[aria-current="page"] { background: var(--web-green); border-color: var(--web-green); }
   .kw-web .web-rail > .web-rail-group:first-child { position: static; }
-  .kw-web .web-next > .web-next-card:first-child { position: static; }
 }
 .kw-web .web-rail-group { display: flex; flex-direction: column; gap: 2px; }
 .kw-web .web-rail-group-label { font-size: .75rem; font-weight: 600; color: var(--web-muted); padding: 0 10px 4px; }
@@ -309,7 +313,7 @@
 @media (prefers-reduced-motion: reduce) { .web-preview-stage iframe, .web-drop { transition: none; } }
 </style>
 
-<div class="container-fluid px-3 px-lg-4 py-3">
+<div class="container-fluid px-3 px-lg-4 py-3 kw-web-page">
 <div class="kw-web" id="kwWeb">
 
   <header class="web-head">
