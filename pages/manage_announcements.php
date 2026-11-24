@@ -142,17 +142,30 @@
                     <div class="mb-3">
                         <label class="form-label">Title <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="title" maxlength="255" placeholder="e.g. Staff Meeting Friday 2PM" required>
+                        <div class="mt-1"><button type="button" class="btn btn-link btn-sm p-0" id="announcementDraftTitleBtn"><i class="bi bi-stars me-1"></i>Draft title with AI</button></div>
+                        <div id="announcementAiHostTitle"></div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Summary / excerpt</label>
+                        <textarea class="form-control" id="announcementSummary" rows="2" placeholder="Short summary for listings and previews"></textarea>
+                        <div class="mt-1"><button type="button" class="btn btn-link btn-sm p-0" id="announcementDraftSummaryBtn"><i class="bi bi-stars me-1"></i>Draft summary with AI</button></div>
+                        <div id="announcementAiHostSummary"></div>
                     </div>
 
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center">
                             <label class="form-label mb-0">Content <span class="text-danger">*</span></label>
-                            <div class="dropdown">
-                                <button class="btn btn-link btn-sm p-0 dropdown-toggle" type="button" data-bs-toggle="dropdown">Insert variable</button>
-                                <ul class="dropdown-menu dropdown-menu-end" id="messageVariableMenu"></ul>
+                            <div class="d-flex gap-2 align-items-center">
+                                <button type="button" class="btn btn-link btn-sm p-0" id="announcementDraftBodyBtn"><i class="bi bi-stars me-1"></i>Draft body with AI</button>
+                                <div class="dropdown">
+                                    <button class="btn btn-link btn-sm p-0 dropdown-toggle" type="button" data-bs-toggle="dropdown">Insert variable</button>
+                                    <ul class="dropdown-menu dropdown-menu-end" id="messageVariableMenu"></ul>
+                                </div>
                             </div>
                         </div>
                         <textarea class="form-control" id="content" rows="5" placeholder="Write the announcement details..." required></textarea>
+                        <div id="announcementAiHostBody"></div>
                     </div>
 
                     <div class="row g-3">

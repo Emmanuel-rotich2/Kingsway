@@ -78,6 +78,7 @@
       return button._aiDraftHandle || { destroy() {}, start() {} };
     }
     button.dataset.aiDraftBound = '1';
+    try { const lt = resolve(options.liveTarget); if (lt?.id) button.dataset.aiDraftTarget = lt.id; } catch(_){}
 
     const route = options.route || window.REQUESTED_ROUTE || '';
     const moduleName = options.module || 'dashboard';
@@ -97,7 +98,11 @@
       if (typeof liveTarget === 'function') { liveTarget(text); return; }
       const el = resolve(liveTarget);
       if (!el) return;
-      el.value = text;
+      if (el.isContentEditable) {
+        el.innerHTML = String(text || '').replace(/\n/g, '<br>');
+      } else {
+        el.value = text;
+      }
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
       if (el.scrollHeight) el.scrollTop = el.scrollHeight;
@@ -380,15 +385,17 @@
 
   function prefixTasksFor(route, roles) {
     const r = String(route || '');
-    for (const [prefixes, byRole] of PREFIX_TASKS) {
-      if (!prefixes.some((p) => r === p || r.startsWith(p))) continue;
+    for (const entry of PREFIX_TASKS) {
+      const byRole = entry[entry.length - 1];
+      const prefixes = Array.isArray(entry[0]) ? entry[0] : entry.slice(0, -1);
+      if (!prefixes.some((p) => typeof p === 'string' && (r === p || r.startsWith(p) || r.includes(p)))) continue;
       const out = [];
       for (const k of roles) {
-        const list = byRole[k];
+        const list = byRole && byRole[k];
         if (list) { list.forEach(([l, p]) => out.push({ label: l, prompt: `${p} Page: ${r.replace(/_/g, ' ')}.` })); break; }
       }
-      if (!out.length) (byRole['*'] || []).forEach(([l, p]) => out.push({ label: l, prompt: `${p} Page: ${r.replace(/_/g, ' ')}.` }));
-      return out;
+      if (!out.length && byRole) (byRole['*'] || []).forEach(([l, p]) => out.push({ label: l, prompt: `${p} Page: ${r.replace(/_/g, ' ')}.` }));
+      if (out.length) return out;
     }
     return [];
   }
@@ -528,10 +535,30 @@
       catch (_) { setStatus('Copy is not available here.'); }
     }
 
-    fab.addEventListener('click', () => {
-      panel.hidden = !panel.hidden;
+    function openPanel(prefill) {
+      panel.hidden = false;
       $('kwAiRoute').textContent = '· ' + routeLabel();
-      if (!panel.hidden) { renderChips(); $('kwAiInput').focus(); }
+      renderChips();
+      if (prefill) $('kwAiInput').value = String(prefill).slice(0, 4000);
+      $('kwAiInput').focus();
+      if (prefill) $('kwAiSend').click();
+    }
+    function closePanel() { panel.hidden = true; }
+    function togglePanel() { panel.hidden ? openPanel() : closePanel(); }
+
+    fab.addEventListener('click', togglePanel);
+    // Header button / external hooks
+    document.addEventListener('click', (e) => {
+      const t = e.target?.closest?.('[data-kw-ai-toggle]');
+      if (!t) return;
+      e.preventDefault();
+      togglePanel();
+    });
+    window.KingswayAssistant = Object.assign(window.KingswayAssistant || {}, {
+      ask: (question) => openPanel(question),
+      open: (question) => openPanel(question),
+      close: closePanel,
+      toggle: togglePanel,
     });
     $('kwAiClose').addEventListener('click', () => { panel.hidden = true; });
     $('kwAiSend').addEventListener('click', () => { const v = $('kwAiInput').value; $('kwAiInput').value = ''; run(v); });
@@ -545,10 +572,115 @@
     window.addEventListener('kingsway:page-loaded', () => { $('kwAiRoute').textContent = '· ' + routeLabel(); renderChips(); });
   }
 
+  /* ── Generic modal/form drafting coverage ───────────────────────────────
+     Any authenticated page modal with a meaningful text field gets a
+     "Draft with AI" control automatically. This gives Layer 3 coverage
+     across the system without per-page wiring; explicit mounts still win
+     because mount() marks buttons data-ai-draft-bound. */
+  function isDraftableField(el) {
+    if (!el || el.disabled || el.readOnly) return false;
+    if (el.closest('#kwAiAssistPanel')) return false;
+    if (el.dataset.aiDraftAuto === '1' || el.dataset.aiDraftSkip === '1') return false;
+    const tag = el.tagName;
+    if (tag === 'TEXTAREA') return true;
+    if (tag === 'INPUT') {
+      const t = (el.type || 'text').toLowerCase();
+      return ['text','search','email','url','tel'].includes(t);
+    }
+    return !!el.isContentEditable;
+  }
+
+  function fieldLabel(el) {
+    const id = el.id;
+    if (id) {
+      const lbl = document.querySelector(`label[for="${CSS.escape(id)}"]`);
+      if (lbl?.textContent?.trim()) return lbl.textContent.trim().replace(/[*:]+$/,'').trim();
+    }
+    const aria = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.name || el.id || 'this field';
+    return String(aria).replace(/[_-]+/g,' ').replace(/[*:]+$/,'').trim().slice(0, 60);
+  }
+
+  function modalTitle(el) {
+    const modal = el.closest('.modal');
+    const t = modal?.querySelector('.modal-title, h5, h4, h3')?.textContent?.trim();
+    return t ? t.slice(0, 80) : '';
+  }
+
+  function autoMountField(el) {
+    if (!isDraftableField(el)) return;
+    if (el.dataset.aiDraftAuto === '1' || el.dataset.aiDraftBoundTarget === '1') return;
+    if (el.id && document.querySelector(`[data-ai-draft-bound="1"][data-ai-draft-target="${CSS.escape(el.id)}"]`)) return;
+    const next = el.nextElementSibling;
+    if (next && next.querySelector && next.querySelector('[id$="AiHost"],[id*="AiHost"],[id*="DraftBtn"],[id*="Draft"]')) return;
+    const parent = el.parentElement;
+    if (parent && parent.querySelector('[data-ai-draft-bound="1"]')) {
+      const id = el.id || '';
+      if (id && parent.innerHTML.includes(id) && /Draft with AI|ai-draft-host|AiHost/i.test(parent.innerHTML)) return;
+    }
+    const modal = el.closest('.modal, .offcanvas, form, .card, .panel, section');
+    if (!modal && el.tagName === 'INPUT') return;
+    if (el.tagName === 'INPUT' && /search|filter|date|time|number|amount|price|qty|quantity|phone|otp|code|password|pin/i.test((el.name||'')+(el.id||'')+(el.placeholder||'')+(el.type||''))) return;
+    const label = fieldLabel(el);
+    if (/search|filter/i.test(label) && el.tagName === 'INPUT') return;
+    const host = document.createElement('div');
+    host.className = 'ai-draft-host-auto';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-link btn-sm p-0 ai-draft-auto-btn';
+    btn.innerHTML = '<i class="bi bi-stars me-1"></i>Draft with AI';
+    btn.style.fontSize = '.78rem';
+    btn.dataset.aiDraftTarget = el.id || '';
+    const wrap = document.createElement('div');
+    wrap.className = 'ai-draft-auto-wrap mt-1';
+    wrap.appendChild(btn);
+    wrap.appendChild(host);
+    el.insertAdjacentElement('afterend', wrap);
+    el.dataset.aiDraftAuto = '1';
+    const route = window.REQUESTED_ROUTE || 'page';
+    const mt = modalTitle(el);
+    mount({
+      button: btn, host: host, route, module: 'dashboard', liveTarget: el, label: `Draft ${label}`,
+      prompt: () => {
+        const ctx = [mt ? `Modal/form: ${mt}` : '', `Field: ${label}`, `Page: ${route.replace(/_/g,' ')}`].filter(Boolean).join('\n');
+        const existing = (el.value || el.textContent || '').trim();
+        return `Draft content for the field "${label}" on the Kingsway school system page. ${ctx}.\n${existing ? `Existing text to improve/continue:\n${existing}\n` : ''}Write only the field content, professional and clear. Do not invent private learner data.`;
+      },
+    });
+  }
+
+  function scanAutoDraft(root) {
+    const scope = root && root.querySelectorAll ? root : document;
+    const fields = scope.querySelectorAll('textarea, input[type="text"], input:not([type]), input[type="search"], input[type="email"], input[type="url"], [contenteditable="true"]');
+    fields.forEach(autoMountField);
+  }
+
+  let autoScanTimer = null;
+  function scheduleAutoScan(root) {
+    clearTimeout(autoScanTimer);
+    autoScanTimer = setTimeout(() => scanAutoDraft(root || document), 250);
+  }
+
+  function initAutoDraftCoverage() {
+    if (window.__kwAiAutoDraftInit) return;
+    window.__kwAiAutoDraftInit = true;
+    scheduleAutoScan(document);
+    document.addEventListener('shown.bs.modal', (e) => scheduleAutoScan(e.target));
+    document.addEventListener('shown.bs.offcanvas', (e) => scheduleAutoScan(e.target));
+    window.addEventListener('kingsway:page-loaded', () => scheduleAutoScan(document));
+    const obs = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const n of m.addedNodes || []) {
+          if (n.nodeType === 1) { scheduleAutoScan(n); return; }
+        }
+      }
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+  }
+
   // Auto-mount the universal panel once per document.
   if (!window.__kwAiAssistMounted) {
     window.__kwAiAssistMounted = true;
-    const boot = () => mountPageAssist();
+    const boot = () => { mountPageAssist(); initAutoDraftCoverage(); };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
   }
 

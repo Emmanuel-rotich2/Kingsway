@@ -310,7 +310,15 @@
       });
     },
 
-    openModal: function (item) {
+    mountAiDrafts() {
+    if (this._aiDraftsMounted) return;
+    this._aiDraftsMounted = true;
+    window.AiInlineDraft?.mount?.({button:'#announcementDraftTitleBtn', host:'#announcementAiHostTitle', route:window.REQUESTED_ROUTE||'manage_announcements', module:'communications', liveTarget:'#title', label:'Draft title', prompt:()=>`Draft a clear announcement title for Kingsway Preparatory School. Category: ${this.value('category')}. Audience: ${this.value('audience')}. Priority: ${this.value('priority')}. Existing content: ${(document.getElementById('content')?.value||'').slice(0,500)}. Return only the title.`});
+    window.AiInlineDraft?.mount?.({button:'#announcementDraftSummaryBtn', host:'#announcementAiHostSummary', route:window.REQUESTED_ROUTE||'manage_announcements', module:'communications', liveTarget:'#announcementSummary', label:'Draft summary', prompt:()=>`Draft a short 1-2 sentence announcement summary/excerpt for Kingsway Preparatory School families/staff. Title: ${this.value('title')}. Content: ${(document.getElementById('content')?.value||'').slice(0,800)}. Return only the summary.`});
+    window.AiInlineDraft?.mount?.({button:'#announcementDraftBodyBtn', host:'#announcementAiHostBody', route:window.REQUESTED_ROUTE||'manage_announcements', module:'communications', liveTarget:'#content', label:'Draft body', prompt:()=>`Draft a professional announcement body for Kingsway Preparatory School. Title: ${this.value('title')||'Announcement'}. Category: ${this.value('category')}. Audience: ${this.value('audience')}. Priority: ${this.value('priority')}. Summary: ${(document.getElementById('announcementSummary')?.value||'').slice(0,200)}. Keep it clear, warm, and actionable. Return only the body.`});
+  },
+
+  openModal: function (item) {
       const form = document.getElementById("announcementForm");
       if (form) form.reset();
 

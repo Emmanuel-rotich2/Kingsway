@@ -129,9 +129,20 @@ const managePublicEventsController = {
     document.getElementById('eventsUpcomingOnly')?.addEventListener('change', () => this.loadData());
   },
 
+  mountAiDrafts() {
+    if (this._aiDraftsMounted) return;
+    this._aiDraftsMounted = true;
+    window.AiInlineDraft?.mount?.({
+      button:'#eventDraftDescBtn', host:'#eventAiHostDesc', route:window.REQUESTED_ROUTE||'manage_public_events', module:'website',
+      liveTarget:'#eventDescription', label:'Draft event description',
+      prompt:()=>`Draft a warm, clear public event description for Kingsway Preparatory School. Title: ${document.getElementById('eventTitle')?.value||''}. Date: ${document.getElementById('eventDate')?.value||''}. Location: ${document.getElementById('eventLocation')?.value||''}. Audience: ${document.getElementById('eventAudience')?.value||''}. Return only the description.`
+    });
+  },
+
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     this.setupEventListeners();
+    this.mountAiDrafts();
     this.loadData();
   },
 };

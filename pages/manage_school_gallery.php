@@ -76,6 +76,7 @@
           <video id="galleryVideoPreview" class="rounded-3 w-100" style="height:140px;object-fit:cover;background:#000" controls></video>
         </div>
         <div class="col-12 ws-form-group"><label>Caption</label><input type="text" id="galleryCaption" placeholder="e.g. Students in computer lab"></div>
+        <div class="col-12"><button type="button" class="btn btn-link btn-sm p-0" id="galleryDraftCaptionBtn"><i class="bi bi-stars me-1"></i>Draft caption with AI</button><div id="galleryAiHostCaption"></div></div>
         <div class="col-12 ws-form-group">
           <label>Category</label>
           <select id="galleryCategory">

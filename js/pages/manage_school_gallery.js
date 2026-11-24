@@ -133,9 +133,20 @@ const manageSchoolGalleryController = {
     if (typeEl) typeEl.addEventListener('change', () => this.previewImg(document.getElementById('galleryUrl').value));
   },
 
+  mountAiDrafts() {
+    if (this._aiDraftsMounted) return;
+    this._aiDraftsMounted = true;
+    window.AiInlineDraft?.mount?.({
+      button:'#galleryDraftCaptionBtn', host:'#galleryAiHostCaption', route:window.REQUESTED_ROUTE||'manage_school_gallery', module:'website',
+      liveTarget:'#galleryCaption', label:'Draft gallery caption',
+      prompt:()=>`Draft a short, warm caption for a Kingsway Preparatory School gallery photo/video. Category: ${document.getElementById('galleryCategory')?.value||''}. Return only the caption.`
+    });
+  },
+
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     this.setupEventListeners();
+    this.mountAiDrafts();
     this.loadData();
   },
 };

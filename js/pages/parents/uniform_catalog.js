@@ -648,7 +648,7 @@
       account = state.checkoutAccount;
     }
     var phone = String(document.getElementById('storeCheckoutPhone').value || '').trim();
-    if (!phone) phone = window.prompt('Enter the M-Pesa phone number for payment:', '2547');
+    if (!phone) phone = await (window.promptAction?.('M-Pesa payment','Enter the M-Pesa phone number for payment:','2547') ?? Promise.resolve(null));
     if (!phone) return;
     if (!account) { window.alert('No payment account is configured for this method.'); return; }
     var payload = { channel: channel, financial_account_id: account, phone: phone };

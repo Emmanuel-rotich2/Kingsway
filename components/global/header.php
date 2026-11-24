@@ -24,11 +24,9 @@
             class="app-icon-button position-relative"
             id="header-ai-assistant-button"
             type="button"
-            aria-label="Open staff assistant"
-            title="Staff assistant"
-            data-bs-toggle="offcanvas"
-            data-bs-target="#globalAiAssistantPanel"
-            aria-controls="globalAiAssistantPanel"
+            aria-label="Open AI assistant"
+            title="AI assistant"
+            data-kw-ai-toggle="1"
         >
             <i class="bi bi-stars" aria-hidden="true"></i>
         </button>
@@ -245,115 +243,7 @@
     </div>
 </div>
 
-<div
-    class="offcanvas offcanvas-end ai-assistant-panel"
-    tabindex="-1"
-    id="globalAiAssistantPanel"
-    data-persist-open="true"
-    aria-labelledby="globalAiAssistantPanelLabel"
->
-    <div class="assistant-shell d-flex h-100 w-100">
-        <!-- Sidebar: sessions rail (full height, side-by-side with main) -->
-        <aside class="assistant-sidebar flex-shrink-0 p-3">
-            <div class="assistant-sidebar-brand d-flex align-items-center gap-2 mb-3">
-                <img
-                    src="<?= htmlspecialchars(($appBase ?? '') . '/uploads/school_assets/official_school_logo.png', ENT_QUOTES, 'UTF-8') ?>"
-                    alt="Kingsway Preparatory School logo"
-                    width="28"
-                    height="28"
-                    class="assistant-sidebar-logo"
-                    data-kw-onerror="this.onerror=null;this.src='<?= htmlspecialchars(($appBase ?? '') . '/images/official_school_logo.png', ENT_QUOTES, 'UTF-8') ?>';"
-                >
-                <span class="assistant-sidebar-brand-copy">
-                    <span class="assistant-sidebar-school-name">Kingsway Preparatory School</span>
-                    <small>Staff assistant</small>
-                </span>
-            </div>
-            <button type="button" class="btn btn-success w-100 fw-medium d-flex align-items-center justify-content-center gap-2 mb-4 assistant-new-chat" id="global-ai-assistant-new-chat">
-                <i class="bi bi-plus-lg"></i><span>New chat</span>
-            </button>
-            <div class="d-flex justify-content-between align-items-center mb-2 px-1">
-                <span class="text-muted fw-semibold assistant-sidebar-label">Chat History</span>
-            </div>
-            <div class="overflow-auto flex-grow-1 pe-1" id="global-ai-assistant-history" aria-live="polite">
-                <p class="small text-muted px-1 mb-0">Start a new chat to see sessions here.</p>
-            </div>
-            <div class="border-top pt-3 mt-auto d-flex justify-content-between px-3 py-2 gap-2">
-                <button type="button" class="assistant-sidebar-action" id="global-ai-assistant-help" title="How to use the assistant" aria-label="How to use the assistant">
-                    <i class="bi bi-question-circle"></i>
-                </button>
-                <button type="button" class="assistant-sidebar-action" id="global-ai-assistant-settings" title="Assistant settings" aria-label="Assistant settings">
-                    <i class="bi bi-gear"></i>
-                </button>
-            </div>
-        </aside>
-        <!-- Main chat area: header spans full width, conversation below -->
-        <div class="assistant-main d-flex flex-column flex-grow-1 h-100 min-w-0">
-            <header class="assistant-header d-flex align-items-center gap-3 px-3 px-md-4 py-3 flex-shrink-0">
-                <span class="assistant-avatar" aria-hidden="true"><i class="bi bi-robot"></i></span>
-                <div class="min-w-0">
-                    <h5 class="mb-0 fw-semibold text-white" id="globalAiAssistantPanelLabel">Staff Assistant</h5>
-                    <div class="assistant-header-meta d-flex align-items-center gap-2">
-                        <span class="assistant-online-badge"><i class="bi bi-circle-fill"></i>Online</span>
-                    </div>
-                </div>
-                <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="offcanvas" aria-label="Close"></button>
-            </header>
-            <div class="assistant-conversation flex-grow-1 overflow-y-auto p-3 p-md-4" id="global-ai-assistant-conversation" style="display:flex;flex-direction:column;">
-                <!-- Insights fold away once a conversation has messages so the chat stays the focus. -->
-                <details id="global-ai-assistant-insights" class="assistant-insights mb-3" open>
-                    <summary class="assistant-insights-summary">
-                        <i class="bi bi-stars me-1" aria-hidden="true"></i>Your day &amp; workspace insights
-                    </summary>
-                    <div class="assistant-insights-body pt-2">
-                        <section id="global-ai-assistant-today" class="mb-3" aria-live="polite" aria-label="Your day at a glance">
-                            <div class="text-muted small">Getting your day ready…</div>
-                        </section>
-                        <section id="global-ai-assistant-briefing" aria-live="polite" aria-label="Workspace insights">
-                            <div class="text-muted small">Workspace insights will appear here when available.</div>
-                        </section>
-                    </div>
-                </details>
-                <section id="global-ai-assistant-task-status" class="mb-3" aria-live="polite" aria-label="Delegated assistant work"></section>
-                <!-- Thread: the single scrollable message container (never destroyed). Greeting is rendered here when empty. -->
-                <div id="global-ai-assistant-thread" class="assistant-thread" aria-live="polite"></div>
-            </div>
-<!-- Composer -->
-            <footer class="assistant-footer border-top p-3 flex-shrink-0" id="global-ai-assistant-footer">
-                <form id="global-ai-assistant-query" class="assistant-composer d-flex flex-column gap-2" autocomplete="off">
-                    <div class="chat-input-box d-flex align-items-end gap-2 p-2 w-100">
-                        <input type="file" id="global-ai-assistant-attachment" class="d-none" tabindex="-1" aria-hidden="true">
-                        <button type="button" class="btn btn-icon-only btn-light text-muted" id="global-ai-assistant-attach" title="Attach a file" aria-label="Attach a file" style="background:transparent;border:0;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;padding:0;">
-                            <i class="bi bi-paperclip"></i>
-                        </button>
-                        <label class="visually-hidden" for="global-ai-assistant-question">Ask the assistant</label>
-                        <textarea
-                            class="form-control assistant-input flex-grow-1"
-                            id="global-ai-assistant-question"
-                            rows="1"
-                            maxlength="500"
-                            placeholder="Ask the assistant…"
-                            aria-label="Ask the assistant"
-                            style="border:0;outline:none;resize:none;box-shadow:none;"
-                        ></textarea>
-                        <button type="button" class="btn btn-sm btn-outline-primary text-nowrap px-2" id="global-ai-assistant-delegate" title="Queue this task for background work" aria-label="Delegate this task to an agent">
-                            <i class="bi bi-box-arrow-up-right me-1"></i><span>Delegate</span>
-                        </button>
-                        <button type="button" class="btn btn-icon-only btn-light text-muted" id="global-ai-assistant-voice" title="Dictate your question" aria-label="Dictate your question" style="background:transparent;border:0;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;padding:0;">
-                            <i class="bi bi-mic"></i>
-                        </button>
-                        <button type="submit" class="btn btn-success" id="global-ai-assistant-send" title="Send question" aria-label="Send question" style="width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;padding:0;">
-                            <i class="bi bi-send-fill"></i>
-                        </button>
-                    </div>
-                    <div class="mt-2 text-end">
-                        <span class="small text-muted me-2">Send for a quick reply · Delegate for background work</span>
-                        <span class="small text-muted d-none d-md-inline text-nowrap">Shift + Enter for a new line</span>
-                    </div>
-                </form>
-        </div>
-    </div>
-</div>
+<!-- Legacy global assistant offcanvas removed: universal AI panel (ai_inline_draft.js) is the single non-modal assistant surface. -->
 
 <!-- Assistant Settings Modal -->
 <div

@@ -89,11 +89,40 @@ window.studentsManagementController = window.studentsManagementController || {
     await this.loadStudents();
   },
 
+  ensurePhotoRejectModal() {
+    if (document.getElementById('studentPhotoRejectModal')) return;
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal fade" id="studentPhotoRejectModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Reject student photo</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <input type="hidden" id="studentPhotoRejectId">
+          <label class="form-label" for="studentPhotoRejectReason">Reason</label>
+          <textarea class="form-control" id="studentPhotoRejectReason" rows="4" placeholder="Explain why this photo cannot be approved"></textarea>
+          <div class="mt-2"><button type="button" class="btn btn-link btn-sm p-0" id="studentPhotoRejectAiBtn"><i class="bi bi-stars me-1"></i>Draft reason with AI</button></div>
+          <div id="studentPhotoRejectAiHost"></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-danger" id="studentPhotoRejectSendBtn">Reject photo</button></div>
+      </div></div></div>`);
+    document.getElementById('studentPhotoRejectSendBtn').addEventListener('click', async () => {
+      const id = document.getElementById('studentPhotoRejectId').value;
+      const reason = document.getElementById('studentPhotoRejectReason').value.trim();
+      if (!reason) return window.showNotification?.('Provide a rejection reason.', 'warning');
+      await window.API.students.rejectPhoto(id, reason);
+      bootstrap.Modal.getInstance(document.getElementById('studentPhotoRejectModal'))?.hide();
+      await this.loadPendingPhotos();
+    });
+    window.AiInlineDraft?.mount?.({
+      button:'#studentPhotoRejectAiBtn', host:'#studentPhotoRejectAiHost', route:window.REQUESTED_ROUTE||'manage_students', module:'students',
+      liveTarget:'#studentPhotoRejectReason',
+      prompt:()=>`Draft a short, respectful reason for rejecting a student profile photo submission. Be clear and actionable.`
+    });
+  },
+
   rejectPhoto: async function (versionId) {
-    const reason = window.prompt('Reason for rejecting this photo:');
-    if (!reason) return;
-    await window.API.students.rejectPhoto(versionId, reason);
-    await this.loadPendingPhotos();
+    this.ensurePhotoRejectModal();
+    document.getElementById('studentPhotoRejectId').value = versionId;
+    document.getElementById('studentPhotoRejectReason').value = '';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('studentPhotoRejectModal')).show();
   },
 
   getPrimaryRole: function () {

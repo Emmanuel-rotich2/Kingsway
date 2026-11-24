@@ -86,7 +86,7 @@
     <div class="modal-body">
       <input type="hidden" id="newsEditId">
       <div class="row g-3">
-        <div class="col-12 ws-form-group"><label>Title *</label><input type="text" id="newsTitle" placeholder="Article headline"></div>
+        <div class="col-12 ws-form-group"><label>Title *</label><input type="text" id="newsTitle" placeholder="Article headline"><div class="mt-1"><button type="button" class="btn btn-link btn-sm p-0" id="newsDraftTitleBtn"><i class="bi bi-stars me-1"></i>Draft title with AI</button></div><div id="newsAiHostTitle"></div></div>
         <div class="col-md-6 ws-form-group">
           <label>Category *</label>
           <select id="newsCategory">
@@ -115,10 +115,11 @@
         <div id="newsImgPreviewWrap" style="display:none" class="col-12">
           <img id="newsImgPreview" class="rounded-3" style="height:140px;width:100%;object-fit:cover">
         </div>
-        <div class="col-12 ws-form-group"><label>Excerpt (short summary)</label><textarea id="newsExcerpt" rows="2" placeholder="2–3 sentence summary shown on listing page…"></textarea></div>
+        <div class="col-12 ws-form-group"><label>Excerpt (short summary)</label><textarea id="newsExcerpt" rows="2" placeholder="2–3 sentence summary shown on listing page…"></textarea><div class="mt-1"><button type="button" class="btn btn-link btn-sm p-0" id="newsDraftExcerptBtn"><i class="bi bi-stars me-1"></i>Draft excerpt with AI</button></div><div id="newsAiHostExcerpt"></div></div>
         <div class="col-12 ws-form-group"><label>Author</label><input type="text" id="newsAuthor" placeholder="Author name or department"></div>
         <div class="col-12 ws-form-group">
           <label>Story *</label>
+          <div class="mt-1 mb-2"><button type="button" class="btn btn-link btn-sm p-0" id="newsDraftBodyBtn"><i class="bi bi-stars me-1"></i>Draft body with AI</button><div id="newsAiHostBody"></div></div>
           <div class="story-toolbar" aria-label="Story editor toolbar">
             <button type="button" data-command="bold" title="Bold"><i class="bi bi-type-bold"></i></button>
             <button type="button" data-command="italic" title="Italic"><i class="bi bi-type-italic"></i></button>

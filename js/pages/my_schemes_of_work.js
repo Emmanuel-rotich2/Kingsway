@@ -460,7 +460,7 @@ const MySchemesOfWorkController = {
   },
 
   async requestRevision(workbookId) {
-    const reason = window.prompt('Why is a revision needed?', 'Add or correct outcomes, experiences, competencies, assessment tools or rubrics');
+    const reason = await (window.promptAction?.('Request revision', 'Why is a revision needed?', 'Add or correct outcomes, experiences, competencies, assessment tools or rubrics') ?? Promise.resolve(null));
     if (reason === null) return;
     try {
       await window.API.academic.requestSchemeWorkbookRevision(workbookId, {reason});

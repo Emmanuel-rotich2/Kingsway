@@ -101,8 +101,19 @@ const managePublicDownloadsController = {
     catch (e) { this.notify(e.message, 'danger'); }
   },
 
+  mountAiDrafts() {
+    if (this._aiDraftsMounted) return;
+    this._aiDraftsMounted = true;
+    window.AiInlineDraft?.mount?.({
+      button:'#downloadDraftDescBtn', host:'#downloadAiHostDesc', route:window.REQUESTED_ROUTE||'manage_public_downloads', module:'website',
+      liveTarget:'#dlDesc', label:'Draft download description',
+      prompt:()=>`Draft a clear, helpful description for a public school download on the Kingsway Preparatory School website. Title: ${document.getElementById('dlTitle')?.value||''}. Category: ${document.getElementById('dlCategory')?.value||''}. Return only the description.`
+    });
+  },
+
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
+    this.mountAiDrafts();
     this.loadData();
   },
 };

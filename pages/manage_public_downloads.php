@@ -77,6 +77,7 @@
           <small class="text-muted">Leave empty to keep the existing file.</small>
         </div>
         <div class="col-12 ws-form-group"><label>Description</label><textarea id="dlDesc" rows="2" class="form-control" placeholder="Short description of this document"></textarea></div>
+        <div class="col-12"><button type="button" class="btn btn-link btn-sm p-0" id="downloadDraftDescBtn"><i class="bi bi-stars me-1"></i>Draft description with AI</button><div id="downloadAiHostDesc"></div></div>
         <div class="col-md-6 ws-form-group"><label>File Size (display)</label><input type="text" id="dlSize" placeholder="e.g. 245 KB"></div>
       </div>
     </div>

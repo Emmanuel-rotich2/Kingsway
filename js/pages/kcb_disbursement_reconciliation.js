@@ -105,7 +105,7 @@ const kcbDisbursementReconciliationController = {
   },
 
   async confirmFailed(id) {
-    const evidence = window.prompt('Enter the KCB statement reference and evidence confirming that no payment was completed:');
+    const evidence = window.promptAction?.('Enter the KCB statement reference and evidence confirming that no payment was completed:');
     if (!evidence) return;
     await this.run(id, async () => {
       await window.API.finance.resolveKcbDisbursement(id, { outcome: 'confirmed_failure', evidence });
