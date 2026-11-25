@@ -1477,7 +1477,7 @@
   }
 
   async function deleteAssistantSession(sessionId) {
-    if (!confirm("Delete this chat session?")) return;
+    if (!(await window.confirmAction("Delete chat session", "Delete this chat session?", { confirmText: "Delete", danger: true }))) return;
     try {
       await window.API.dashboard.deleteAssistantSession({session_id: sessionId});
       sessionsCache = sessionsCache.filter((s) => s.id !== sessionId);
@@ -1693,7 +1693,7 @@
 
     // Settings modal: clear all history
     $("#assistant-clear-history")?.addEventListener("click", async () => {
-      if (!confirm("Clear all chat sessions? This cannot be undone.")) return;
+      if (!(await window.confirmAction("Clear chat history", "Clear all chat sessions? This cannot be undone.", { confirmText: "Clear all", danger: true }))) return;
       try {
         await window.API.dashboard.postAssistantSessionsClear();
       } catch {

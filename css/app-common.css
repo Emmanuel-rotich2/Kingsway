@@ -108,6 +108,152 @@
   }
 }
 
+/* ─── Shared app dialogs (alert / confirm / prompt replacements) ──────────
+   Styled by js/api.js::openAppDialog(). Keeps every native-style prompt on
+   the same themed Bootstrap surface instead of browser chrome. */
+.kw-app-dialog .modal-dialog {
+  max-width: 34rem;
+}
+
+.kw-app-dialog .modal-content {
+  border: 1px solid var(--kw-theme-border, #dbe3d9);
+  border-radius: 1.1rem;
+  background: var(--kw-theme-surface, #fff);
+  color: var(--kw-theme-text, #173a2e);
+  box-shadow: var(--kw-theme-shadow-strong, 0 18px 46px rgb(4 20 12 / 24%));
+}
+
+.kw-app-dialog .kw-dialog-header {
+  align-items: flex-start;
+  gap: .9rem;
+  padding: 1.25rem 1.35rem .65rem;
+  border: 0;
+}
+
+.kw-app-dialog .kw-dialog-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: .85rem;
+  background: var(--kw-theme-info-soft, #e6f6fa);
+  color: var(--kw-theme-info, #0e7490);
+  font-size: 1.25rem;
+}
+
+.kw-app-dialog [data-kw-dialog-variant="success"] .kw-dialog-icon {
+  background: var(--kw-theme-good-soft, #e7f6ed);
+  color: var(--kw-theme-good, #0f6b43);
+}
+
+.kw-app-dialog [data-kw-dialog-variant="warning"] .kw-dialog-icon {
+  background: var(--kw-theme-warn-soft, #fff5df);
+  color: var(--kw-theme-warn, #8a5a0d);
+}
+
+.kw-app-dialog [data-kw-dialog-variant="danger"] .kw-dialog-icon {
+  background: var(--kw-theme-bad-soft, #fdecec);
+  color: var(--kw-theme-bad, #b53747);
+}
+
+.kw-app-dialog [data-kw-dialog-variant="question"] .kw-dialog-icon,
+.kw-app-dialog [data-kw-dialog-variant="prompt"] .kw-dialog-icon {
+  background: var(--kw-theme-good-soft, #e7f6ed);
+  color: var(--kw-theme-good, #0f6b43);
+}
+
+.kw-app-dialog .kw-dialog-heading {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.kw-app-dialog .kw-dialog-eyebrow {
+  display: block;
+  margin-bottom: .2rem;
+  color: var(--kw-theme-muted, #697386);
+  font-size: .68rem;
+  font-weight: 750;
+  letter-spacing: .09em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.kw-app-dialog .modal-title {
+  margin: 0;
+  color: inherit;
+  font-size: 1.12rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.kw-app-dialog .kw-dialog-body {
+  padding: .55rem 1.35rem 1.25rem 5rem;
+}
+
+.kw-app-dialog .kw-dialog-message {
+  margin: 0;
+  color: var(--kw-theme-muted, #697386);
+  font-size: .95rem;
+  line-height: 1.65;
+  white-space: pre-line;
+}
+
+.kw-app-dialog .kw-dialog-message[hidden],
+.kw-app-dialog .kw-dialog-prompt[hidden] {
+  display: none;
+}
+
+.kw-app-dialog .kw-dialog-prompt {
+  display: grid;
+  gap: .45rem;
+}
+
+.kw-app-dialog .kw-dialog-prompt .form-label {
+  margin: .9rem 0 0;
+  color: var(--kw-theme-text, #173a2e);
+  font-size: .82rem;
+  font-weight: 650;
+}
+
+.kw-app-dialog .kw-dialog-footer {
+  gap: .6rem;
+  padding: .9rem 1.35rem 1.2rem;
+  border: 0;
+  background: var(--kw-theme-surface-2, #f6f7f9);
+}
+
+.kw-app-dialog .kw-dialog-footer .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  min-width: 6.5rem;
+  border-radius: .65rem;
+  font-size: .9rem;
+  font-weight: 650;
+}
+
+.kw-app-dialog .kw-dialog-footer .btn[hidden] {
+  display: none;
+}
+
+@media (max-width: 575.98px) {
+  .kw-app-dialog .kw-dialog-header,
+  .kw-app-dialog .kw-dialog-body,
+  .kw-app-dialog .kw-dialog-footer {
+    padding-inline: 1rem;
+  }
+
+  .kw-app-dialog .kw-dialog-body {
+    padding-left: 1rem;
+  }
+
+  .kw-app-dialog .kw-dialog-footer .btn {
+    flex: 1 1 auto;
+  }
+}
+
 /* ─── Stat-card gradients (reused across dashboards) ─── */
 .kw-grad-green  { background: linear-gradient(135deg, #0d4f2a 0%, #198754 100%); }
 .kw-grad-gold   { background: linear-gradient(135deg, #b8860b 0%, #f9c80e 100%); }

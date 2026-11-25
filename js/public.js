@@ -212,7 +212,9 @@ document.addEventListener('DOMContentLoaded', () => {
           } else if (typeof window.infoDialog === 'function') {
             window.infoDialog('Account temporarily locked', message, { danger: true });
           } else {
-            window.alert(message);
+            // The inline form error above is already visible; avoid browser
+            // chrome so the login surface stays consistent with the theme.
+            console.warn('Account temporarily locked:', message);
           }
         }
       }

@@ -233,7 +233,7 @@ const ChaplaincyProgramsController = {
   },
 
   async removeProgram(id) {
-    if (!confirm('Delete this program from the catalog?')) return;
+    if (!(await window.confirmAction('Delete program', 'Delete this program from the catalog?', { confirmText: 'Delete', danger: true }))) return;
     const res = await this.API(`/programs/${id}`, 'DELETE');
     if (res && (res.success || res.status === 'success')) {
       showNotification?.(res.data?.deactivated ? 'Program has scheduled sessions — deactivated instead' : 'Program deleted', 'success');
@@ -323,7 +323,7 @@ const ChaplaincyProgramsController = {
   },
 
   async deleteSession(id) {
-    if (!confirm('Delete this scheduled session?')) return;
+    if (!(await window.confirmAction('Delete session', 'Delete this scheduled session?', { confirmText: 'Delete', danger: true }))) return;
     const res = await this.API(`/sessions/${id}`, 'DELETE');
     if (res && (res.success || res.status === 'success')) {
       showNotification?.('Session deleted', 'success');
@@ -373,8 +373,8 @@ const ChaplaincyProgramsController = {
       </tr>`).join('');
   },
 
-  addAttendeeRow(type) {
-    const name = prompt(`${type === 'student' ? 'Student' : 'Staff'} ID:`);
+  async addAttendeeRow(type) {
+    const name = await window.promptAction(`${type === 'student' ? 'Student' : 'Staff'} ID`, `Enter the ${type} ID:`, '', { promptLabel: 'ID' });
     if (!name) return;
     if (!/^\d+$/.test(name)) { showNotification?.(`Enter a numeric ${type} ID`, 'error'); return; }
     this.state.attRows.push({

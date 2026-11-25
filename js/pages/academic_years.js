@@ -720,9 +720,7 @@ var academicYearsController = {
 
     const offset = Number(document.getElementById('ayBulkOffset')?.value || 0);
     const direction = offset > 0 ? `forward by ${offset} day${offset === 1 ? '' : 's'}` : `back by ${Math.abs(offset)} day${Math.abs(offset) === 1 ? '' : 's'}`;
-    const confirmed = window.confirmAction
-      ? await window.confirmAction('Apply bulk date edit', `Move ${rows.length} academic ${rows.length === 1 ? 'year' : 'years'} ${direction}? This updates opening and closing dates only.`, { confirmText: 'Apply changes' })
-      : window.confirm(`Move ${rows.length} academic ${rows.length === 1 ? 'year' : 'years'} ${direction}?`);
+    const confirmed = await window.confirmAction('Apply bulk date edit', `Move ${rows.length} academic ${rows.length === 1 ? 'year' : 'years'} ${direction}? This updates opening and closing dates only.`, { confirmText: 'Apply changes' });
     if (!confirmed) return;
 
     const submit = event.currentTarget.querySelector('[type="submit"]');

@@ -15,7 +15,7 @@
   }
 
   async function decide(button) {
-    try { await API.commerce.decideDiscount(button.dataset.decide, {decision: button.dataset.value, note: prompt('Decision note (optional)') || ''}); msg('Offer decision recorded.'); load(); }
+    try { await API.commerce.decideDiscount(button.dataset.decide, {decision: button.dataset.value, note: (await window.promptAction?.('Decision note', 'Add a decision note (optional):', '', { promptLabel: 'Note' })) || ''}); msg('Offer decision recorded.'); load(); }
     catch (error) { msg(error.message, 'danger'); }
   }
 

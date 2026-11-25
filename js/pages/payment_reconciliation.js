@@ -13,7 +13,7 @@ const paymentReconciliationController = {
 
   notify(m, t = 'success') {
     if (window.showNotification) showNotification(m, t);
-    else alert(m);
+    else if (window.infoDialog) window.infoDialog('Notice', m);
   },
 
   async loadReferencesComposed() {

@@ -239,11 +239,11 @@
         const msg = _managerMessages.find(m => m.id == id);
         if (!msg) return;
         const preview = `From: ${escapeHtml(msg.sender_name || '—')}\nTo: ${escapeHtml(msg.recipient_name || msg.recipient || '—')}\nChannel: ${msg.channel}\nStatus: ${msg.status}\nSent: ${formatDateTime(msg.sent_at)}\n\n${escapeHtml(msg.message || msg.body || '')}`;
-        alert(preview);
+        window.infoDialog('Message preview', preview);
     }
 
     async function resendMessage(id) {
-        if (!confirm('Resend this message?')) return;
+        if (!(await window.confirmAction('Resend message', 'Resend this message?', { confirmText: 'Resend' }))) return;
         try {
             await callAPI('/communications/resend', 'POST', { id });
             showNotification('Message queued for resend', 'success');

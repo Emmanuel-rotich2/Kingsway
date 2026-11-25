@@ -543,9 +543,11 @@ const ManageUsersController = {
       return;
     }
     if (confirmation) {
-      const accepted = window.confirmAction
-        ? await window.confirmAction("Confirm account action", `${confirmation}\n\n${ids.length} account${ids.length === 1 ? "" : "s"} selected.`, { confirmText: "Continue", danger: action === "delete" || action === "mfa_disable" })
-        : window.confirm(`${confirmation}\n\n${ids.length} account${ids.length === 1 ? "" : "s"} selected.`);
+      const accepted = await window.confirmAction(
+        "Confirm account action",
+        `${confirmation}\n\n${ids.length} account${ids.length === 1 ? "" : "s"} selected.`,
+        { confirmText: "Continue", danger: action === "delete" || action === "mfa_disable" },
+      );
       if (!accepted) return;
     }
     const button = explicitIds ? null : document.activeElement;

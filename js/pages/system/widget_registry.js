@@ -313,11 +313,7 @@ const WidgetRegistryController = {
   },
 
   async deleteRecord(id) {
-    const confirmFn = window.confirmAction || window.confirm;
-    const confirmed =
-      typeof window.confirmAction === "function"
-        ? await window.confirmAction("Delete widget", "Delete this widget registration? It will be removed from dashboards.", { confirmText: "Delete", danger: true })
-        : window.confirm("Delete this widget registration? It will be removed from dashboards.");
+    const confirmed = await window.confirmAction("Delete widget", "Delete this widget registration? It will be removed from dashboards.", { confirmText: "Delete", danger: true });
     if (!confirmed) return;
     try {
       await window.API.system.deleteWidget(id);

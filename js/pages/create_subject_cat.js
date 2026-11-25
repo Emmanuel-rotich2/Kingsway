@@ -68,7 +68,7 @@ const createSubjectCatController = {
 
   async editCategory(id) { /* open edit modal */ },
 
-  notify(msg, type = 'info') { if (window.showNotification) window.showNotification(msg, type); else if (window.showToast) window.showToast(msg, type); else alert(msg); },
+  notify(msg, type = 'info') { if (window.showNotification) window.showNotification(msg, type); else if (window.showToast) window.showToast(msg, type); else if (window.infoDialog) window.infoDialog('Notice', msg); },
 
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();

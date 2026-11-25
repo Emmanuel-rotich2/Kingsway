@@ -732,7 +732,10 @@
 
     async function renameSession(sessionId) {
       const session = state.sessions.find((s) => String(s.id) === String(sessionId));
-      const next = window.prompt?.('Rename this conversation', String(session?.title || ''));
+      const next = await window.promptAction?.('Rename conversation', 'Give this conversation a new title.', String(session?.title || ''), {
+        promptLabel: 'Conversation title',
+        confirmText: 'Rename'
+      });
       if (!next || !String(next).trim()) return;
       try {
         await window.API?.dashboard?.patchAssistantSession?.({ session_id: sessionId, title: String(next).trim().slice(0, 80) });
@@ -744,7 +747,7 @@
     }
 
     async function deleteSession(sessionId) {
-      if (!window.confirm?.('Delete this conversation permanently?')) return;
+      if (!(await window.confirmAction?.('Delete conversation', 'Delete this conversation permanently?', { confirmText: 'Delete', danger: true }))) return;
       try {
         await window.API?.dashboard?.deleteAssistantSession?.({ session_id: sessionId });
         state.sessions = state.sessions.filter((s) => String(s.id) !== String(sessionId));

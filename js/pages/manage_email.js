@@ -907,7 +907,7 @@
     },
 
     async deleteOutboxRow(outboxId) {
-      if (!confirm("Remove this entry from the outbox record?")) return;
+      if (!(await window.confirmAction("Remove outbox entry", "Remove this entry from the outbox record?", { confirmText: "Remove", danger: true }))) return;
       try {
         await window.API.communications.deleteEmailOutbox(outboxId);
         showNotification("Outbox entry removed", "success");
@@ -1136,7 +1136,7 @@
       const question = inTrash
         ? "Permanently delete this message? This cannot be undone."
         : "Move this message to Trash?";
-      if (!confirm(question)) return;
+      if (!(await window.confirmAction(inTrash ? 'Delete permanently' : 'Move to Trash', question, { confirmText: inTrash ? 'Delete' : 'Move', danger: inTrash }))) return;
       try {
         await window.API.communications.mailMessageAction(this.selectedUid, {
           profile_id: this.activeMailbox.id,

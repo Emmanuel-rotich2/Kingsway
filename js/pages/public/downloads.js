@@ -198,7 +198,7 @@
         window.location.assign(data.download_url);
       } catch (err) {
         if (window.KINGSWAY_DEBUG) console.warn('[downloads] PDF generation failed:', err);
-        window.alert('This PDF could not be generated right now. Please try again.');
+        window.infoDialog?.('Download unavailable', 'This PDF could not be generated right now. Please try again.', { type: 'error' });
       } finally {
         triggers.forEach((trigger) => {
           trigger.disabled = false;

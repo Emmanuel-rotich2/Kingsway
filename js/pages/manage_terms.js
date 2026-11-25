@@ -1053,7 +1053,7 @@ const manageTermsController = {
   notify(message, type = 'info') {
     if (window.showNotification) window.showNotification(message, type);
     else if (window.showToast) window.showToast(message, type);
-    else alert(message);
+    else if (window.infoDialog) window.infoDialog('Notice', message);
   },
 
   async init() {

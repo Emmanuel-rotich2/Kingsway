@@ -621,12 +621,12 @@
   async function refreshOrders() { await renderOrders(); }
 
   async function cancelOrder(orderId) {
-    if (!window.confirm('Cancel this order? Reserved stock will be released.')) return;
+    if (!(await window.confirmAction('Cancel order', 'Cancel this order? Reserved stock will be released.', { confirmText: 'Cancel order', danger: true }))) return;
     try {
       await P.apiFetch('/uniform-orders/' + orderId, 'DELETE');
       refreshOrders();
     } catch (e) {
-      window.alert(e.message || 'Could not cancel the order.');
+      window.infoDialog?.('Order not cancelled', e.message || 'Could not cancel the order.', { type: 'error' });
     }
   }
 
@@ -640,7 +640,7 @@
       var options = state.payments.filter(function (o) {
         return o.channel !== 'cash' && o.channel !== 'bank_transfer' && o.channel !== 'cheque';
       });
-      if (!options.length) { window.alert('No online payment method is available right now.'); return; }
+      if (!options.length) { window.infoDialog?.('Payment unavailable', 'No online payment method is available right now.', { type: 'warning' }); return; }
       state.checkoutChannel = options[0].channel;
       channel = state.checkoutChannel;
       var firstAccount = (options[0].accounts || [])[0] || { id: 0 };
@@ -650,7 +650,7 @@
     var phone = String(document.getElementById('storeCheckoutPhone').value || '').trim();
     if (!phone) phone = await (window.promptAction?.('M-Pesa payment','Enter the M-Pesa phone number for payment:','2547') ?? Promise.resolve(null));
     if (!phone) return;
-    if (!account) { window.alert('No payment account is configured for this method.'); return; }
+    if (!account) { window.infoDialog?.('Payment unavailable', 'No payment account is configured for this method.', { type: 'warning' }); return; }
     var payload = { channel: channel, financial_account_id: account, phone: phone };
     try {
       var resp = await P.apiFetch('/uniform-order-payment-retry/' + orderId, 'POST', payload);
@@ -659,12 +659,12 @@
       if (checkoutId && channel === 'prompt') startCheckoutPolling(checkoutId);
       renderOrders();
       if (d.provider && d.provider.message) {
-        window.alert('Payment prompt sent: ' + d.provider.message);
+        window.infoDialog?.('Payment prompt sent', d.provider.message, { type: 'success' });
       } else {
-        window.alert('A payment prompt has been sent to ' + phone + '. Complete it on your phone.');
+        window.infoDialog?.('Payment prompt sent', 'A payment prompt has been sent to ' + phone + '. Complete it on your phone.', { type: 'success' });
       }
     } catch (e) {
-      window.alert(e.message || 'Could not start the payment.');
+      window.infoDialog?.('Payment not started', e.message || 'Could not start the payment.', { type: 'error' });
     }
   }
 

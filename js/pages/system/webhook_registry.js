@@ -330,11 +330,7 @@ const WebhookRegistryController = {
   },
 
   async deleteRecord(id) {
-    const confirmFn = window.confirmAction || window.confirm;
-    const confirmed =
-      typeof window.confirmAction === "function"
-        ? await window.confirmAction("Delete webhook", "Delete this webhook registration? Deliveries will stop.", { confirmText: "Delete", danger: true })
-        : window.confirm("Delete this webhook registration? Deliveries will stop.");
+    const confirmed = await window.confirmAction("Delete webhook", "Delete this webhook registration? Deliveries will stop.", { confirmText: "Delete", danger: true });
     if (!confirmed) return;
     try {
       await window.API.system.deleteWebhook(id);

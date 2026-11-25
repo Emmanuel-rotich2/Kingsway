@@ -465,7 +465,7 @@ const StudentLeadershipController = {
   },
   async removeLeadership(id) {
     if (!this.canManage()) return this.notify('You do not have permission to remove leadership.', 'warning');
-    if (!window.confirm('Remove this leadership assignment?')) return;
+    if (!(await window.confirmAction('Remove assignment', 'Remove this leadership assignment?', { confirmText: 'Remove', danger: true }))) return;
     try {
       this.assertSuccess(await window.API.students.leadership.delete(Number(id)));
       await this.refresh();
@@ -604,7 +604,7 @@ const StudentLeadershipController = {
   },
   async deleteAwardType(id) {
     if (!this.canManage()) return this.notify('You do not have permission to manage award types.', 'warning');
-    if (!window.confirm('Delete this award type? Types already used by awards cannot be removed.')) return;
+    if (!(await window.confirmAction('Delete award type', 'Delete this award type? Types already used by awards cannot be removed.', { confirmText: 'Delete', danger: true }))) return;
     try {
       this.assertSuccess(await window.API.students.awards.types.delete(Number(id)));
       await this.refresh();

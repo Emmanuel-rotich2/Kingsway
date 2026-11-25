@@ -253,7 +253,7 @@
     },
 
     async deleteItem(id) {
-      if (!confirm("Delete this announcement permanently?")) return;
+      if (!(await window.confirmAction("Delete announcement", "Delete this announcement permanently?", { confirmText: "Delete", danger: true }))) return;
       try {
         await window.API.system.deleteSystemAnnouncement(id);
         window.showNotification?.("Announcement deleted.", "success");

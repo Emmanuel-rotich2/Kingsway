@@ -140,7 +140,9 @@
 }
 .kw-clean .table > tbody > tr > td { border-color: var(--kc-rule); vertical-align: middle; }
 .kw-clean .table-hover > tbody > tr:hover > * { --bs-table-bg-state: var(--kc-wash); }
-.kw-clean .table-striped > tbody > tr:nth-of-type(odd) > * { --bs-table-bg-type: #fafbfc; }
+/* Keep striped rows on the themed wash. A literal here leaves odd rows light
+   while the rest of the table follows html[data-kw-theme="dark"]. */
+.kw-clean .table-striped > tbody > tr:nth-of-type(odd) > * { --bs-table-bg-type: var(--kc-wash); }
 .kw-clean .table-bordered > :not(caption) > * > * { border-left: 0; border-right: 0; }
 
 /* Status badges: text with meaning, not filled pills. */
