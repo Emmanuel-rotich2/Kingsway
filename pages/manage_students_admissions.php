@@ -217,6 +217,8 @@
             </li>
         </ul>
 
+        <div class="card border-success-subtle bg-light mb-4" id="aiPipelinePanel"><div class="card-body py-2"><div class="d-flex justify-content-between align-items-center gap-2"><div><strong><i class="bi bi-stars text-success me-1"></i>Admissions pipeline assistant</strong><div class="small text-muted">Aggregate stage, bottleneck and follow-up guidance only; it never names applicants and never advances a workflow.</div></div><button type="button" class="btn btn-outline-success btn-sm" id="queueAiPipelineReview"><i class="bi bi-stars me-1"></i>Review pipeline with assistant</button></div><div id="aiPipelineDrafts" class="row g-2 mt-2"></div></div></div>
+
         <!-- Summary Cards Row -->
         <div class="row g-3 mb-4" id="summaryCards">
             <div class="col-6 col-md-2">
@@ -405,6 +407,8 @@
 <?php asset_script($appBase, 'js/components/AdmissionPaymentModal.js'); ?>
 <?php asset_script($appBase, 'js/pages/new_applications.js'); ?>
 <?php asset_script($appBase, 'js/utils/document_preview.js'); ?>
+<?php asset_script($appBase, 'js/utils/document_camera_capture.js'); ?>
 <?php asset_script($appBase, 'js/utils/detail_modal.js'); ?>
 <link rel="stylesheet" href="<?= htmlspecialchars($appBase) ?>/css/detail-modals.css?v=20260923">
 <?php asset_script($appBase, 'js/pages/admissions_workspace.js'); ?>
+<?php asset_script($appBase, 'js/pages/ai_admissions_pipeline.js'); ?>

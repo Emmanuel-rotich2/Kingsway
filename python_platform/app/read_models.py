@@ -2976,7 +2976,9 @@ class ReadModelRefresher:
                 pass
             if isinstance(error, ReadModelError):
                 raise
-            raise ReadModelError("Read projection refresh failed") from error
+            raise ReadModelError(
+                f"Read projection refresh failed: {type(error).__name__}: {error}"[:300]
+            ) from error
         finally:
             if locked:
                 try:
@@ -3182,7 +3184,9 @@ class PolarsReadModelRefresher:
                 pass
             if isinstance(error, ReadModelError):
                 raise
-            raise ReadModelError("Read projection refresh failed") from error
+            raise ReadModelError(
+                f"Read projection refresh failed: {type(error).__name__}: {error}"[:300]
+            ) from error
         finally:
             if locked:
                 try:

@@ -163,7 +163,7 @@ final class StaffMigrationService
             }
             // The $escape argument is required from PHP 8.4; omitting it is a
             // deprecation that became an error and broke every xlsx/ods import.
-            fputcsv($handle, array_map(fn($value) => trim((string)$value), $row), ',', '"', '');
+            fputcsv($handle, \App\API\Includes\CsvSafety::row(array_map(fn($value) => trim((string)$value), $row)), ',', '"', '');
         }
 
         rewind($handle);

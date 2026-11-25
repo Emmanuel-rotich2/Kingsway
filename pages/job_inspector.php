@@ -3,23 +3,23 @@
 
 ?>
 <div class="container-fluid py-4" id="jobInspectorPage">
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <header class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h2 fw-bold mb-1">Job Inspector</h2>
+            <h2 class="h2 mb-1">Job Inspector</h2>
             <p class="text-muted mb-0">Select a job from the queue to inspect its payload, attempts and failures.</p>
         </div>
-        <div class="d-flex flex-wrap gap-2">
+        <div class="d-flex flex-wrap gap-2" role="group" aria-label="Job inspector actions">
             <button type="button" class="btn btn-outline-secondary" id="jobInspectorExportCsvBtn" title="Export to CSV">
-                <i class="bi bi-filetype-csv me-1"></i> Export CSV
+                <i aria-hidden="true" class="bi bi-filetype-csv me-1"></i> Export CSV
             </button>
             <button type="button" class="btn btn-outline-secondary" id="jobInspectorPrintBtn" title="Print / save as PDF">
-                <i class="bi bi-printer me-1"></i> Print / PDF
+                <i aria-hidden="true" class="bi bi-printer me-1"></i> Print / PDF
             </button>
             <button type="button" class="btn btn-primary" id="jobInspectorRefreshBtn">
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i aria-hidden="true" class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
-    </div>
+    </header>
 
     <div class="alert alert-info" id="jobInspectorState" role="status" aria-live="polite">
         Loading job inspector...
@@ -30,11 +30,11 @@
             <div class="card border-0 shadow-sm">
                 <div class="card-header bg-white">
                     <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between">
-                        <strong class="small text-uppercase text-muted">Queue</strong>
+                        <strong>Queue</strong>
                         <span class="text-muted small" id="jobInspectorCount">No jobs loaded</span>
                     </div>
-                    <div class="input-group input-group-sm mt-2">
-                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <div class="input-group input-group-sm mt-2" role="search" aria-label="Filter jobs">
+                        <span class="input-group-text"><i aria-hidden="true" class="bi bi-search"></i></span>
                         <input class="form-control" id="jobInspectorSearch" type="search" maxlength="200" placeholder="Queue, type or status" autocomplete="off">
                     </div>
                 </div>
@@ -47,7 +47,7 @@
         <div class="col-12 col-lg-7 col-xl-8">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-header bg-white d-flex flex-wrap gap-2 align-items-center justify-content-between">
-                    <strong class="small text-uppercase text-muted">Job Detail</strong>
+                    <strong>Job detail</strong>
                     <span id="jobInspectorDetailStatus"></span>
                 </div>
                 <div class="card-body" id="jobInspectorDetail">
@@ -66,9 +66,9 @@
         </div>
         <div class="small text-muted text-break" data-fill="payload_type"></div>
         <div class="small text-muted mt-1">
-            <span class="me-2"><i class="bi bi-hash me-1"></i><span data-fill="id"></span></span>
-            <span class="me-2"><i class="bi bi-arrow-repeat me-1"></i><span data-fill="attempts"></span>/<span data-fill="max_attempts"></span></span>
-            <span><i class="bi bi-clock me-1"></i><span data-fill="created_at"></span></span>
+            <span class="me-2"><i aria-hidden="true" class="bi bi-hash me-1"></i><span data-fill="id"></span></span>
+            <span class="me-2"><i aria-hidden="true" class="bi bi-arrow-repeat me-1"></i><span data-fill="attempts"></span>/<span data-fill="max_attempts"></span></span>
+            <span><i aria-hidden="true" class="bi bi-clock me-1"></i><span data-fill="created_at"></span></span>
         </div>
     </button>
 </template>

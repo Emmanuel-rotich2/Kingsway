@@ -339,7 +339,7 @@
                     <tr>
                         <td colspan="10" class="text-center py-5">
                             <div class="spinner-border" style="color: var(--payroll-gold); width: 2rem; height: 2rem;" role="status"></div>
-                            <p style="color: #8895a7; margin-top: 12px; font-weight: 600;">Loading payroll records...</p>
+                            <p style="color: #5f6e66; margin-top: 12px; font-weight: 600;">Loading payroll records...</p>
                         </td>
                     </tr>
                 </tbody>
@@ -441,13 +441,13 @@
                         <div class="card-body">
                             <div class="row">
                                 <div class="col-md-6">
-                                    <h6 style="color: #8895a7; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">Staff Details</h6>
+                                    <h6 style="color: #5f6e66; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">Staff Details</h6>
                                     <p class="mb-1"><strong>Name:</strong> <span id="staffInfoName">-</span></p>
                                     <p class="mb-1"><strong>Position:</strong> <span id="staffInfoPosition">-</span></p>
                                     <p class="mb-1"><strong>Department:</strong> <span id="staffInfoDept">-</span></p>
                                 </div>
                                 <div class="col-md-6">
-                                    <h6 style="color: #8895a7; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">Salary Info</h6>
+                                    <h6 style="color: #5f6e66; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">Salary Info</h6>
                                     <p class="mb-1"><strong>Basic Salary:</strong> <span id="staffInfoSalary" style="color: var(--payroll-success); font-weight: 700;">KES 0.00</span></p>
                                 <p class="mb-1" data-review-only><strong>Children in School:</strong> <span id="staffInfoChildrenCount" class="status-badge processing">0</span></p>
                                 </div>
@@ -522,13 +522,13 @@
                     <div class="row mt-3">
                         <div class="col-md-6">
                             <div style="border: 1px solid rgba(58, 90, 140, 0.15); border-radius: 14px; padding: 18px; text-align: center; background: rgba(58, 90, 140, 0.04);">
-                                <div style="font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #8895a7;">Total Fees Outstanding</div>
+                                <div style="font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #5f6e66;">Total Fees Outstanding</div>
                                 <div style="font-size: 1.5rem; font-weight: 700; color: var(--payroll-blue-soft); margin-top: 4px;" id="totalChildrenFees">KES 0.00</div>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div style="border: 1px solid rgba(26, 122, 76, 0.15); border-radius: 14px; padding: 18px; text-align: center; background: rgba(26, 122, 76, 0.04);">
-                                <div style="font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #8895a7;">Total to Deduct This Month</div>
+                                <div style="font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #5f6e66;">Total to Deduct This Month</div>
                                 <div style="font-size: 1.5rem; font-weight: 700; color: var(--payroll-success); margin-top: 4px;" id="totalDeductionAmount">KES 0.00</div>
                             </div>
                         </div>

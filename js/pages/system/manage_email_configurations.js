@@ -243,10 +243,7 @@
         },
 
         async deleteProfile(id) {
-            const confirmFn = window.confirmAction || window.confirm;
-            const confirmed = typeof window.confirmAction === "function"
-                ? await window.confirmAction("Delete email mailbox", "Delete this mailbox profile? Credentials will be removed and outbound email will no longer use it.", { confirmText: "Delete", danger: true })
-                : window.confirm("Delete this mailbox profile? This action cannot be undone.");
+            const confirmed = await window.confirmAction("Delete email mailbox", "Delete this mailbox profile? Credentials will be removed and outbound email will no longer use it.", { confirmText: "Delete", danger: true });
             if (!confirmed) return;
             try {
                 await window.API.system.deleteEmailProfile(id);

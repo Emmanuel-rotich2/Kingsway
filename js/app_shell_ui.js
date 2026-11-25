@@ -15,7 +15,6 @@
   "use strict";
 
   const COLLAPSE_STORAGE_KEY = "kingsway_sidebar_collapsed";
-  const THEME_STORAGE_KEY = "kingsway_theme";
   const MOBILE_BREAKPOINT = 992;
 
   let initialized = false;
@@ -518,6 +517,7 @@
     }
 
     initializeHeaderUser();
+    window.KingswayTheme?.hydrate?.();
     void fetchNotifications();
   }
 
@@ -1477,7 +1477,7 @@
   }
 
   async function deleteAssistantSession(sessionId) {
-    if (!confirm("Delete this chat session?")) return;
+    if (!(await window.confirmAction("Delete chat session", "Delete this chat session?", { confirmText: "Delete", danger: true }))) return;
     try {
       await window.API.dashboard.deleteAssistantSession({session_id: sessionId});
       sessionsCache = sessionsCache.filter((s) => s.id !== sessionId);
@@ -1578,13 +1578,15 @@
   let assistantRecognition = null;
 
   async function initAssistantChrome() {
+    // Legacy global assistant panel removed; ai_inline_draft.js is the single assistant.
+    if (!document.getElementById("globalAiAssistantPanel")) return;
     if (assistantChromeBound) return;
     assistantChromeBound = true;
 
     const user = window.AuthContext?.getUser?.();
     const displayName = resolveDisplayName(user);
     const profileCopy = getAssistantProfileCopy();
-    setText("#globalAiAssistantPanelLabel", profileCopy.title);
+    
     setText(".assistant-sidebar-brand-copy small", profileCopy.title);
     setText(
       "#assistant-greeting-name",
@@ -1691,7 +1693,7 @@
 
     // Settings modal: clear all history
     $("#assistant-clear-history")?.addEventListener("click", async () => {
-      if (!confirm("Clear all chat sessions? This cannot be undone.")) return;
+      if (!(await window.confirmAction("Clear chat history", "Clear all chat sessions? This cannot be undone.", { confirmText: "Clear all", danger: true }))) return;
       try {
         await window.API.dashboard.postAssistantSessionsClear();
       } catch {
@@ -2323,7 +2325,7 @@
   }
 
   function assistantPanelOpen() {
-    return Boolean(document.querySelector("#globalAiAssistantPanel.show"));
+    return !document.getElementById("kwAiAssistPanel")?.hidden;
   }
 
   function proactiveBlocked() {
@@ -2351,32 +2353,27 @@
   }
 
   function openAssistantWith(question) {
-    const panel = document.getElementById("globalAiAssistantPanel");
-    if (!panel) return;
-    try {
-      window.bootstrap?.Offcanvas?.getOrCreateInstance(panel)?.show();
-    } catch {
-      /* the header button remains the fallback */
+    const q = String(question || "").slice(0, 600);
+    const ka = window.KingswayAssistant;
+    // Never call ourselves through the shim: that recursed forever when the
+    // session-aware panel loaded before this legacy shell script.
+    if (ka?.ask && ka.ask !== openAssistantWith) { ka.ask(q); return; }
+    const panel = document.getElementById("kwAiAssistPanel");
+    if (panel) {
+      panel.hidden = false;
+      const input = panel.querySelector("#kwAiInput");
+      const send = panel.querySelector("#kwAiSend");
+      if (input) input.value = q;
+      send?.click();
     }
-    window.setTimeout(() => {
-      const input = document.getElementById("global-ai-assistant-question");
-      const form = document.getElementById("global-ai-assistant-query");
-      if (!input || !form) return;
-      input.value = question;
-      if (typeof input.dispatchEvent === "function") {
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      if (typeof form.requestSubmit === "function") {
-        form.requestSubmit();
-      }
-    }, 420);
   }
 
-  // Page workspaces (e.g. website management) hand the assistant a drafting
-  // request through this one entry point instead of reaching into its DOM.
-  window.KingswayAssistant = Object.assign(window.KingswayAssistant || {}, {
-    ask: (question) => openAssistantWith(String(question || "").slice(0, 600)),
-  });
+  // Compatibility shim only: the session-aware panel owns the assistant UI.
+  if (typeof window.KingswayAssistant?.ask !== "function" || window.KingswayAssistant.ask === openAssistantWith) {
+    window.KingswayAssistant = Object.assign(window.KingswayAssistant || {}, {
+      ask: (question) => openAssistantWith(question),
+    });
+  }
 
   function renderProactiveNudge(suggestion, signature) {
     hideProactiveNudge();
@@ -2462,6 +2459,7 @@
   }
 
   function initProactiveAssistant() {
+    if (!document.getElementById("globalAiAssistantPanel")) return;
     if (proactiveBound) return;
     proactiveBound = true;
 
@@ -2503,16 +2501,11 @@
       { passive: true }
     );
 
-    document
-      .getElementById("globalAiAssistantPanel")
-      ?.addEventListener("show.bs.offcanvas", () => {
-        hideProactiveNudge();
-      });
-
     scheduleProactiveNudge();
   }
 
   function initAiAssistantQuery() {
+    if (!document.getElementById("global-ai-assistant-query")) return;
     const form = $("#global-ai-assistant-query");
     if (!form || aiAssistantQueryBound) return;
     aiAssistantQueryBound = true;
@@ -3292,24 +3285,18 @@
       .join("")}</tr></thead><tbody>${body}</tbody></table></div>`;
   }
 
+  // Kept for callers that still think in light/dark. The theme controller owns
+  // storage, root state, icon state and cross-tab broadcasting.
   function setTheme(dark) {
-    document.body.classList.toggle(
-      "app-dark",
-      dark
-    );
-
-    localStorage.setItem(
-      THEME_STORAGE_KEY,
-      dark ? "dark" : "light"
-    );
-
-    const icon = $("#header-theme-button i");
-
-    if (icon) {
-      icon.className = dark
-        ? "bi bi-sun"
-        : "bi bi-moon-stars";
+    if (window.KingswayTheme?.setPreference) {
+      window.KingswayTheme.setPreference(
+        dark ? "dark" : "light",
+        { persist: true, broadcast: true, animate: true }
+      );
+      return;
     }
+
+    document.body.classList.toggle("app-dark", dark);
   }
 
   function showLogoutModal() {
@@ -3442,78 +3429,13 @@
       void restoreDelegatedTask();
     }
 
-    $("#globalAiAssistantPanel")?.addEventListener(
-      "show.bs.offcanvas",
-      hydrateOpenAssistantPanel
-    );
-    $("#globalAiAssistantPanel")?.addEventListener(
-      "hidden.bs.offcanvas",
-      () => {
-        assistantPanelHydrated = false;
-      }
-    );
-    // A persisted-open panel is restored by ui_state_manager, which can add
-    // `.show` before this script attaches its Bootstrap listeners. Watching the
-    // class attribute catches that restore regardless of load order; the flag
-    // keeps every path from loading the data twice.
-    // `$` is querySelector and already returns the element (or null) — do not
-    // index it with `[0]`, which would be undefined and disable every check.
-    const assistantPanelEl = $("#globalAiAssistantPanel");
-    if (assistantPanelEl && window.MutationObserver) {
-      const panelObserver = new MutationObserver(() => {
-        if (assistantPanelEl.classList.contains("show")) {
-          hydrateOpenAssistantPanel();
-        }
-      });
-      panelObserver.observe(assistantPanelEl, {
-        attributes: true,
-        attributeFilter: ["class"],
-      });
-    }
-    if (assistantPanelEl?.classList.contains("show")) {
-      hydrateOpenAssistantPanel();
-    }
-    // Hard reload: ui_state_manager restores `.show` on DOMContentLoaded, which
-    // can run AFTER bindEvents() captured a not-yet-open panel, so neither the
-    // class check above nor the Bootstrap `show` event was observable at bind
-    // time. Defer a few guarded checks past the boot sequence so a persisted-
-    // open panel always hydrates its insight regions without needing a manual
-    // close/reopen. The flag keeps this idempotent — no duplicate data loads.
-    [0, 300, 1200].forEach((delay) =>
-      window.setTimeout(() => {
-        if (
-          assistantPanelEl?.classList.contains("show") &&
-          !assistantPanelHydrated
-        ) {
-          hydrateOpenAssistantPanel();
-        }
-      }, delay)
-    );
+    // Legacy globalAiAssistantPanel removed. Universal AI panel is ai_inline_draft.js.
 
-    $("#globalAiAssistantPanel")?.addEventListener(
-      "shown.bs.offcanvas",
-      () => {
-        growAssistantInput();
-        scrollAssistantToBottom();
-        if (!isMobile()) {
-          $("#global-ai-assistant-question")?.focus();
-        }
-      }
-    );
+    // legacy globalAiAssistantPanel shown handler removed
 
     $("#global-search-input")?.addEventListener(
       "input",
       (event) => renderSearch(event.target.value)
-    );
-
-    $("#header-theme-button")?.addEventListener(
-      "click",
-      () =>
-        setTheme(
-          !document.body.classList.contains(
-            "app-dark"
-          )
-        )
     );
 
     $("#mark-all-notifications-read")
@@ -3612,14 +3534,13 @@
       );
     }
 
-    setTheme(
-      localStorage.getItem(THEME_STORAGE_KEY) ===
-        "dark"
-    );
+    // The head bootstrap and theme_manager.js have already applied the stored
+    // preference before this shell initializes.
+    window.KingswayTheme?.hydrate?.();
 
     bindEvents();
     window.addEventListener("kingsway:page-loaded", () => {
-      if ($("#globalAiAssistantPanel")?.classList.contains("show")) {
+      if (document.getElementById("globalAiAssistantPanel")?.classList.contains("show") || !document.getElementById("kwAiAssistPanel")?.hidden) {
         void loadAssistantToday();
         void loadWorkspaceBriefing(0);
       }

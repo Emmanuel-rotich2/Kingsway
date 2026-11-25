@@ -135,7 +135,7 @@ const reportCardsController = {
     finally { if (button) button.disabled = false; }
   },
   async approve(release) {
-    if (!window.confirm(`Approve the report card for ${release.student_name}?`)) return;
+    if (!(await window.confirmAction('Approve report card', `Approve the report card for ${release.student_name}?`, { confirmText: 'Approve' }))) return;
     try { await this.API('POST', '/api/academic/reports-review-and-approve', { release_id: Number(release.release_id) }); this.notify('Report card approved. It is not visible to parents until released.', 'success'); await this.load(); }
     catch (error) { this.notify(error.message || 'Approval failed.', 'danger'); }
   },

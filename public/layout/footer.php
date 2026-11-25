@@ -111,6 +111,7 @@
   window.KINGSWAY_PUBLIC_PAGE = true;
 </script>
 <?php asset_script($appBase, 'js/api.js'); ?>
+<?php asset_script($appBase, 'js/utils/document_camera_capture.js'); ?>
 <!-- Public-facing cache layer: reuses the SAME js/core storage stack the admin
      SPA uses (IndexedDB via KingswayDB + DataStore, plus the service worker for
      offline/bfcache). Order matters: kingsway_db.js defines window.KingswayDB,

@@ -20,21 +20,37 @@
                 class="btn btn-outline-secondary"
                 id="resetIpRuleFiltersBtn"
             >
-                <i class="bi bi-arrow-counterclockwise me-1"></i> Reset filters
+                <i aria-hidden="true" class="bi bi-arrow-counterclockwise me-1"></i> Reset filters
+            </button>
+            <button
+                type="button"
+                class="btn btn-outline-secondary"
+                data-kw-sa-export
+                data-kw-sa-export-target="#ipRuleTable"
+                data-kw-sa-export-name="ip_access_rules"
+            >
+                <i class="bi bi-filetype-csv me-1" aria-hidden="true"></i>Export CSV
+            </button>
+            <button
+                type="button"
+                class="btn btn-outline-secondary"
+                data-kw-sa-print
+            >
+                <i class="bi bi-printer me-1" aria-hidden="true"></i>Print / PDF
             </button>
             <button
                 type="button"
                 class="btn btn-outline-primary"
                 id="refreshIpRulesBtn"
             >
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i aria-hidden="true" class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
             <button
                 type="button"
                 class="btn btn-primary"
                 id="addIpRuleBtn"
             >
-                <i class="bi bi-plus-lg me-1"></i> Add rule
+                <i aria-hidden="true" class="bi bi-plus-lg me-1"></i> Add rule
             </button>
         </div>
     </div>
@@ -75,7 +91,7 @@
                     </label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="bi bi-search"></i>
+                            <i aria-hidden="true" class="bi bi-search"></i>
                         </span>
                         <input
                             class="form-control"
@@ -138,7 +154,7 @@
             <div class="d-flex flex-wrap align-items-center gap-2">
                 <span class="fw-semibold small" id="ipRulesBulkCount">0 selected</span>
                 <button type="button" class="btn btn-sm btn-outline-danger" id="bulkDeleteIpRulesBtn">
-                    <i class="bi bi-trash me-1"></i> Delete selected
+                    <i aria-hidden="true" class="bi bi-trash me-1"></i> Delete selected
                 </button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkClearIpRulesBtn">
                     Clear selection
@@ -146,10 +162,11 @@
             </div>
         </div>
         <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
+            <table class="table table-hover align-middle mb-0" id="ipRuleTable">
+                <caption class="visually-hidden">IP allow and deny rules</caption>
                 <thead id="ipRuleTableHead">
                     <tr>
-                        <th class="text-center" style="width: 40px">
+                        <th scope="col" class="text-center" style="width: 40px">
                             <input
                                 class="form-check-input"
                                 type="checkbox"
@@ -163,7 +180,7 @@
                         <th scope="col">Status</th>
                         <th scope="col">Schedule</th>
                         <th scope="col">Updated by</th>
-                        <th class="text-end">Actions</th>
+                        <th scope="col" class="text-end">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="ipRuleTableBody">
@@ -214,7 +231,7 @@
                         class="btn btn-outline-secondary"
                         id="ipRulePreviousPage"
                     >
-                        <i class="bi bi-chevron-left me-1"></i> Previous
+                        <i aria-hidden="true" class="bi bi-chevron-left me-1"></i> Previous
                     </button>
                     <span
                         class="btn btn-outline-secondary disabled"
@@ -227,7 +244,7 @@
                         class="btn btn-outline-secondary"
                         id="ipRuleNextPage"
                     >
-                        Next <i class="bi bi-chevron-right ms-1"></i>
+                        Next <i aria-hidden="true" class="bi bi-chevron-right ms-1"></i>
                     </button>
                 </div>
             </nav>

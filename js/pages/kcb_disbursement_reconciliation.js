@@ -97,7 +97,7 @@ const kcbDisbursementReconciliationController = {
   },
 
   async retry(id) {
-    if (!window.confirm('KCB has confirmed this transfer failed. Create one linked retry with a new idempotency key?')) return;
+    if (!(await window.confirmAction('Create retry', 'KCB has confirmed this transfer failed. Create one linked retry with a new idempotency key?', { confirmText: 'Create retry' }))) return;
     await this.run(id, async () => {
       await window.API.finance.retryKcbDisbursement(id);
       this.notify('The linked KCB retry was submitted and is awaiting confirmation.', 'success');
@@ -105,7 +105,7 @@ const kcbDisbursementReconciliationController = {
   },
 
   async confirmFailed(id) {
-    const evidence = window.prompt('Enter the KCB statement reference and evidence confirming that no payment was completed:');
+    const evidence = window.promptAction?.('Enter the KCB statement reference and evidence confirming that no payment was completed:');
     if (!evidence) return;
     await this.run(id, async () => {
       await window.API.finance.resolveKcbDisbursement(id, { outcome: 'confirmed_failure', evidence });
@@ -134,7 +134,7 @@ const kcbDisbursementReconciliationController = {
   date(value) { return value ? new Date(String(value).replace(' ', 'T')).toLocaleString('en-KE') : 'Never'; },
   maskAccount(value) { const text = String(value || ''); return text ? `Account ••••${this.escape(text.slice(-4))}` : 'No account'; },
   escape(value) { const node = document.createElement('div'); node.textContent = String(value ?? ''); return node.innerHTML; },
-  notify(message, type) { if (window.showNotification) window.showNotification(message, type); else window.alert(message); },
+  notify(message, type) { if (window.showNotification) window.showNotification(message, type); else if (window.infoDialog) window.infoDialog('Notice', message); },
 };
 
 window.kcbDisbursementReconciliationController = kcbDisbursementReconciliationController;

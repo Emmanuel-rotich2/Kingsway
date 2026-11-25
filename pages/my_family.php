@@ -13,15 +13,15 @@
     <!-- Page Header -->
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
         <div>
-            <h4 class="mb-1"><i class="bi bi-house-heart-fill me-2 text-success"></i>My Family</h4>
+            <h1 class="mb-1"><i class="bi bi-house-heart-fill me-2" aria-hidden="true"></i>My family</h1>
             <p class="text-muted mb-0">People linked to you — children, siblings, relatives and dependants you support.</p>
         </div>
         <div class="btn-group">
             <button class="btn btn-outline-secondary btn-sm" type="button" id="mfRefresh" title="Refresh">
-                <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>Refresh
             </button>
             <button class="btn btn-outline-secondary btn-sm" type="button" id="mfHelp" title="What counts as family?">
-                <i class="bi bi-question-circle me-1"></i>Help
+                <i class="bi bi-question-circle me-1" aria-hidden="true"></i>Help
             </button>
         </div>
     </div>
@@ -33,8 +33,8 @@
         <!-- Linked people -->
         <div class="col-lg-5">
             <div class="card dash-card h-100">
-                <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                    <h6 class="mb-0 fw-bold"><i class="bi bi-people-fill me-2 text-success"></i>Linked learners &amp; relatives</h6>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h2 class="h6 mb-0"><i class="bi bi-people-fill me-2" aria-hidden="true"></i>Linked learners &amp; relatives</h2>
                     <span class="badge text-bg-secondary" id="mfChildCount">0</span>
                 </div>
                 <div id="mfLoading" class="text-center py-4">
@@ -48,15 +48,15 @@
         <!-- Detail panel -->
         <div class="col-lg-7">
             <div class="card dash-card">
-                <div class="card-header bg-white d-flex flex-wrap justify-content-between align-items-center gap-2">
-                    <h6 class="mb-0 fw-bold"><i class="bi bi-person-bounding-box me-2 text-success"></i><span id="mfDetailTitle">Select a learner</span></h6>
+                <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <h2 class="h6 mb-0"><i class="bi bi-person-bounding-box me-2" aria-hidden="true"></i><span id="mfDetailTitle">Select a learner</span></h2>
                     <div class="d-flex align-items-center gap-2">
-                        <select id="mfChildSwitcher" class="form-select form-select-sm d-none" style="max-width:220px" aria-label="Switch learner"></select>
+                        <select id="mfChildSwitcher" class="form-select form-select-sm w-auto d-none" aria-label="Switch learner"></select>
                     </div>
                 </div>
                 <div class="card-body" id="mfDetail">
                     <div class="text-center py-5 text-muted">
-                        <i class="bi bi-mouse fs-1 d-block mb-2"></i>
+                        <i class="bi bi-mouse fs-1 d-block mb-2" aria-hidden="true"></i>
                         Choose a linked person on the left to view their fees, payments,
                         attendance, learning, report cards, messages and portfolio.
                     </div>
@@ -71,7 +71,7 @@
     <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-house-heart me-2"></i>What counts as my family?</h5>
+                <h5 class="modal-title"><i aria-hidden="true" class="bi bi-house-heart me-2"></i>What counts as my family?</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">

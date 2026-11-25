@@ -21,8 +21,15 @@ class DeviceMiddleware
             return;
         }
 
-        // Generate device fingerprint from multiple attributes
+        // Generate device fingerprint from multiple attributes.
+        // Deliberately excludes REMOTE_ADDR: client IPs rotate (DHCP, mobile
+        // networks, VPNs), so including it would give the same physical
+        // device a new fingerprint on every address change and defeat the
+        // purpose of fingerprinting. The persistent X-Device-Id sent by the
+        // SPA (localStorage-backed) is the stable anchor; UA/platform/
+        // language/timezone are corroborating signals only.
         $deviceFingerprint = self::generateFingerprint();
+        $deviceId = (string) ($_SERVER['device_id'] ?? $_SERVER['HTTP_X_DEVICE_ID'] ?? '');
         $ipAddress = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
         $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
         $acceptLanguage = $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? 'unknown';
@@ -33,7 +40,7 @@ class DeviceMiddleware
         }
 
         // Log device activity
-        self::logDeviceActivity($userId, $deviceFingerprint, $ipAddress, $userAgent, $acceptLanguage);
+        self::logDeviceActivity($userId, $deviceFingerprint, $deviceId, $ipAddress, $userAgent, $acceptLanguage);
     }
 
     /**
@@ -42,7 +49,7 @@ class DeviceMiddleware
     private static function generateFingerprint()
     {
         $fingerprintData = [
-            $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+            $_SERVER['device_id'] ?? $_SERVER['HTTP_X_DEVICE_ID'] ?? 'no-device-id',
             $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
             $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? 'unknown',
             $_SERVER['HTTP_SEC_CH_UA_PLATFORM'] ?? $_SERVER['HTTP_X_DEVICE_RESOLUTION'] ?? 'unknown',
@@ -85,7 +92,7 @@ class DeviceMiddleware
     /**
      * Log device activity to audit trail
      */
-    private static function logDeviceActivity($userId, $fingerprint, $ipAddress, $userAgent, $acceptLanguage)
+    private static function logDeviceActivity($userId, $fingerprint, $deviceId, $ipAddress, $userAgent, $acceptLanguage)
     {
         try {
             \App\API\Includes\FileLogger::write('device', [
@@ -98,6 +105,7 @@ class DeviceMiddleware
                 'user_agent' => $userAgent,
                 'details' => [
                     'device_fingerprint' => $fingerprint,
+                    'device_id'          => $deviceId !== '' ? $deviceId : null,
                     'accept_language'    => $acceptLanguage,
                 ],
                 'status' => 'success',

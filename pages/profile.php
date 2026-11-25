@@ -2,7 +2,10 @@
 window.location.replace((window.APP_BASE || '') + '/home.php?route=account_settings&section=profile');
 </script>
 <noscript><meta http-equiv="refresh" content="0;url=home.php?route=account_settings&amp;section=profile"></noscript>
-<div class="alert alert-info">Opening the unified Account Centre…</div>
+<div class="d-flex flex-column gap-1 py-3" role="status" aria-live="polite">
+    <h1 class="h4 mb-0">Account centre</h1>
+    <p class="text-muted mb-0">Opening your unified profile and security settings…</p>
+</div>
 <?php /* Legacy profile markup retained below temporarily for rollback safety. */ ?>
 <div class="container-fluid py-3 d-none" id="profilePage">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
@@ -12,13 +15,13 @@ window.location.replace((window.APP_BASE || '') + '/home.php?route=account_setti
         </div>
         <div>
             <button class="btn btn-outline-primary d-none" type="button" id="profileEditBtn">
-                <i class="bi bi-pencil me-1"></i>Edit Details
+                <i aria-hidden="true" class="bi bi-pencil me-1"></i>Edit Details
             </button>
             <button class="btn btn-outline-secondary d-none" type="button" id="profileCancelBtn">
-                <i class="bi bi-x me-1"></i>Cancel
+                <i aria-hidden="true" class="bi bi-x me-1"></i>Cancel
             </button>
             <button class="btn btn-primary d-none" type="button" id="profileSaveBtn">
-                <i class="bi bi-check me-1"></i>Save Changes
+                <i aria-hidden="true" class="bi bi-check me-1"></i>Save Changes
             </button>
         </div>
     </div>

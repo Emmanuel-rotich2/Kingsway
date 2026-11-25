@@ -217,7 +217,7 @@ const routeAssignController = {
   },
 
   async unassign(assignmentId) {
-    if (!confirm('Remove this student from the route?')) return;
+    if (!(await window.confirmAction('Remove from route', 'Remove this student from the route?', { confirmText: 'Remove', danger: true }))) return;
     try {
       await this.API('POST', 'transport/unassign-student', { assignment_id: assignmentId });
       this.notify('Student unassigned', 'success');

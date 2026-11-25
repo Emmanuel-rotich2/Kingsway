@@ -115,7 +115,7 @@ const libraryIssueReturnController = {
   },
 
   async returnBook(issueId) {
-    if (!confirm('Confirm return of this book?')) return;
+    if (!(await window.confirmAction('Confirm book return', 'Confirm return of this book?', { confirmText: 'Confirm return' }))) return;
     try {
       await this.API('PUT', `/library/issues/${issueId}/return`, {});
       this.notify('Book returned successfully.', 'success');

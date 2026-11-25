@@ -317,11 +317,7 @@ const RouteAccessRulesController = {
   },
 
   async deleteRecord(id) {
-    const confirmFn = window.confirmAction || window.confirm;
-    const confirmed =
-      typeof window.confirmAction === "function"
-        ? await window.confirmAction("Delete route access rule", "Delete this rule? This action cannot be undone.", { confirmText: "Delete", danger: true })
-        : window.confirm("Delete this rule? This action cannot be undone.");
+    const confirmed = await window.confirmAction("Delete route access rule", "Delete this rule? This action cannot be undone.", { confirmText: "Delete", danger: true });
     if (!confirmed) return;
     try {
       await window.API.system.deleteRouteAccessRule(id);

@@ -18,6 +18,9 @@ Endpoints (all service-to-service, bearer-authenticated, never browser-facing):
                               clients (host- and header-allowlisted)
   POST /api/email/send             SMTP resilience path after PHP PHPMailer
                               retries are exhausted
+  POST /api/documents/extract      bounded parsing of PHP-staged upload bytes
+  POST /api/documents/verify       document-type verification before human review
+  POST /api/images/optimize        Pillow-backed photo optimization for uploads
 """
 
 from __future__ import annotations
@@ -116,13 +119,21 @@ def _draft_school_facts(raw: Any) -> dict[str, str]:
 def _draft_fact_lines(school: dict[str, str]) -> str:
     lines = []
     if school.get("name"):
-        lines.append(f"The school is {school['name']}" + (f", {school['location']}" if school.get("location") else "") + ".")
+        lines.append(
+            f"The school is {school['name']}"
+            + (f", {school['location']}" if school.get("location") else "")
+            + "."
+        )
     if school.get("today"):
-        lines.append(f"Today is {school['today']} (Kenya time); work out every date and year from it.")
+        lines.append(
+            f"Today is {school['today']} (Kenya time); work out every date and year from it."
+        )
     if school.get("academic_year"):
         term = f", {school['term']}" if school.get("term") else ""
         dates = f" ({school['term_dates']})" if school.get("term_dates") else ""
-        lines.append(f"The current academic year is {school['academic_year']}{term}{dates}.")
+        lines.append(
+            f"The current academic year is {school['academic_year']}{term}{dates}."
+        )
     lines.append(
         "Write for school staff in plain words: never quote input field names, "
         "keys or code formatting (no backticks). "
@@ -159,7 +170,9 @@ def _finish_draft(draft: dict, school: dict[str, str], channel: str) -> None:
         return
     name = school.get("name") or ""
     if name:
-        body = re.sub(r"\[(?:the )?school(?:'s)? name\]", name, body, flags=re.IGNORECASE)
+        body = re.sub(
+            r"\[(?:the )?school(?:'s)? name\]", name, body, flags=re.IGNORECASE
+        )
     limit = _PLAIN_CHANNELS.get(channel)
     if limit:
         body = _MARKDOWN_LINE.sub("", body)
@@ -172,7 +185,9 @@ def _finish_draft(draft: dict, school: dict[str, str], channel: str) -> None:
         if note not in steps:
             steps.append(note)
     if limit and len(body) > limit:
-        steps.append(f"Shorten the message: {len(body)} characters, the {channel} limit is {limit}.")
+        steps.append(
+            f"Shorten the message: {len(body)} characters, the {channel} limit is {limit}."
+        )
     draft["body"] = body
     draft["next_steps"] = steps
 
@@ -554,7 +569,9 @@ def create_app(config: Config | None = None) -> Flask:
         verdict = prompt_guard.screen(
             str(payload.get("text") or "")[:4000],
             str(payload.get("audience") or "public"),
-            payload.get("conversation") if isinstance(payload.get("conversation"), list) else None,
+            payload.get("conversation")
+            if isinstance(payload.get("conversation"), list)
+            else None,
         )
         if verdict["malicious"]:
             journal.write(
@@ -691,7 +708,11 @@ def create_app(config: Config | None = None) -> Flask:
 
         prompt_version = "wf-2"
         school = _draft_school_facts(context.get("school"))
-        channel = str(raw_input.get("channel") or metadata.get("channel") or "").strip().lower()
+        channel = (
+            str(raw_input.get("channel") or metadata.get("channel") or "")
+            .strip()
+            .lower()
+        )
         system_prompt = (
             "You are a governed drafting assistant for a Kenyan CBC school. "
             "Produce an editable DRAFT for a member of staff to review and approve; "
@@ -1038,6 +1059,269 @@ def create_app(config: Config | None = None) -> Flask:
             return jsonify(
                 {"success": False, "message": "document batch rendering failed"}
             ), 503
+
+    def _extract_document_request(
+        forced_profile: str = "",
+        expected_type: str = "",
+    ) -> tuple[Any | None, dict[str, Any] | None]:
+        """Shared boundary for every document-extraction route.
+
+        PHP authorizes the caller and stages the bytes; this helper only parses
+        the supplied document and journals metadata, never raw content.
+        """
+        guard = auth_guard()
+        if guard is not None:
+            return guard, None
+        payload = request.get_json(force=True, silent=True) or {}
+        if forced_profile:
+            payload["profile"] = forced_profile
+        if expected_type:
+            payload["expected_type"] = expected_type
+        started = time.monotonic()
+        try:
+            from .document_extraction import ExtractionError, extract
+
+            result = extract(payload)
+        except Exception as error:  # noqa: BLE001 - do not leak document internals
+            from .document_extraction import ExtractionError
+
+            status = 422 if isinstance(error, ExtractionError) else 503
+            journal.write(
+                "document_generation",
+                {
+                    "type": "document_extract_failed",
+                    "profile": forced_profile or str(payload.get("profile") or ""),
+                    "expected_type": str(payload.get("expected_type") or "")[:60],
+                    "filename": str(payload.get("filename") or "")[:120],
+                    "status": status,
+                    "error_class": type(error).__name__,
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                },
+            )
+            message = (
+                str(error)
+                if isinstance(error, ExtractionError)
+                else "document extraction failed"
+            )
+            return jsonify({"success": False, "message": message}), status
+        journal.write(
+            "document_generation",
+            {
+                "type": "document_extract_completed",
+                "profile": forced_profile or str(payload.get("profile") or ""),
+                "filename": result["filename"],
+                "extension": result["extension"],
+                "method": result["extraction_method"],
+                "row_count": result["row_count"],
+                "field_count": len(result["fields"]),
+                "bytes": len(str(payload.get("content_base64") or "")),
+                "duration_ms": int((time.monotonic() - started) * 1000),
+            },
+        )
+        return None, result
+
+    @app.post("/api/documents/extract")
+    def extract_uploaded_document():
+        guard, result = _extract_document_request()
+        if guard is not None:
+            return guard
+        return jsonify({"success": True, "data": result})
+
+    @app.post("/api/documents/verify")
+    def verify_uploaded_document():
+        """Return only the bounded verification verdict for a staged upload."""
+        payload = request.get_json(force=True, silent=True) or {}
+        expected_type = (
+            str(payload.get("expected_type") or payload.get("document_type") or "")
+            .strip()
+            .lower()
+        )
+        guard, result = _extract_document_request(expected_type=expected_type)
+        if guard is not None:
+            return guard
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    **result["verification"],
+                    "extraction_method": result["extraction_method"],
+                    "preview_only": True,
+                    "requires_staff_confirmation": True,
+                },
+            }
+        )
+
+    @app.post("/api/media/ocr/extract")
+    def ocr_extract():
+        guard, result = _extract_document_request()
+        if guard is not None:
+            return guard
+        payload = request.get_json(silent=True) or {}
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    "extracted_text": result["text"],
+                    "confidence": result["confidence"],
+                    "doc_type": str(
+                        payload.get("doc_type")
+                        or result["classification"]["detected_type"]
+                    ),
+                    "fields": result["fields"],
+                    "preview_only": True,
+                    "requires_staff_confirmation": True,
+                },
+            }
+        )
+
+    @app.post("/api/media/document/classify")
+    def classify_document():
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        if not isinstance(payload.get("content_base64"), str):
+            return jsonify(
+                {"success": False, "message": "content_base64 is required"}
+            ), 422
+        try:
+            from .document_extraction import ExtractionError, classify, decode_document
+            from .exam_documents import DocumentPreviewError, _pdf_grid
+
+            data, extension = decode_document(payload)
+            filename = str(payload.get("filename") or "")
+            text = ""
+            if extension in ("txt", "md", "text", "csv", "tsv"):
+                text = data.decode("utf-8-sig", errors="replace")[:8000]
+            elif extension == "pdf":
+                text = "\n".join(" | ".join(row) for row in _pdf_grid(data))[:8000]
+            detected = classify(filename, text)
+            journal.write(
+                "document_generation",
+                {
+                    "type": "document_classify_completed",
+                    "filename": filename[:120],
+                    "detected_type": detected["detected_type"],
+                    "confidence": detected["confidence"],
+                },
+            )
+            return jsonify({"success": True, "data": detected})
+        except (ExtractionError, DocumentPreviewError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        except Exception:  # noqa: BLE001 - do not leak document internals
+            return jsonify(
+                {"success": False, "message": "document classification failed"}
+            ), 503
+
+    @app.post("/api/admission/document-extract")
+    def admission_document_extract():
+        guard, result = _extract_document_request("admission")
+        if guard is not None:
+            return guard
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    "extracted_fields": result["fields"],
+                    "confidence": result["confidence"],
+                    "requires_review": True,
+                    "text": result["text"],
+                },
+            }
+        )
+
+    @app.post("/api/health/document-extract")
+    def health_document_extract():
+        guard, result = _extract_document_request("health")
+        if guard is not None:
+            return guard
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    "extracted_fields": result["fields"],
+                    "confidence": result["confidence"],
+                    "requires_review": True,
+                    "text": result["text"],
+                },
+            }
+        )
+
+    @app.post("/api/images/optimize")
+    def optimize_uploaded_image():
+        """Pillow-backed optimization for PHP-authorized photo uploads.
+
+        PHP keeps the original filename and extension; the optimized bytes are
+        returned for an atomic replacement. Unsupported, animated and already
+        small images are returned unchanged rather than degraded.
+        """
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        encoded = payload.get("content_base64")
+        if not isinstance(encoded, str) or not encoded:
+            return jsonify(
+                {"success": False, "message": "content_base64 is required"}
+            ), 422
+        if len(encoded) > 12 * 1024 * 1024:
+            return jsonify(
+                {"success": False, "message": "image exceeds the size limit"}
+            ), 413
+        try:
+            data = base64.b64decode(encoded, validate=True)
+        except (ValueError, base64.binascii.Error):
+            return jsonify(
+                {"success": False, "message": "image encoding is invalid"}
+            ), 422
+        if not data or len(data) > 8 * 1024 * 1024:
+            return jsonify(
+                {"success": False, "message": "image exceeds the size limit"}
+            ), 413
+        try:
+            max_edge = max(320, min(4000, int(payload.get("max_edge") or 1600)))
+            quality = max(40, min(95, int(payload.get("quality") or 80)))
+        except (TypeError, ValueError):
+            return jsonify(
+                {"success": False, "message": "invalid optimization options"}
+            ), 422
+
+        from .image_optimization import EXTENSION_FORMAT, optimise_bytes
+
+        extension = str(payload.get("extension") or "").strip().lower().lstrip(".")
+        before = len(data)
+        optimized = optimise_bytes(
+            data,
+            max_edge=max_edge,
+            quality=quality,
+            output_format=EXTENSION_FORMAT.get(extension),
+        )
+        if optimized is None:
+            return jsonify({"success": True, "data": {"optimized": False}})
+        payload_bytes, mime = optimized
+        journal.write(
+            "media",
+            {
+                "type": "image_optimized",
+                "extension": extension[:10],
+                "before_bytes": before,
+                "after_bytes": len(payload_bytes),
+                "saved_bytes": before - len(payload_bytes),
+                "max_edge": max_edge,
+            },
+        )
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    "optimized": True,
+                    "content_base64": base64.b64encode(payload_bytes).decode("ascii"),
+                    "mime_type": mime,
+                    "before_bytes": before,
+                    "after_bytes": len(payload_bytes),
+                },
+            }
+        )
 
     @app.post("/api/documents/merge-pdfs")
     def merge_pdfs():
@@ -3744,219 +4028,6 @@ def create_app(config: Config | None = None) -> Flask:
                 {"success": False, "message": "transport report generation failed"}
             ), 503
 
-        file_id = int(payload.get("file_id") or 0)
-        target_width = int(payload.get("target_width") or 300)
-        target_height = int(payload.get("target_height") or 300)
-        quality = int(payload.get("quality") or 80)
-        output_format = str(payload.get("output_format") or "webp").lower()
-
-        if not job_id or file_id <= 0:
-            return jsonify(
-                {"success": False, "message": "job_id, file_id required"}
-            ), 422
-        if output_format not in ("webp", "jpeg", "png"):
-            return jsonify(
-                {
-                    "success": False,
-                    "message": "output_format must be webp, jpeg, or png",
-                }
-            ), 422
-
-        started = time.monotonic()
-        try:
-            from PIL import Image
-            import io
-            import base64
-
-            # In production, fetch file from PHP via /api/dashboard/agent-tool
-            # For now, simulate with a placeholder
-            # Real implementation: fetch file bytes, process, return optimized
-            img = Image.new("RGB", (target_width, target_height), color="white")
-            buffer = io.BytesIO()
-            if output_format == "jpeg":
-                img.save(buffer, format="JPEG", quality=quality, optimize=True)
-                mime = "image/jpeg"
-                ext = "jpg"
-            elif output_format == "png":
-                img.save(buffer, format="PNG", optimize=True)
-                mime = "image/png"
-                ext = "png"
-            else:
-                img.save(buffer, format="WEBP", quality=quality, method=6)
-                mime = "image/webp"
-                ext = "webp"
-
-            artifact_bytes = buffer.getvalue()
-            artifact_b64 = base64.b64encode(artifact_bytes).decode()
-
-            journal.write(
-                "document_generation",
-                {
-                    "type": "photo_normalize_completed",
-                    "job_id": job_id,
-                    "file_id": file_id,
-                    "output_format": output_format,
-                    "target_width": target_width,
-                    "target_height": target_height,
-                    "bytes": len(artifact_bytes),
-                    "duration_ms": int((time.monotonic() - started) * 1000),
-                },
-            )
-            return jsonify(
-                {
-                    "success": True,
-                    "data": {
-                        "artifact": f"photo_{file_id}_{job_id[:8]}.{ext}",
-                        "mime_type": mime,
-                        "width": target_width,
-                        "height": target_height,
-                        "bytes": len(artifact_bytes),
-                        "base64": artifact_b64,
-                    },
-                }
-            )
-        except Exception as e:
-            journal.write(
-                "document_generation",
-                {"type": "photo_normalize_failed", "job_id": job_id, "error": str(e)},
-            )
-            return jsonify({"success": False, "message": "photo normalize failed"}), 503
-
-    @app.post("/api/media/ocr/extract")
-    def ocr_extract():
-        guard = auth_guard()
-        if guard is not None:
-            return guard
-        payload = request.get_json(force=True, silent=True) or {}
-        job_id = str(payload.get("job_id") or "")
-        file_id = int(payload.get("file_id") or 0)
-        doc_type = str(
-            payload.get("doc_type") or ""
-        )  # birth_cert, medical_form, invoice, id_doc
-
-        if not job_id or file_id <= 0 or not doc_type:
-            return jsonify(
-                {"success": False, "message": "job_id, file_id, doc_type required"}
-            ), 422
-
-        started = time.monotonic()
-        try:
-            import pytesseract
-            from PIL import Image
-            import io
-
-            # In production, fetch file from PHP via /api/dashboard/agent-tool
-            # For now, simulate OCR
-            extracted_text = ""
-            confidence = 0.0
-
-            if doc_type == "birth_cert":
-                extracted_text = "John Doe\nBorn: 15 March 2014\nGender: Male\nParents: Jane Doe, John Doe Sr."
-                confidence = 0.92
-            elif doc_type == "medical_form":
-                extracted_text = "Patient: John Doe\nCondition: Asthma\nMedication: Ventolin 100mcg\nDose: 2 puffs every 4 hours"
-                confidence = 0.88
-            elif doc_type == "invoice":
-                extracted_text = "Invoice #INV-2026-001\nKCB Bank\nAmount: KES 45,000\nDate: 2026-01-15"
-                confidence = 0.90
-            elif doc_type == "id_doc":
-                extracted_text = (
-                    "ID: KA-2026-001\nName: John Doe\nClass: Grade 4 East\nType: DAY"
-                )
-                confidence = 0.95
-            else:
-                extracted_text = "Document text extracted via OCR"
-                confidence = 0.75
-
-            journal.write(
-                "document_generation",
-                {
-                    "type": "ocr_extract_completed",
-                    "job_id": job_id,
-                    "file_id": file_id,
-                    "doc_type": doc_type,
-                    "confidence": confidence,
-                    "text_length": len(extracted_text),
-                    "duration_ms": int((time.monotonic() - started) * 1000),
-                },
-            )
-            return jsonify(
-                {
-                    "success": True,
-                    "data": {
-                        "extracted_text": extracted_text,
-                        "confidence": confidence,
-                        "doc_type": doc_type,
-                    },
-                }
-            )
-        except Exception as e:
-            journal.write(
-                "document_generation",
-                {"type": "ocr_extract_failed", "job_id": job_id, "error": str(e)},
-            )
-            return jsonify({"success": False, "message": "OCR extraction failed"}), 503
-
-    @app.post("/api/media/document/classify")
-    def classify_document():
-        guard = auth_guard()
-        if guard is not None:
-            return guard
-        payload = request.get_json(force=True, silent=True) or {}
-        job_id = str(payload.get("job_id") or "")
-        file_id = int(payload.get("file_id") or 0)
-
-        if not job_id or file_id <= 0:
-            return jsonify(
-                {"success": False, "message": "job_id, file_id required"}
-            ), 422
-
-        started = time.monotonic()
-        try:
-            # In production, use a lightweight classifier (fastText, or keyword-based)
-            # For now, simple heuristic based on filename or OCR text
-            import random
-
-            doc_types = [
-                "birth_cert",
-                "medical_form",
-                "invoice",
-                "id_doc",
-                "transfer_letter",
-                "medical_form",
-            ]
-            detected = random.choice(doc_types)
-            confidence = round(0.75 + random.random() * 0.2, 2)
-
-            journal.write(
-                "document_generation",
-                {
-                    "type": "document_classify_completed",
-                    "job_id": job_id,
-                    "file_id": file_id,
-                    "detected_type": detected,
-                    "confidence": confidence,
-                    "duration_ms": int((time.monotonic() - started) * 1000),
-                },
-            )
-            return jsonify(
-                {
-                    "success": True,
-                    "data": {
-                        "detected_type": detected,
-                        "confidence": confidence,
-                    },
-                }
-            )
-        except Exception as e:
-            journal.write(
-                "document_generation",
-                {"type": "document_classify_failed", "job_id": job_id, "error": str(e)},
-            )
-            return jsonify(
-                {"success": False, "message": "document classification failed"}
-            ), 503
-
     # ─── Phase 4: SQLite Stream Buffer ──────────────────────────────
 
     @app.post("/api/streams/<stream_name>/publish")
@@ -4231,62 +4302,6 @@ def create_app(config: Config | None = None) -> Flask:
                 {"type": "import_preview_failed", "job_id": job_id, "error": str(e)},
             )
             return jsonify({"success": False, "message": "import preview failed"}), 503
-
-    @app.post("/api/admission/document-extract")
-    def admission_document_extract():
-        guard = auth_guard()
-        if guard is not None:
-            return guard
-        payload = request.get_json(force=True, silent=True) or {}
-        job_id = str(payload.get("job_id") or "")
-        file_id = int(payload.get("file_id") or 0)
-        doc_type = str(payload.get("doc_type") or "")
-        if not job_id or file_id <= 0 or not doc_type:
-            return jsonify(
-                {"success": False, "message": "job_id, file_id, doc_type required"}
-            ), 422
-        started = time.monotonic()
-        try:
-            fields = {
-                "name": "John Doe",
-                "dob": "2014-03-15",
-                "gender": "M",
-                "parent": "Jane Doe",
-            }
-            confidence = 0.92
-            requires_review = confidence < 0.95
-            journal.write(
-                "document_generation",
-                {
-                    "type": "admission_document_extract_completed",
-                    "job_id": job_id,
-                    "doc_type": doc_type,
-                    "confidence": confidence,
-                    "duration_ms": int((time.monotonic() - started) * 1000),
-                },
-            )
-            return jsonify(
-                {
-                    "success": True,
-                    "data": {
-                        "extracted_fields": fields,
-                        "confidence": confidence,
-                        "requires_review": requires_review,
-                    },
-                }
-            )
-        except Exception as e:
-            journal.write(
-                "document_generation",
-                {
-                    "type": "admission_document_extract_failed",
-                    "job_id": job_id,
-                    "error": str(e),
-                },
-            )
-            return jsonify(
-                {"success": False, "message": "admission document extract failed"}
-            ), 503
 
     @app.post("/api/admission/import-preview")
     def admission_import_preview():
@@ -4694,63 +4709,6 @@ def create_app(config: Config | None = None) -> Flask:
             )
             return jsonify(
                 {"success": False, "message": "boarding rollcall export failed"}
-            ), 503
-
-    @app.post("/api/health/document-extract")
-    def health_document_extract():
-        guard = auth_guard()
-        if guard is not None:
-            return guard
-        payload = request.get_json(force=True, silent=True) or {}
-        job_id = str(payload.get("job_id") or "")
-        file_id = int(payload.get("file_id") or 0)
-        doc_type = str(payload.get("doc_type") or "")
-        if not job_id or file_id <= 0 or not doc_type:
-            return jsonify(
-                {"success": False, "message": "job_id, file_id, doc_type required"}
-            ), 422
-        started = time.monotonic()
-        try:
-            fields = {
-                "student": "John Doe",
-                "condition": "Asthma",
-                "medication": "Ventolin",
-                "dose": "2 puffs",
-                "date": "2026-01-15",
-            }
-            confidence = 0.88
-            requires_review = confidence < 0.9
-            journal.write(
-                "document_generation",
-                {
-                    "type": "health_document_extract_completed",
-                    "job_id": job_id,
-                    "doc_type": doc_type,
-                    "confidence": confidence,
-                    "duration_ms": int((time.monotonic() - started) * 1000),
-                },
-            )
-            return jsonify(
-                {
-                    "success": True,
-                    "data": {
-                        "extracted_fields": fields,
-                        "confidence": confidence,
-                        "requires_review": requires_review,
-                    },
-                }
-            )
-        except Exception as e:
-            journal.write(
-                "document_generation",
-                {
-                    "type": "health_document_extract_failed",
-                    "job_id": job_id,
-                    "error": str(e),
-                },
-            )
-            return jsonify(
-                {"success": False, "message": "health document extract failed"}
             ), 503
 
     @app.post("/api/health/summarize")

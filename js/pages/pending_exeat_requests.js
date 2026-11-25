@@ -47,7 +47,7 @@ const pendingExeatRequestsController = {
   },
 
   async reject(id) {
-    const reason = prompt('Rejection reason (optional):');
+    const reason = await window.promptAction('Rejection reason', 'Add a reason for rejecting this leave request (optional):', '', { promptLabel: 'Reason' });
     if (reason === null) return;
     try {
       await this.API('PUT', `/boarding/exeats/${id}/reject`, { reason });

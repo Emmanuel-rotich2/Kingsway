@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\API\Controllers;
 
+use App\API\Includes\CsvSafety;
 use App\API\Services\DownloadService;
 use Throwable;
 
@@ -56,6 +57,11 @@ final class DownloadController extends BaseController
         }
         if (strlen($content) > 20 * 1024 * 1024) {
             return $this->unprocessable('Export content exceeds 20 MB.');
+        }
+        // CSV exports are opened in spreadsheet apps by staff: neutralise
+        // formula-leading cells (=, +, -, @, tab, CR) before they are stored.
+        if (preg_match('/\.csv$/i', $filename) === 1) {
+            $content = CsvSafety::content($content);
         }
         try {
             $path = $this->writePrintable($filename, $content);

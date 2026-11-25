@@ -113,6 +113,32 @@ class AdmissionController extends BaseController
         return $this->handleApiResponse($this->admin->workflow()->verifyDocument($document_id, $status, $notes));
     }
 
+    /** POST /api/admission/refer-document - route uncertain documents to a human reviewer. */
+    public function postReferDocument($id = null, $data = [], $segments = [])
+    {
+        $document_id = (int) ($data['document_id'] ?? 0);
+        if (!$document_id) {
+            return $this->badRequest('document_id is required');
+        }
+
+        $application = $this->admin->getApplicationScopeRecordByDocument($document_id);
+        if (!$application) {
+            return $this->notFound('Document or application not found');
+        }
+
+        $guard = $this->guardApplication($application, 'verify_document', 'refer admission documents', 'Insufficient permission to refer admission documents');
+        if ($guard !== null) {
+            return $guard;
+        }
+
+        return $this->handleApiResponse(
+            $this->admin->workflow()->referDocument(
+                $document_id,
+                (string) ($data['reason'] ?? '')
+            )
+        );
+    }
+
     // 4. Interview Scheduling
     public function postScheduleInterview($id = null, $data = [], $segments = [])
     {
@@ -812,6 +838,109 @@ class AdmissionController extends BaseController
     public function postAiPlacementReviewApprove($id = null, $data = [], $segments = [])
     {
         return $this->approveAdmissionsAiDraftFromRequest($id, $data, $segments, 'admissions.placement_review');
+    }
+
+    /** POST /api/admission/ai-pipeline-review-queue */
+    public function postAiPipelineReviewQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasAdmissionPermission('view_any')) return $this->forbidden('Admissions AI permission is required');
+        try {
+            $response = $this->admin->getQueues($this->buildAdmissionContext());
+            $payload = is_array($response) ? ($response['data'] ?? $response) : [];
+            $queues = (array) ($payload['queues'] ?? $payload);
+            $stageCounts = [];
+            $oldestWaiting = 0;
+            $now = time();
+            foreach ($queues as $stage => $rows) {
+                if (!is_array($rows) || $stage === 'all_applications' || $stage === 'completed') continue;
+                $count = count($rows);
+                if ($count < 1) continue;
+                $stageCounts[$stage] = $count;
+                foreach ($rows as $row) {
+                    $created = is_array($row) ? (int) (strtotime((string) ($row['created_at'] ?? '')) ?: 0) : 0;
+                    if ($created > 0) $oldestWaiting = max($oldestWaiting, (int) floor(($now - $created) / 86400));
+                }
+            }
+            if ($stageCounts === []) return $this->badRequest('The admissions pipeline has no pending applications to review.');
+
+            $input = [
+                'stage_counts' => implode(', ', array_map(static fn(string $s, int $c): string => "{$s}: {$c}", array_keys($stageCounts), $stageCounts)),
+                'oldest_waiting_days' => (string) $oldestWaiting,
+                'applications_received' => (string) (int) ($stageCounts['review_pending'] ?? 0) + (int) ($stageCounts['documents_pending'] ?? 0),
+                'interviews_due' => (string) (int) ($stageCounts['interview_pending'] ?? 0),
+                'placements_pending' => (string) (int) ($stageCounts['placement_pending'] ?? 0),
+                'payments_pending' => (string) (int) ($stageCounts['payment_pending'] ?? 0),
+                'enrollment_ready' => (string) (int) ($stageCounts['enrollment_pending'] ?? 0) + (int) ($stageCounts['id_generation_pending'] ?? 0) + (int) ($stageCounts['final_enrollment_pending'] ?? 0),
+            ];
+            $workflowContext = [
+                'user_id' => (int) ($this->buildAdmissionContext()['user_id'] ?? 0),
+                'permissions' => array_values(array_unique((array) (
+                    $this->buildAdmissionContext()['effective_permissions'] ?? $this->buildAdmissionContext()['permission_codes'] ?? []
+                ))),
+                'request_id' => $_SERVER['REQUEST_ID'] ?? '',
+            ];
+            return $this->accepted(
+                $this->contract(DraftRepository::class)->queue('admissions.pipeline_review', $workflowContext, $input, [
+                    'subject_type' => 'admissions_pipeline_review',
+                    'subject_id' => 0,
+                    'scope' => 'authorized_admission_pipeline_aggregates',
+                ]),
+                'Admissions pipeline review queued'
+            );
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AdmissionController] AI pipeline queue failed: ' . $e->getMessage());
+            return $this->serverError('Unable to queue admissions pipeline assistance');
+        }
+    }
+
+    /** GET /api/admission/ai-pipeline-drafts?scope=own|review */
+    public function getAiPipelineDrafts($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasAdmissionPermission('view_any')) return $this->forbidden('Insufficient permission to view admissions assistance');
+        $scope = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own'));
+        $review = $scope === 'review';
+        if ($review && !$this->hasAdmissionPermission('review_application')) {
+            return $this->forbidden('Admissions approval permission is required to review AI drafts');
+        }
+        try {
+            $drafts = $this->contract(DraftRepository::class)->listForReview(
+                $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'admissions'
+            );
+            $drafts = array_values(array_filter($drafts, static fn(array $d): bool => ($d['workflow_id'] ?? '') === 'admissions.pipeline_review'));
+            return $this->success(['drafts' => $drafts, 'scope' => $review ? 'review' : 'own'], 'Admissions pipeline AI drafts retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AdmissionController] AI pipeline list failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load admissions pipeline assistance');
+        }
+    }
+
+    /** POST /api/admission/ai-pipeline-draft-approve/{id} */
+    public function postAiPipelineDraftApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasAdmissionPermission('review_application')) {
+            return $this->forbidden('Admissions approval permission is required to approve AI drafts');
+        }
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) return $this->badRequest('draft_id is required');
+        try {
+            $approved = $this->contract(DraftRepository::class)->approve(
+                $this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'admissions.pipeline_review'
+            );
+            return $this->success([
+                'draft_id' => $draftId,
+                'workflow_id' => 'admissions.pipeline_review',
+                'status' => 'approved',
+                'review_only' => true,
+                'draft' => $approved['draft'] ?? [],
+            ], 'Admissions pipeline AI draft approved for staff review');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AdmissionController] AI pipeline approval failed: ' . $e->getMessage());
+            return $this->serverError('Unable to approve admissions pipeline assistance');
+        }
     }
 
     private function approveAdmissionsAiDraftFromRequest($id, array $data, array $segments, string $workflow): array

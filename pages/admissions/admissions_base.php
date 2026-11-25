@@ -559,4 +559,5 @@ $showNewApplicationButton = $showNewApplicationButton ?? true;
 
 <?php asset_script($appBase, 'js/components/AdmissionPlacementModal.js'); ?>
 <?php asset_script($appBase, 'js/components/AdmissionPaymentModal.js'); ?>
+<?php asset_script($appBase, 'js/utils/document_camera_capture.js'); ?>
 <?php asset_script($appBase, 'js/pages/admissions.js'); ?>

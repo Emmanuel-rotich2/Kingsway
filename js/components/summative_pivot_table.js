@@ -312,11 +312,11 @@
       }
     }
 
-    function enterEdit(student, { focusEmpty }) {
+    async function enterEdit(student, { focusEmpty }) {
       if (state.editKey && state.editKey !== student.key) {
         if (state.autosave) debouncer.flush(state.editKey);
         else if ([...state.dirty.keys()].some((k) => k.startsWith(`${state.editKey}|`))) {
-          if (!window.confirm('Discard unsaved changes in the row you are leaving?')) return;
+          if (!(await window.confirmAction('Discard unsaved changes', 'Discard unsaved changes in the row you are leaving?', { confirmText: 'Discard', danger: true }))) return;
         }
         discardRowEdits(state.editKey);
       }
@@ -420,7 +420,7 @@
     }
 
     async function deleteStudentResults(student) {
-      const confirmed = await (window.confirmAction?.('Delete learner results', `Delete every recorded subject result for ${student.learner_name}? This is journalled and can be restored by an administrator.`) ?? window.confirm(`Delete every recorded subject result for ${student.learner_name}?`));
+      const confirmed = await window.confirmAction('Delete learner results', `Delete every recorded subject result for ${student.learner_name}? This is journalled and can be restored by an administrator.`, { confirmText: 'Delete', danger: true });
       if (!confirmed) return;
       const results = Object.entries(student.cells).filter(([, c]) => c.result_id && !c.deleted);
       try {

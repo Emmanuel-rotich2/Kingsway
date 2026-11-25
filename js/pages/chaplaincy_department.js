@@ -596,7 +596,7 @@ const ChaplaincyDepartmentController = {
   },
 
   async unassignMember(assignmentId) {
-    if (!confirm('End this team member\'s Chaplaincy assignment?')) return;
+    if (!(await window.confirmAction('End assignment', 'End this team member\'s Chaplaincy assignment?', { confirmText: 'End assignment' }))) return;
     try {
       await this.API(`/team/member/${assignmentId}`, 'PUT', { team_role: null, effective_to: new Date().toISOString().slice(0, 10) });
       showNotification?.('Assignment ended', 'success');
@@ -607,7 +607,7 @@ const ChaplaincyDepartmentController = {
   },
 
   async unvolunteer(id) {
-    if (!confirm('Deactivate this volunteer?')) return;
+    if (!(await window.confirmAction('Deactivate volunteer', 'Deactivate this volunteer?', { confirmText: 'Deactivate', danger: true }))) return;
     try {
       await this.API(`/volunteers/${id}`, 'DELETE');
       showNotification?.('Volunteer deactivated', 'success');

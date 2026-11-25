@@ -5,18 +5,18 @@
 <div class="container-fluid py-4" id="domainIsolationPage">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h2 fw-bold mb-1"><i class="bi bi-lock text-dark me-2"></i>Domain Isolation Rules</h2>
+            <h2 class="h3 mb-1">Domain Isolation Rules</h2>
             <p class="text-muted mb-0">Name-connectivity rules that isolate the system, buffer and log namespaces.</p>
         </div>
         <div class="d-flex flex-wrap gap-2">
             <button type="button" class="btn btn-outline-secondary" id="domainIsolationExportCsvBtn" title="Export to CSV">
-                <i class="bi bi-filetype-csv me-1"></i> Export CSV
+                <i aria-hidden="true" class="bi bi-filetype-csv me-1"></i> Export CSV
             </button>
             <button type="button" class="btn btn-outline-secondary" id="domainIsolationPrintBtn" title="Print / save as PDF">
-                <i class="bi bi-printer me-1"></i> Print / PDF
+                <i aria-hidden="true" class="bi bi-printer me-1"></i> Print / PDF
             </button>
             <button type="button" class="btn btn-outline-secondary" id="domainIsolationRefreshBtn">
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i aria-hidden="true" class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
     </div>
@@ -25,12 +25,13 @@
         Loading isolation rules...
     </div>
 
-    <div class="card border-0 shadow-sm" style="border-top: 4px solid var(--bs-dark)">
+    <div class="card border-0 shadow-sm">
         <div class="card-header bg-light">
             <div class="row g-2 align-items-center">
                 <div class="col-lg-6">
+                    <label class="visually-hidden" for="domainIsolationSearch">Search isolation rules</label>
                     <div class="input-group input-group-sm">
-                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <span class="input-group-text"><i aria-hidden="true" class="bi bi-search"></i></span>
                         <input class="form-control" id="domainIsolationSearch" type="search" maxlength="200" placeholder="Rule or description" autocomplete="off">
                     </div>
                 </div>
@@ -42,7 +43,8 @@
 
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
-                <thead class="table-light">
+                <caption class="visually-hidden">Domain isolation rules</caption>
+                <thead>
                     <tr>
                         <th scope="col">Rule</th>
                         <th scope="col">Description</th>
@@ -62,7 +64,7 @@
                         <td><span class="badge" data-fill="status"></span></td>
                         <td class="text-end">
                             <button type="button" class="btn btn-sm btn-outline-primary" data-action="edit" title="Edit rule">
-                                <i class="bi bi-pencil"></i>
+                                <i aria-hidden="true" class="bi bi-pencil"></i>
                             </button>
                         </td>
                     </tr>

@@ -259,7 +259,7 @@ window.GradingScalesCtrl = {
     async publishSystem(id) {
         const sys = (this.state.adminSystems || []).find(s => Number(s.id) === Number(id));
         const replaces = sys?.supersedes_name ? `\n\n${sys.supersedes_name} will no longer be offered for new terms and exams. Exams already graded on it keep it.` : "";
-        if (!confirm(`Publish ${sys?.name || "this grading system"}? It can then be chosen for terms and exams, and its levels lock once results are graded on it.${replaces}`)) return;
+        if (!(await window.confirmAction("Publish grading system", `Publish ${sys?.name || "this grading system"}? It can then be chosen for terms and exams, and its levels lock once results are graded on it.${replaces}`, { confirmText: "Publish" }))) return;
         try {
             await window.callAPI(`/academic/grading-systems-publish/${id}`, "POST", {});
             window.showNotification?.("Grading system published.", "success");
@@ -278,7 +278,7 @@ window.GradingScalesCtrl = {
     },
 
     async deleteSystem(id) {
-        if (!confirm("Delete this draft grading system?")) return;
+        if (!(await window.confirmAction("Delete draft grading system", "Delete this draft grading system?", { confirmText: "Delete", danger: true }))) return;
         try {
             await window.callAPI(`/academic/grading-systems/${id}`, "DELETE");
             window.showNotification?.("Draft deleted.", "success");
@@ -351,7 +351,7 @@ window.GradingScalesCtrl = {
     },
 
     async removeBand(bandId, code) {
-        if (!confirm(`Delete band ${code}? Results already graded with it will lose their band mapping.`)) return;
+        if (!(await window.confirmAction("Delete grading band", `Delete band ${code}? Results already graded with it will lose their band mapping.`, { confirmText: "Delete", danger: true }))) return;
         try {
             await window.API.academic.deleteGradingBand(bandId);
             showNotification("Band deleted", "success");
@@ -516,7 +516,7 @@ window.GradingScalesCtrl = {
     },
 
     async deactivateProfile(id) {
-        if (!confirm("Deactivate this profile? The broader scope's profile will apply again.")) return;
+        if (!(await window.confirmAction("Deactivate profile", "Deactivate this profile? The broader scope's profile will apply again.", { confirmText: "Deactivate", danger: true }))) return;
         try {
             await window.API.academic.deleteAggregationProfile(id);
             showNotification("Profile deactivated", "success");

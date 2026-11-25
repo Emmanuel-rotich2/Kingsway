@@ -89,7 +89,7 @@
 }
 
 .payroll-ledger-page .payroll-table-wrapper thead th {
-    background: var(--kc-paper, #fff);
+    background: var(--kc-paper, var(--kw-theme-surface));
 }
 
 .payroll-ledger-page .payroll-table-wrapper tbody th[scope="row"] {
@@ -97,7 +97,7 @@
     inset-inline-start: 0;
     z-index: 1;
     min-inline-size: 13rem;
-    background: var(--kc-paper, #fff);
+    background: var(--kc-paper, var(--kw-theme-surface));
 }
 
 .payroll-ledger-page .payroll-table-wrapper tbody tr:hover > * {
@@ -231,7 +231,7 @@
         margin: 0 .75rem .75rem;
         border: 1px solid var(--payroll-table-rule);
         border-radius: 8px;
-        background: var(--kc-paper, #fff);
+        background: var(--kc-paper, var(--kw-theme-surface));
     }
 
     .payroll-ledger-page .payroll-table-wrapper tbody th[scope="row"] {

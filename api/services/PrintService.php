@@ -835,10 +835,10 @@ final class PrintService
 
         try {
             fwrite($handle, "\xEF\xBB\xBF");
-            fputcsv($handle, array_keys($data[0]), ',', '"', '\\');
+            fputcsv($handle, \App\API\Includes\CsvSafety::row(array_keys($data[0])), ',', '"', '\\');
 
             foreach ($data as $row) {
-                fputcsv($handle, $row, ',', '"', '\\');
+                fputcsv($handle, \App\API\Includes\CsvSafety::row($row), ',', '"', '\\');
             }
         } finally {
             fclose($handle);
@@ -5239,10 +5239,10 @@ final class PrintService
 
         try {
             fwrite($handle, "\xEF\xBB\xBF");
-            fputcsv($handle, $headers, "\t", '"', '\\');
+            fputcsv($handle, \App\API\Includes\CsvSafety::row($headers), "\t", '"', '\\');
 
             foreach ($payrolls as $payroll) {
-                fputcsv($handle, [
+                fputcsv($handle, \App\API\Includes\CsvSafety::row([
                     $payroll['id'] ?? '',
                     $payroll['staff_no'] ?? '',
                     trim(($payroll['first_name'] ?? '') . ' ' . ($payroll['last_name'] ?? '')) ?: ($payroll['staff_name'] ?? ''),
@@ -5269,7 +5269,7 @@ final class PrintService
                     $payroll['payment_reference'] ?? '',
                     $payroll['paid_at'] ?? $payroll['payment_date'] ?? '',
                     $payroll['payslip_status'] ?? $payroll['status'] ?? '',
-                ], "\t", '"', '\\');
+                ]), "\t", '"', '\\');
             }
         } finally {
             fclose($handle);

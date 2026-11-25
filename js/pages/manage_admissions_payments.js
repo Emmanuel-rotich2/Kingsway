@@ -5,7 +5,7 @@ const manageAdmissionsPaymentsController = {
   esc(value) { return String(value == null ? '' : value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); },
   money(value) { return Number(value || 0).toLocaleString('en-KE', { maximumFractionDigits: 2 }); },
   unwrap(value) { return value?.data ?? value ?? {}; },
-  notify(message, type = 'success') { if (window.showNotification) return window.showNotification(message, type); alert(message); },
+  notify(message, type = 'success') { if (window.showNotification) return window.showNotification(message, type); if (window.infoDialog) window.infoDialog('Notice', message); },
 
   async loadReferencesComposed() {
     try {

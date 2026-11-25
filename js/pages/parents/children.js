@@ -88,9 +88,9 @@
         form.append('photo', input.files[0]);
         try {
           await P.apiFetch('/student-photo', 'POST', form, { isFile: true });
-          alert('Photo submitted for school approval.');
+          window.infoDialog?.('Photo submitted', 'Photo submitted for school approval.');
         } catch (e) {
-          alert(e.message || 'Unable to submit the photo.');
+          window.infoDialog?.('Photo not submitted', e.message || 'Unable to submit the photo.', { type: 'error' });
         }
         input.value = '';
       });

@@ -119,8 +119,18 @@ const manageJobVacanciesController = {
     catch (e) { this.notify(e.message, 'danger'); }
   },
 
+  mountAiDrafts() {
+    if (this._aiDraftsMounted) return;
+    this._aiDraftsMounted = true;
+    const base=()=>`Job title: ${document.getElementById('jobTitle')?.value||''}. Department: ${document.getElementById('jobDepartment')?.value||''}. Type: ${document.getElementById('jobType')?.value||''}. Location: ${document.getElementById('jobLocation')?.value||''}.`;
+    window.AiInlineDraft?.mount?.({button:'#jobDraftDescBtn', host:'#jobAiHostDesc', route:window.REQUESTED_ROUTE||'manage_job_vacancies', module:'website', liveTarget:'#jobDescription', label:'Draft description', prompt:()=>`Draft a professional job vacancy description for Kingsway Preparatory School. ${base()} Return only the description.`});
+    window.AiInlineDraft?.mount?.({button:'#jobDraftReqBtn', host:'#jobAiHostReq', route:window.REQUESTED_ROUTE||'manage_job_vacancies', module:'website', liveTarget:'#jobRequirements', label:'Draft requirements', prompt:()=>`Draft concise job requirements for this Kingsway Preparatory School vacancy. ${base()} Return one requirement per line.`});
+    window.AiInlineDraft?.mount?.({button:'#jobDraftRespBtn', host:'#jobAiHostResp', route:window.REQUESTED_ROUTE||'manage_job_vacancies', module:'website', liveTarget:'#jobResponsibilities', label:'Draft responsibilities', prompt:()=>`Draft concise job responsibilities for this Kingsway Preparatory School vacancy. ${base()} Return one responsibility per line.`});
+  },
+
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
+    this.mountAiDrafts();
     this.loadData();
   },
 };

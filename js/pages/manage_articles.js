@@ -152,6 +152,27 @@ const manageArticlesController = {
     finally { input.value = ''; }
   },
 
+  openLinkModal() {
+    if (!document.getElementById('articleLinkModal')) {
+      document.body.insertAdjacentHTML('beforeend', `
+        <div class="modal fade" id="articleLinkModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content">
+          <div class="modal-header"><h5 class="modal-title">Insert link</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <div class="modal-body"><label class="form-label" for="articleLinkUrl">Web address</label><input id="articleLinkUrl" class="form-control" placeholder="https://..."></div>
+          <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="articleLinkInsertBtn">Insert</button></div>
+        </div></div></div>`);
+      document.getElementById('articleLinkInsertBtn').addEventListener('click', () => {
+        const url = document.getElementById('articleLinkUrl').value.trim();
+        if (!/^https?:\/\//i.test(url)) return this.notify('Enter a complete http:// or https:// address.', 'warning');
+        const editor = document.getElementById('newsContent');
+        editor.focus();
+        document.execCommand('createLink', false, url);
+        bootstrap.Modal.getInstance(document.getElementById('articleLinkModal'))?.hide();
+      });
+    }
+    document.getElementById('articleLinkUrl').value = 'https://';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('articleLinkModal')).show();
+  },
+
   previewStory() {
     const title = this.esc(document.getElementById('newsTitle').value || 'Untitled story');
     const cover = this.esc(document.getElementById('newsImageUrl').value);
@@ -247,9 +268,7 @@ const manageArticlesController = {
     document.querySelectorAll('.story-toolbar [data-insert]').forEach(button => button.addEventListener('click', () => {
       const type = button.dataset.insert;
       if (type === 'link') {
-        const url = window.prompt('Enter the web address (https://…)');
-        if (url && /^https?:\/\//i.test(url)) { editor.focus(); document.execCommand('createLink', false, url); }
-        else if (url) this.notify('Enter a complete http:// or https:// address.', 'warning');
+        this.openLinkModal();
         return;
       }
       document.getElementById(type === 'slider' ? 'storySliderFiles' : type === 'video' ? 'storyVideoFile' : 'storyImageFile').click();
@@ -261,9 +280,18 @@ const manageArticlesController = {
     document.getElementById('newsPreviewBtn')?.addEventListener('click', () => this.previewStory());
   },
 
+  mountAiDrafts() {
+    if (this._aiDraftsMounted) return;
+    this._aiDraftsMounted = true;
+    window.AiInlineDraft?.mount?.({button:'#newsDraftTitleBtn', host:'#newsAiHostTitle', route:window.REQUESTED_ROUTE||'manage_articles', module:'website', liveTarget:'#newsTitle', label:'Draft title', prompt:()=>`Draft a clear news/article headline for Kingsway Preparatory School. Category: ${document.getElementById('newsCategory')?.value||''}. Excerpt: ${document.getElementById('newsExcerpt')?.value||''}. Return only the title.`});
+    window.AiInlineDraft?.mount?.({button:'#newsDraftExcerptBtn', host:'#newsAiHostExcerpt', route:window.REQUESTED_ROUTE||'manage_articles', module:'website', liveTarget:'#newsExcerpt', label:'Draft excerpt', prompt:()=>`Draft a short 1-2 sentence excerpt for this Kingsway Preparatory School news article. Title: ${document.getElementById('newsTitle')?.value||''}. Category: ${document.getElementById('newsCategory')?.value||''}. Return only the excerpt.`});
+    window.AiInlineDraft?.mount?.({button:'#newsDraftBodyBtn', host:'#newsAiHostBody', route:window.REQUESTED_ROUTE||'manage_articles', module:'website', liveTarget:'#newsContent', label:'Draft article body', prompt:()=>`Draft a professional news article body for Kingsway Preparatory School. Title: ${document.getElementById('newsTitle')?.value||''}. Excerpt: ${document.getElementById('newsExcerpt')?.value||''}. Category: ${document.getElementById('newsCategory')?.value||''}. Write in warm, clear HTML paragraphs. Return only the body.`});
+  },
+
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     this.setupEventListeners();
+    this.mountAiDrafts();
     this.loadData();
   },
 };

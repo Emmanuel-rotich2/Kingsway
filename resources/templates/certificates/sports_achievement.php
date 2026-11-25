@@ -1114,7 +1114,7 @@ $sportClass = $sportLength > 45
         </div>
     </article>
 
-    <script>
+    <script nonce="<?= csp_nonce() ?>">
         (function () {
             "use strict";
 

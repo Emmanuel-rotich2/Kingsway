@@ -122,7 +122,7 @@ const ChaplaincyPastoralController = {
   },
 
   async removeGroupMember(gid, mid) {
-    if (!confirm('Remove this member?')) return;
+    if (!(await window.confirmAction('Remove group member', 'Remove this member?', { confirmText: 'Remove', danger: true }))) return;
     const res = await this.API(`/group-members/${mid}`, 'DELETE');
     if (res?.data || res?.status === 'success') {
       showNotification?.('Member removed', 'success');
@@ -316,10 +316,10 @@ const ChaplaincyPastoralController = {
   async addMilestone() {
     const sid = this.state.currentProfile?.studentId;
     if (!sid) return;
-    const type = prompt('Milestone type (baptism / commitment / investiture / award / dedication / other):', 'baptism');
+    const type = await window.promptAction('Milestone type', 'Choose the milestone type: baptism / commitment / investiture / award / dedication / other.', 'baptism', { promptLabel: 'Milestone type' });
     if (!type) return;
-    const date = prompt('Milestone date (YYYY-MM-DD):');
-    const title = prompt('Title:');
+    const date = await window.promptAction('Milestone date', 'Enter the milestone date:', '', { promptLabel: 'Date (YYYY-MM-DD)' });
+    const title = await window.promptAction('Milestone title', 'Enter a title for this milestone:', '', { promptLabel: 'Title' });
     if (!date || !title) { showNotification?.('Date and title are required', 'error'); return; }
     const res = await this.API(`/spiritual-profiles/${sid}/milestones`, 'POST', { milestone_type: type, milestone_date: date, title });
     if (res?.data?.id || res?.status === 'success') {

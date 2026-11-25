@@ -72,9 +72,9 @@
         </div>
         <div class="col-md-4 ws-form-group"><label>Deadline *</label><input type="date" id="jobDeadline"></div>
         <div class="col-12 ws-form-group"><label>Location</label><input type="text" id="jobLocation" value="Londiani, Kenya"></div>
-        <div class="col-12 ws-form-group"><label>Description *</label><textarea id="jobDescription" rows="4" placeholder="Role description…"></textarea></div>
-        <div class="col-12 ws-form-group"><label>Requirements (one per line)</label><textarea id="jobRequirements" rows="4" placeholder="P1 or B.Ed (Primary Education)&#10;TSC Registration&#10;2+ years experience"></textarea></div>
-        <div class="col-12 ws-form-group"><label>Responsibilities (one per line)</label><textarea id="jobResponsibilities" rows="4" placeholder="Deliver CBC-aligned lessons&#10;Maintain class registers"></textarea></div>
+        <div class="col-12 ws-form-group"><label>Description *</label><textarea id="jobDescription" rows="4" placeholder="Role description…"></textarea><div class="mt-1"><button type="button" class="btn btn-link btn-sm p-0" id="jobDraftDescBtn"><i class="bi bi-stars me-1"></i>Draft description with AI</button></div><div id="jobAiHostDesc"></div></div>
+        <div class="col-12 ws-form-group"><label>Requirements (one per line)</label><textarea id="jobRequirements" rows="4" placeholder="P1 or B.Ed (Primary Education)&#10;TSC Registration&#10;2+ years experience"></textarea><div class="mt-1"><button type="button" class="btn btn-link btn-sm p-0" id="jobDraftReqBtn"><i class="bi bi-stars me-1"></i>Draft requirements with AI</button></div><div id="jobAiHostReq"></div></div>
+        <div class="col-12 ws-form-group"><label>Responsibilities (one per line)</label><textarea id="jobResponsibilities" rows="4" placeholder="Deliver CBC-aligned lessons&#10;Maintain class registers"></textarea><div class="mt-1"><button type="button" class="btn btn-link btn-sm p-0" id="jobDraftRespBtn"><i class="bi bi-stars me-1"></i>Draft responsibilities with AI</button></div><div id="jobAiHostResp"></div></div>
       </div>
     </div>
     <div class="modal-footer border-0">

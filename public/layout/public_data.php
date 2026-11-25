@@ -38,5 +38,11 @@ if (!headers_sent()) {
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
     header('Expires: 0');
+    // Public pages are framed by the staff website workspace on the same
+    // origin. Keep the legacy framing header aligned with CSP frame-ancestors
+    // 'self'; staff, API and parent-portal surfaces stay denied by their own
+    // policies.
+    header_remove('X-Frame-Options');
+    header('X-Frame-Options: SAMEORIGIN');
     csp_send('public', ['connect' => trim($devConnectSrc . ($realtimeConnectOrigin !== '' ? ' ' . $realtimeConnectOrigin : ''))]);
 }

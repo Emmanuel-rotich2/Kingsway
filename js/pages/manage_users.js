@@ -543,9 +543,11 @@ const ManageUsersController = {
       return;
     }
     if (confirmation) {
-      const accepted = window.confirmAction
-        ? await window.confirmAction("Confirm account action", `${confirmation}\n\n${ids.length} account${ids.length === 1 ? "" : "s"} selected.`, { confirmText: "Continue", danger: action === "delete" || action === "mfa_disable" })
-        : window.confirm(`${confirmation}\n\n${ids.length} account${ids.length === 1 ? "" : "s"} selected.`);
+      const accepted = await window.confirmAction(
+        "Confirm account action",
+        `${confirmation}\n\n${ids.length} account${ids.length === 1 ? "" : "s"} selected.`,
+        { confirmText: "Continue", danger: action === "delete" || action === "mfa_disable" },
+      );
       if (!accepted) return;
     }
     const button = explicitIds ? null : document.activeElement;
@@ -895,10 +897,10 @@ const ManageUsersController = {
       { confirmText: "Continue", danger: true },
     );
     if (!approved) return;
-    const reason = window.prompt("Reason for permanently deleting the test realm:");
+    const reason = await (window.promptAction?.("Delete test realm","Reason for permanently deleting the test realm:","") ?? Promise.resolve(null));
     if (!reason?.trim()) return;
     const phrase = "PERMANENTLY DELETE ALL TEST DATA";
-    const confirmation = window.prompt(`Final confirmation: type ${phrase}`);
+    const confirmation = await (window.promptAction?.("Confirm delete",`Final confirmation: type ${phrase}`,"") ?? Promise.resolve(null));
     if (confirmation !== phrase) {
       this.notify("The confirmation phrase did not match. Nothing was deleted.", "error");
       return;
@@ -1338,7 +1340,7 @@ const ManageUsersController = {
 
   async revokeTestAccess(user) {
     const userId = Number(user.id ?? user.user_id ?? 0);
-    const reason = window.prompt("Reason for immediately revoking this test account:", "Feature test completed");
+    const reason = await (window.promptAction?.("Revoke test account","Reason for immediately revoking this test account:","Feature test completed") ?? Promise.resolve(null));
     if (!reason || !reason.trim()) return;
     try {
       await window.API.users.update(userId, {

@@ -52,7 +52,7 @@ const goodsReceivedController = {
   },
 
   async receive(poId) {
-    if (!confirm('Confirm that this order has been received in full?')) return;
+    if (!(await window.confirmAction('Confirm receipt', 'Confirm that this order has been received in full?', { confirmText: 'Confirm receipt' }))) return;
     try {
       await this.API('POST', '/inventory/purchase-orders-receive', { id: poId });
       this.notify('Purchase order marked as received.', 'success');

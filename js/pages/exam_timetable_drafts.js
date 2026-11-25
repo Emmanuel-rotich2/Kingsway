@@ -229,7 +229,7 @@ const ExamTimetableDraftsController = {
     try {
       let comments = "";
       if (action === "request_changes") {
-        comments = window.prompt("Describe the required timetable changes:", "") || "";
+        comments = await (window.promptAction?.("Request timetable changes","Describe the required timetable changes:","") ?? Promise.resolve("")) || "";
         if (!comments.trim()) return;
       }
       const label = action === "publish" ? "publish this approved timetable and create teacher score registers" : action.replace("_", " ");

@@ -187,10 +187,26 @@ function showNotification(message, type = NOTIFICATION_TYPES.INFO) {
   }
 
   const palette = {
-    success: { bg: "#ffffff", border: "#22c55e", icon: "#15803d" },
-    error: { bg: "#ffffff", border: "#ef4444", icon: "#b91c1c" },
-    warning: { bg: "#ffffff", border: "#f59e0b", icon: "#b45309" },
-    info: { bg: "#ffffff", border: "#3b82f6", icon: "#1d4ed8" },
+    success: {
+      bg: "var(--kw-theme-good-soft, #e7f6ed)",
+      border: "var(--kw-theme-good, #0f6b43)",
+      icon: "var(--kw-theme-good, #0f6b43)",
+    },
+    error: {
+      bg: "var(--kw-theme-bad-soft, #fdecec)",
+      border: "var(--kw-theme-bad, #b53747)",
+      icon: "var(--kw-theme-bad, #b53747)",
+    },
+    warning: {
+      bg: "var(--kw-theme-warn-soft, #fff5df)",
+      border: "var(--kw-theme-warn, #8a5a0d)",
+      icon: "var(--kw-theme-warn, #8a5a0d)",
+    },
+    info: {
+      bg: "var(--kw-theme-info-soft, #e6f6fa)",
+      border: "var(--kw-theme-info, #0e7490)",
+      icon: "var(--kw-theme-info, #0e7490)",
+    },
   };
   const colors = palette[type] || palette.info;
 
@@ -203,8 +219,8 @@ function showNotification(message, type = NOTIFICATION_TYPES.INFO) {
   toast.style.borderRadius = "14px";
   toast.style.background = colors.bg;
   toast.style.borderLeft = "5px solid " + colors.border;
-  toast.style.boxShadow = "0 14px 36px rgba(15, 23, 42, 0.18)";
-  toast.style.color = "#111827";
+  toast.style.boxShadow = "var(--kw-theme-shadow-strong, 0 14px 36px rgba(15, 23, 42, 0.18))";
+  toast.style.color = "var(--kw-theme-text, #172033)";
   toast.style.fontWeight = "500";
   toast.style.transform = "translateX(20px)";
   toast.style.opacity = "0";
@@ -228,7 +244,7 @@ function showNotification(message, type = NOTIFICATION_TYPES.INFO) {
   close.style.background = "transparent";
   close.style.fontSize = "1.2rem";
   close.style.lineHeight = "1";
-  close.style.color = "#6b7280";
+  close.style.color = "var(--kw-theme-muted, #697386)";
   close.style.cursor = "pointer";
 
   const removeToast = function () {
@@ -2325,6 +2341,10 @@ const ENDPOINT_PERMISSIONS = {
   "/dashboard/workspace-briefing": null,
   "/dashboard/assistant-today": null,
   "/system/ai-security-review-queue": "system_view",
+  "/system/usage-summary": { GET: "system_view" },
+  "/system/ai-usage-review-queue": { POST: "system_view" },
+  "/system/ai-usage-reviews": { GET: "system_view" },
+  "/system/ai-usage-review-approve": { POST: ["system_view", "system_manage"] },
   "/attendance/ai-exception-summary-queue": { POST: "attendance_view" },
   "/attendance/ai-exception-summaries": { GET: "attendance_view" },
   "/attendance/ai-exception-summary-approve": { POST: ["attendance_manage", "attendance_approve", "attendance_update"] },
@@ -2382,6 +2402,9 @@ const ENDPOINT_PERMISSIONS = {
   "/finance/ai-reconciliation-review-queue": { POST: "finance_view" },
   "/finance/ai-reconciliation-drafts": { GET: "finance_view" },
   "/finance/ai-reconciliation-draft-approve": { POST: ["finance_reconcile", "finance_manage"] },
+  "/finance/ai-arrears-review-queue": { POST: "finance_view" },
+  "/finance/ai-arrears-drafts": { GET: "finance_view" },
+  "/finance/ai-arrears-draft-approve": { POST: ["finance_reconcile", "finance_manage"] },
   "/finance/kcb-disbursements": {
     GET: "finance_view",
     POST: ["finance_reconcile", "finance_approve", "finance_manage"],
@@ -2589,6 +2612,9 @@ const ENDPOINT_PERMISSIONS = {
   "/admission/ai-followup-draft-approve": "admission_manage",
   "/admission/ai-interview-preparation-approve": "admission_manage",
   "/admission/ai-placement-review-approve": "admission_manage",
+  "/admission/ai-pipeline-review-queue": "admission_view",
+  "/admission/ai-pipeline-drafts": "admission_view",
+  "/admission/ai-pipeline-draft-approve": "admission_manage",
 
   // Communications
   "/communications/index": "communications_view",
@@ -2699,6 +2725,9 @@ const ENDPOINT_PERMISSIONS = {
   "/schedules/timetable-drafts": "schedules_view",
   "/schedules/ai-timetable-planning-queue": "schedules_view",
   "/schedules/ai-timetable-planning-session": "schedules_view",
+  "/schedules/ai-timetable-review-queue": { POST: "schedules_view" },
+  "/schedules/ai-timetable-review-drafts": { GET: "schedules_view" },
+  "/schedules/ai-timetable-review-draft-approve": { POST: ["schedules_approve", "schedules_manage", "schedules_update"] },
   "/schedules/timetable-streams": "schedules_view",
   // The controller applies scope-aware authorization: class teachers may
   // save lower-primary drafts while leadership may save upper/whole-school
@@ -3175,6 +3204,7 @@ function getCsrfToken() {
 // observability stacks.
 let _currentRequestId = null;
 let _browserSessionId = null;
+let _deviceId = null;
 
 function _hexSegment(length) {
   const bytes = new Uint8Array(length);
@@ -3218,6 +3248,33 @@ function getBrowserSessionId() {
     }
   }
   _browserSessionId = stored;
+  return stored;
+}
+
+/**
+ * Persistent per-browser-profile identifier (localStorage, survives tab and
+ * session restarts). Unlike browser_session_id this does NOT rotate when a
+ * tab closes, so the backend can correlate one physical device across IP
+ * changes - IP rotation cannot reset rate-limit buckets or hide a device
+ * behind a new address.
+ */
+function getDeviceId() {
+  if (_deviceId) return _deviceId;
+  let stored = null;
+  try {
+    stored = localStorage.getItem("kingsway_device_id");
+  } catch (_) {
+    /* storage unavailable */
+  }
+  if (!stored) {
+    stored = generateRequestId();
+    try {
+      localStorage.setItem("kingsway_device_id", stored);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  _deviceId = stored;
   return stored;
 }
 
@@ -3872,6 +3929,7 @@ async function apiCallDirect(
       headers: {
         "X-Request-ID": requestId,
         "X-Browser-Session-Id": getBrowserSessionId(),
+        "X-Device-Id": getDeviceId(),
         ...(upperMethod !== "GET" &&
           upperMethod !== "HEAD" &&
           !options.headers?.["Idempotency-Key"] && {
@@ -4185,36 +4243,95 @@ function createFormData(data, files = {}) {
 
 let _appDialogEl = null;
 let _appDialogResolve = null;
+let _appDialogDismissValue = false;
+
+const APP_DIALOG_ICONS = {
+  info: "bi-info-circle",
+  success: "bi-check-circle",
+  warning: "bi-exclamation-triangle",
+  danger: "bi-exclamation-octagon",
+  question: "bi-question-circle",
+  prompt: "bi-pencil-square",
+};
+
+function setDialogButtonLabel(button, label, iconClass) {
+  button.textContent = "";
+  if (iconClass) {
+    const icon = document.createElement("i");
+    icon.className = `bi ${iconClass}`;
+    icon.setAttribute("aria-hidden", "true");
+    button.appendChild(icon);
+    button.appendChild(document.createTextNode(" "));
+  }
+  button.appendChild(document.createTextNode(label));
+}
 
 function ensureAppDialog() {
   if (_appDialogEl) return _appDialogEl;
   _appDialogEl = document.createElement("div");
-  _appDialogEl.className = "modal fade";
+  _appDialogEl.className = "modal fade kw-app-dialog";
   _appDialogEl.id = "appDialogModal";
   _appDialogEl.setAttribute("tabindex", "-1");
   _appDialogEl.setAttribute("aria-hidden", "true");
+  _appDialogEl.setAttribute("aria-labelledby", "appDialogTitle");
   _appDialogEl.innerHTML = `
     <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title" id="appDialogTitle"></h5>
+      <div class="modal-content" id="appDialogContent">
+        <div class="modal-header kw-dialog-header">
+          <span class="kw-dialog-icon" id="appDialogIcon" aria-hidden="true">
+            <i class="bi bi-info-circle"></i>
+          </span>
+          <div class="kw-dialog-heading">
+            <span class="kw-dialog-eyebrow" id="appDialogEyebrow"></span>
+            <h5 class="modal-title" id="appDialogTitle"></h5>
+          </div>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
-        <div class="modal-body" id="appDialogMessage"></div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" id="appDialogCancelBtn" data-bs-dismiss="modal"></button>
+        <div class="modal-body kw-dialog-body">
+          <p class="kw-dialog-message" id="appDialogMessage"></p>
+          <div class="kw-dialog-prompt" id="appDialogPromptWrap" hidden>
+            <label class="form-label" for="appDialogPromptInput" id="appDialogPromptLabel"></label>
+            <input type="text" class="form-control" id="appDialogPromptInput" autocomplete="off">
+          </div>
+        </div>
+        <div class="modal-footer kw-dialog-footer">
+          <button type="button" class="btn btn-outline-secondary" id="appDialogCancelBtn" data-bs-dismiss="modal"></button>
           <button type="button" class="btn btn-primary" id="appDialogConfirmBtn"></button>
         </div>
       </div>
     </div>`;
   document.body.appendChild(_appDialogEl);
   _appDialogEl.addEventListener("hidden.bs.modal", () => {
-    if (_appDialogResolve) {
-      _appDialogResolve(false);
-      _appDialogResolve = null;
+    const resolve = _appDialogResolve;
+    _appDialogResolve = null;
+    if (resolve) resolve(_appDialogDismissValue);
+  });
+  _appDialogEl.addEventListener("shown.bs.modal", () => {
+    const input = document.getElementById("appDialogPromptInput");
+    if (input && !input.closest("[hidden]")) {
+      input.focus();
+      input.select();
+      return;
     }
+    document.getElementById("appDialogConfirmBtn")?.focus();
   });
   return _appDialogEl;
+}
+
+function normalizeDialogVariant(value) {
+  if (value === "error") return "danger";
+  if (["info", "success", "warning", "danger", "question", "prompt"].includes(value)) {
+    return value;
+  }
+  return "info";
+}
+
+function dialogBootstrapAvailable() {
+  if (typeof bootstrap === "undefined" || !bootstrap.Modal) {
+    console.error("Kingsway dialogs require Bootstrap Modal; the action was cancelled.");
+    return false;
+  }
+  return true;
 }
 
 function openAppDialog({
@@ -4223,37 +4340,62 @@ function openAppDialog({
   confirmText = "OK",
   cancelText = null,
   danger = false,
+  variant = null,
+  eyebrow = "",
+  iconClass = "",
   prompt = false,
   promptValue = "",
+  promptLabel = "",
+  promptPlaceholder = "",
 }) {
   const el = ensureAppDialog();
+  const resolvedVariant = normalizeDialogVariant(variant || (danger ? "danger" : prompt ? "prompt" : "question"));
+
+  document.getElementById("appDialogContent").dataset.kwDialogVariant = resolvedVariant;
+  document.getElementById("appDialogEyebrow").textContent =
+    eyebrow || (resolvedVariant === "prompt" ? "Your input is needed" : "Please review");
   document.getElementById("appDialogTitle").textContent = title;
+  document.getElementById("appDialogIcon").innerHTML = "";
+  const dialogIcon = document.createElement("i");
+  dialogIcon.className = `bi ${iconClass || APP_DIALOG_ICONS[resolvedVariant] || APP_DIALOG_ICONS.info}`;
+  document.getElementById("appDialogIcon").appendChild(dialogIcon);
+
   const msgEl = document.getElementById("appDialogMessage");
   msgEl.textContent = message;
+  msgEl.hidden = !message;
+
+  const promptWrap = document.getElementById("appDialogPromptWrap");
+  promptWrap.hidden = !prompt;
+  const input = document.getElementById("appDialogPromptInput");
+  input.value = promptValue ?? "";
+  input.placeholder = promptPlaceholder;
+  document.getElementById("appDialogPromptLabel").textContent =
+    promptLabel || "Enter a value";
+
+  const describedBy = prompt ? "appDialogPromptLabel" : message ? "appDialogMessage" : "";
+  if (describedBy) el.setAttribute("aria-describedby", describedBy);
+  else el.removeAttribute("aria-describedby");
 
   const confirmBtn = document.getElementById("appDialogConfirmBtn");
-  confirmBtn.textContent = confirmText;
-  confirmBtn.className = "btn " + (danger ? "btn-danger" : "btn-primary");
+  const confirmButtonClass =
+    resolvedVariant === "danger"
+      ? "btn-danger"
+      : resolvedVariant === "warning"
+        ? "btn-warning"
+        : "btn-primary";
+  confirmBtn.className = `btn ${confirmButtonClass}`;
+  setDialogButtonLabel(
+    confirmBtn,
+    confirmText,
+    resolvedVariant === "danger" ? "bi-trash3" : "bi-check2",
+  );
 
   const cancelBtn = document.getElementById("appDialogCancelBtn");
-  cancelBtn.style.display = cancelText ? "" : "none";
-  cancelBtn.textContent = cancelText || "";
+  cancelBtn.hidden = !cancelText;
+  cancelBtn.className = "btn btn-outline-secondary";
+  setDialogButtonLabel(cancelBtn, cancelText || "", "bi-x-lg");
 
-  if (prompt) {
-    msgEl.style.display = "none";
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "form-control";
-    input.id = "appDialogPromptInput";
-    input.value = promptValue;
-    input.addEventListener("click", (e) => e.stopPropagation());
-    msgEl.after(input);
-  } else {
-    const existing = document.getElementById("appDialogPromptInput");
-    if (existing) existing.remove();
-    msgEl.style.display = "";
-  }
-
+  _appDialogDismissValue = prompt ? null : false;
   return new Promise((resolve) => {
     _appDialogResolve = (result) => {
       resolve(result);
@@ -4268,7 +4410,7 @@ function openAppDialog({
       modal.hide();
     };
     cancelBtn.onclick = () => {
-      _appDialogResolve(prompt ? null : false);
+      _appDialogResolve(_appDialogDismissValue);
       modal.hide();
     };
     modal.show();
@@ -4277,44 +4419,54 @@ function openAppDialog({
 
 // Promise<boolean> — resolves true when the user confirms.
 async function confirmAction(title, message, options = {}) {
-  if (typeof bootstrap === "undefined") {
-    return window.confirm(message);
-  }
+  if (!dialogBootstrapAvailable()) return false;
   return openAppDialog({
     title: title || "Confirm",
     message: message || "Are you sure?",
     confirmText: options.confirmText || "Confirm",
-    cancelText: options.cancelText || "Cancel",
+    cancelText: options.cancelText ?? "Cancel",
     danger: options.danger || false,
+    variant: options.variant,
+    eyebrow: options.eyebrow,
+    iconClass: options.iconClass,
   });
 }
 
 // Promise<string|null> — resolves the typed value, or null when cancelled.
 async function promptAction(title, message, defaultValue = "", options = {}) {
-  if (typeof bootstrap === "undefined") {
-    return window.prompt(message, defaultValue);
-  }
+  if (!dialogBootstrapAvailable()) return null;
   return openAppDialog({
     title: title || "Input",
     message: message || "",
     confirmText: options.confirmText || "OK",
-    cancelText: options.cancelText || "Cancel",
+    cancelText: options.cancelText ?? "Cancel",
+    variant: "prompt",
     prompt: true,
     promptValue: defaultValue,
+    promptLabel: options.promptLabel,
+    promptPlaceholder: options.promptPlaceholder,
   });
 }
 
 // Promise<void> — informational dialog, resolves on dismissal.
 async function infoDialog(title, message, options = {}) {
-  if (typeof bootstrap === "undefined") {
-    window.alert(message);
+  if (!dialogBootstrapAvailable()) {
+    const notificationType =
+      options.type === "danger"
+        ? NOTIFICATION_TYPES.ERROR
+        : options.type || NOTIFICATION_TYPES.INFO;
+    showNotification(message || title || "", notificationType);
     return;
   }
   await openAppDialog({
     title: title || "Information",
     message: message || "",
     confirmText: options.confirmText || "OK",
+    cancelText: null,
     danger: options.danger || false,
+    variant: options.type || (options.danger ? "danger" : "info"),
+    eyebrow: options.eyebrow,
+    iconClass: options.iconClass,
   });
 }
 
@@ -5849,6 +6001,9 @@ window.API = {
     approveAiFollowupDraft: async (id) => apiCall(`/admission/ai-followup-draft-approve/${Number(id)}`, "POST", {}),
     approveAiInterviewPreparation: async (id) => apiCall(`/admission/ai-interview-preparation-approve/${Number(id)}`, "POST", {}),
     approveAiPlacementReview: async (id) => apiCall(`/admission/ai-placement-review-approve/${Number(id)}`, "POST", {}),
+    queueAiPipelineReview: async () => apiCall("/admission/ai-pipeline-review-queue", "POST", {}),
+    getAiPipelineDrafts: async (scope = "own") => apiCall(`/admission/ai-pipeline-drafts?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiPipelineDraft: async (id) => apiCall(`/admission/ai-pipeline-draft-approve/${Number(id)}`, "POST", {}),
     // Get classes for placement offer assignment
     getPlacementClasses: async () =>
       apiCall("/admission/placement-classes", "GET"),
@@ -6349,6 +6504,12 @@ window.API = {
       apiCall(`/finance/ai-reconciliation-drafts?scope=${encodeURIComponent(scope)}`, "GET"),
     approveAiReconciliationDraft: async (id) =>
       apiCall(`/finance/ai-reconciliation-draft-approve/${Number(id)}`, "POST", {}),
+    queueAiArrearsReview: async () =>
+      apiCall("/finance/ai-arrears-review-queue", "POST", {}),
+    getAiArrearsDrafts: async (scope = "own") =>
+      apiCall(`/finance/ai-arrears-drafts?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiArrearsDraft: async (id) =>
+      apiCall(`/finance/ai-arrears-draft-approve/${Number(id)}`, "POST", {}),
     savePaymentCollectionRoute: async (data) =>
       apiCall("/finance/payment-collection-routes", "POST", data),
     updatePaymentCollectionRoute: async (id, data) =>
@@ -7834,6 +7995,12 @@ window.API = {
       apiCall("/schedules/ai-timetable-planning-queue", "POST", data),
     getAiTimetablePlanningSession: async (sessionId) =>
       apiCall(`/schedules/ai-timetable-planning-session/${encodeURIComponent(sessionId)}`, "GET"),
+    queueAiTimetableReview: async (data = {}) =>
+      apiCall("/schedules/ai-timetable-review-queue", "POST", data),
+    getAiTimetableReviewDrafts: async (scope = "own") =>
+      apiCall(`/schedules/ai-timetable-review-drafts?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiTimetableReviewDraft: async (id) =>
+      apiCall(`/schedules/ai-timetable-review-draft-approve/${Number(id)}`, "POST", {}),
 
     // Legacy support
     getClassSchedule: async (classId) =>
@@ -8433,6 +8600,16 @@ window.API = {
       apiCall(`/system/ai-operations-reviews?scope=${encodeURIComponent(scope)}`, "GET"),
     approveAiOperationsReview: async (id) =>
       apiCall(`/system/ai-operations-review-approve/${Number(id)}`, "POST", {}),
+
+    // Staff usage & adoption (deterministic summary + system.usage_brief reviews)
+    getUsageSummary: async (params = {}) =>
+      apiCall("/system/usage-summary", "GET", null, params),
+    queueAiUsageReview: async () =>
+      apiCall("/system/ai-usage-review-queue", "POST", {}),
+    getAiUsageReviews: async (scope = "own") =>
+      apiCall(`/system/ai-usage-reviews?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiUsageReview: async (id) =>
+      apiCall(`/system/ai-usage-review-approve/${Number(id)}`, "POST", {}),
     getSecurityIncidents: async (params = {}) => apiCall("/system/security-incidents", "GET", null, params),
     getPermissionChanges: async (params = {}) => apiCall("/system/permission-changes", "GET", null, params),
     getPolicyViolations: async (params = {}) => apiCall("/system/policy-violations", "GET", null, params),
@@ -8651,6 +8828,8 @@ window.API = {
         module,
         ...pageContext,
       }),
+    clearAgentContext: async () =>
+      apiCall("/dashboard/agent-context-clear", "POST", {}, {}, { checkPermission: false }),
 
     /**
      * Streamed assistant answer. Returns an object exposing `promise`,
@@ -8674,8 +8853,8 @@ window.API = {
         onError: handlers.onError || (() => {}),
       };
 
-      const {session_id, ...options} = handlers;
-      const requestOptions = session_id ? {session_id, ...options} : options;
+      const {session_id, onDelta, onStatus, onFinal, onError, ...options} = handlers || {};
+      const requestOptions = { ...(session_id ? {session_id} : {}), ...options };
       const getBufferedFallback = async () => {
         const fallbackController = new AbortController();
         state.onStatus("I’m checking that again…");
@@ -8924,8 +9103,12 @@ window.API = {
         : { session_id: sessionId, title };
       return apiCall("/dashboard/assistant-session", "PATCH", payload);
     },
-    clearAssistantSessionMessages: async (sessionId) =>
-      apiCall("/dashboard/assistant-session-clear", "POST", { session_id: sessionId }),
+    clearAssistantSessionMessages: async (sessionId) => {
+      const payload = sessionId && typeof sessionId === "object"
+        ? sessionId
+        : { session_id: sessionId };
+      return apiCall("/dashboard/assistant-session-clear", "POST", payload);
+    },
     postAssistantSessionsClear: async () =>
       apiCall("/dashboard/assistant-sessions/clear", "POST"),
     getAssistantPreferences: async () =>

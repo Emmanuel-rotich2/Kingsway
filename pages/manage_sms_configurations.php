@@ -3,27 +3,28 @@
 
 $smsFieldDefinitions = \App\API\Services\SystemCommsConfigService::fieldDefinitions('sms');
 ?>
-<div class="container-fluid py-4">
+<div class="container-fluid py-3">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h2 fw-bold mb-1"><i class="bi bi-phone me-2 text-primary"></i>SMS Provider Configuration</h2>
-            <p class="text-muted mb-0">Configure and test your SMS gateway provider settings.</p>
+            <h2 class="mb-1"><i class="bi bi-phone me-2" aria-hidden="true"></i>SMS provider configuration</h2>
+            <p class="text-muted mb-0">Configure and test the SMS gateway used for school notifications.</p>
         </div>
         <div class="d-flex flex-wrap gap-2">
-            <button class="btn btn-outline-secondary btn-sm" id="smsExportCsv"><i class="bi bi-filetype-csv me-1"></i>Export CSV</button>
-            <button class="btn btn-outline-secondary btn-sm" id="smsPrint"><i class="bi bi-printer me-1"></i>Print/PDF</button>
-            <button class="btn btn-primary btn-sm" id="smsRefresh"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="smsExportCsv"><i class="bi bi-filetype-csv me-1" aria-hidden="true"></i>Export CSV</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="smsPrint"><i class="bi bi-printer me-1" aria-hidden="true"></i>Print / PDF</button>
+            <button type="button" class="btn btn-primary btn-sm" id="smsRefresh"><i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>Refresh</button>
         </div>
     </div>
-    <div id="smsState" class="alert alert-info" role="status">Loading SMS configuration...</div>
+    <div id="smsState" class="alert alert-info" role="status" aria-live="polite">Loading SMS configuration…</div>
     <div class="mt-4">
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                <h6 class="mb-0 fw-semibold">SMS Provider Fields</h6>
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h3 class="h6 mb-0">SMS provider fields</h3>
             </div>
             <div class="card-body">
                 <div class="table-responsive"><table class="table table-sm mb-0" id="smsFieldsTable">
-                    <thead><tr><th>Setting</th><th>Value</th><th>Source</th><th>Actions</th></tr></thead>
+                    <caption class="visually-hidden">SMS provider settings</caption>
+                    <thead><tr><th scope="col">Setting</th><th scope="col">Value</th><th scope="col">Source</th><th scope="col">Actions</th></tr></thead>
                     <tbody id="smsFieldsBody">
                         <?php foreach ($smsFieldDefinitions as $field): ?>
                             <tr data-sms-field="<?= htmlspecialchars($field['key'], ENT_QUOTES, 'UTF-8') ?>">
@@ -58,15 +59,15 @@ $smsFieldDefinitions = \App\API\Services\SystemCommsConfigService::fieldDefiniti
             </div>
         </div>
     </div>
-    <div class="mt-3"><button class="btn btn-primary" id="smsSaveBtn"><i class="bi bi-check-lg me-1"></i>Save SMS Settings</button></div>
+    <div class="mt-3 d-flex justify-content-end"><button type="button" class="btn btn-primary btn-sm" id="smsSaveBtn"><i class="bi bi-check-lg me-1" aria-hidden="true"></i>Save SMS settings</button></div>
     <hr class="my-4">
-    <div class="card border-0 shadow-sm">
-        <div class="card-header bg-primary text-white"><h6 class="mb-0"><i class="bi bi-activity me-1"></i>Test Connection</h6></div>
+    <div class="card">
+        <div class="card-header"><h3 class="h6 mb-0"><i class="bi bi-activity me-1" aria-hidden="true"></i>Test connection</h3></div>
         <div class="card-body">
             <div class="row g-3 align-items-end">
-                <div class="col-md-4"><label class="form-label fw-semibold">Test Phone Number</label><input type="text" class="form-control" id="smsTestPhone" placeholder="2547XXXXXXXX" value=""></div>
-                <div class="col-md-3"><button class="btn btn-outline-primary" id="smsTestBtn"><i class="bi bi-lightning me-1"></i>Test SMS (Balance Check)</button></div>
-                <div class="col-md-5"><div id="smsTestResult" class="text-muted small" role="status"></div></div>
+                <div class="col-md-4"><label class="form-label" for="smsTestPhone">Test phone number</label><input type="text" class="form-control" id="smsTestPhone" placeholder="2547XXXXXXXX" value="" inputmode="tel"></div>
+                <div class="col-md-3"><button type="button" class="btn btn-outline-primary btn-sm" id="smsTestBtn"><i class="bi bi-lightning me-1" aria-hidden="true"></i>Test SMS connection</button></div>
+                <div class="col-md-5"><div id="smsTestResult" class="text-muted small" role="status" aria-live="polite"></div></div>
             </div>
         </div>
     </div>

@@ -85,6 +85,7 @@
 </style>
 
 <section class="fl" id="feeAccountsPage">
+<div class="card border-success-subtle bg-light mb-3" id="aiFeeArrearsPanel"><div class="card-body py-2"><div class="d-flex justify-content-between align-items-center gap-2"><div><strong><i class="bi bi-stars text-success me-1"></i>Fee arrears assistant</strong><div class="small text-muted">Aggregate aging and collection guidance only; it never names learners and never records payments or waivers.</div></div><button type="button" class="btn btn-outline-success btn-sm" id="queueAiArrearsReview"><i class="bi bi-stars me-1"></i>Review arrears with assistant</button></div><div id="aiFeeArrearsDrafts" class="row g-2 mt-2"></div></div></div>
     <header class="fl-head">
         <div>
             <h1 class="fl-title">Fee accounts</h1>
@@ -450,3 +451,4 @@
 </div>
 
 <?php asset_script($appBase ?? '', 'js/pages/student_fees.js'); ?>
+<?php asset_script($appBase ?? '', 'js/pages/ai_fee_arrears.js'); ?>

@@ -1,0 +1,1049 @@
+/*
+ * Year Rollover handover sheet.
+ *
+ * The page is a ledger, not a dashboard: the live handover verdict sits above
+ * the outgoing-year register, and the long workflow is a set of paper dockets.
+ * The green rules, paper-white panels and dated facts share the visual
+ * language introduced by the Term Transition handover sheet.
+ */
+
+.yr-page {
+  --yr-ink: #1c3a2f;
+  --yr-muted: #627067;
+  --yr-faint: #8b978e;
+  --yr-rule: #d9e1d8;
+  --yr-rule-strong: #aebdae;
+  --yr-paper: #fffdf8;
+  --yr-sheet: #f7f8f3;
+  --yr-gold: #8a6500;
+  --yr-gold-wash: #fbf3dd;
+  --yr-green: #2e7555;
+  --yr-green-wash: #ebf4ee;
+  --yr-red: #8d3d2e;
+  --yr-red-wash: #fdf0eb;
+  --yr-blue: #365d73;
+  --yr-blue-wash: #eef4f7;
+
+  color: var(--yr-ink);
+}
+
+.yr-page :is(h1, h2, h3, h4) {
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  text-wrap: balance;
+}
+
+.yr-page :is(button, input, select, a):focus-visible {
+  outline: 3px solid var(--yr-gold);
+  outline-offset: 3px;
+}
+
+@media (forced-colors: active) {
+  .yr-page :is(button, input, select, a):focus-visible {
+    outline-color: Highlight;
+  }
+}
+
+/* Header ------------------------------------------------------------------ */
+.yr-page .yr-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem 1.5rem;
+  margin-block-end: 1.25rem;
+  padding-block-end: 1rem;
+  border-block-end: 2px solid var(--yr-ink);
+}
+
+.yr-page .yr-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: .55rem;
+  margin: 0 0 .35rem;
+  color: var(--yr-gold);
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
+.yr-page .yr-eyebrow::before {
+  content: "";
+  inline-size: .55rem;
+  block-size: .55rem;
+  border: 1px solid var(--yr-gold);
+  transform: rotate(45deg);
+}
+
+.yr-page .yr-page-header h1 {
+  margin: 0;
+  font-size: clamp(2.1rem, 1.2rem + 2.4vw, 3.25rem);
+  font-weight: 650;
+  letter-spacing: -.025em;
+  line-height: 1.02;
+}
+
+.yr-page .yr-intro {
+  max-inline-size: 68ch;
+  margin: .55rem 0 0;
+  color: var(--yr-muted);
+  font-size: .9rem;
+  line-height: 1.5;
+}
+
+.yr-page .yr-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .6rem;
+}
+
+.yr-page .yr-state-badge {
+  --yr-badge: var(--yr-green);
+  --yr-badge-wash: var(--yr-green-wash);
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  margin: 0;
+  padding: .4rem .7rem;
+  border: 1px solid var(--yr-badge);
+  border-radius: 999px;
+  background: var(--yr-badge-wash);
+  color: var(--yr-badge);
+  font-size: .78rem;
+  font-weight: 700;
+}
+
+.yr-page .yr-state-badge::before {
+  content: "";
+  inline-size: .42rem;
+  block-size: .42rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.yr-page .yr-state-badge[data-state="upcoming"],
+.yr-page .yr-state-badge[data-state="waiting"] {
+  --yr-badge: var(--yr-gold);
+  --yr-badge-wash: var(--yr-gold-wash);
+}
+
+/* Shared surfaces --------------------------------------------------------- */
+.yr-page .yr-panel-label {
+  margin: 0 0 .3rem;
+  color: var(--yr-green);
+  font-family: system-ui, sans-serif;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.yr-page .yr-sheet-head,
+.yr-page .yr-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .6rem 1rem;
+  padding-block-end: .75rem;
+  border-block-end: 1px solid var(--yr-rule);
+}
+
+.yr-page .yr-sheet-head > div {
+  min-inline-size: 0;
+}
+
+.yr-page .yr-sheet-head h2,
+.yr-page .yr-section-head h2,
+.yr-page .yr-sheet-head h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  line-height: 1.2;
+}
+
+.yr-page .yr-sheet-head h3 {
+  font-size: 1.08rem;
+}
+
+.yr-page .yr-sheet-note,
+.yr-page .yr-section-head > p {
+  max-inline-size: 70ch;
+  margin: .35rem 0 0;
+  color: var(--yr-muted);
+  font-size: .82rem;
+  line-height: 1.5;
+}
+
+.yr-page .yr-sheet-note:empty,
+.yr-page .yr-footnote:empty,
+.yr-page .yr-phase-note:empty,
+.yr-page .yr-inline-status:empty,
+.yr-page .yr-draft-state:empty {
+  display: none;
+}
+
+.yr-page :is(.yr-primary, .yr-quiet) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  min-block-size: 2.5rem;
+  padding: .5rem .9rem;
+  border: 1px solid var(--yr-ink);
+  border-radius: 3px;
+  background: var(--yr-ink);
+  color: #fff;
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.yr-page .yr-quiet {
+  border-color: var(--yr-rule-strong);
+  background: var(--yr-paper);
+  color: var(--yr-ink);
+}
+
+.yr-page :is(.yr-primary, .yr-quiet):hover:not(:disabled) {
+  filter: brightness(.94);
+}
+
+.yr-page :is(.yr-primary, .yr-quiet):disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.yr-page :is(.form-control, .form-select) {
+  min-inline-size: 0;
+  border-color: var(--yr-rule-strong);
+  border-radius: 3px;
+  background: var(--kw-theme-surface);
+  color: var(--yr-ink);
+  font-size: .85rem;
+}
+
+.yr-page :is(.form-control, .form-select):focus {
+  border-color: var(--yr-green);
+  box-shadow: 0 0 0 .18rem var(--yr-green-wash);
+}
+
+.yr-page .yr-field label {
+  display: block;
+  margin-block-end: .3rem;
+  font-size: .76rem;
+  font-weight: 700;
+}
+
+.yr-page .yr-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: .85rem 1rem;
+}
+
+.yr-page .yr-inline-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-block-end: .7rem;
+}
+
+.yr-page .yr-footnote,
+.yr-page .yr-draft-state,
+.yr-page .yr-phase-note,
+.yr-page .yr-inline-status {
+  margin: .5rem 0 0;
+  color: var(--yr-muted);
+  font-size: .78rem;
+  line-height: 1.45;
+}
+
+.yr-page .yr-phase-intro {
+  max-inline-size: 68ch;
+  margin: .75rem 0;
+  color: var(--yr-muted);
+  font-size: .85rem;
+  line-height: 1.5;
+}
+
+.yr-page .yr-notice {
+  margin: .85rem 0;
+  padding: .75rem .9rem;
+  border-inline-start: 3px solid var(--yr-gold);
+  border-radius: 3px;
+  background: var(--yr-gold-wash);
+  color: var(--yr-ink);
+  font-size: .82rem;
+  line-height: 1.5;
+}
+
+.yr-page .yr-notice ul {
+  margin: .4rem 0 0;
+  padding-inline-start: 1.1rem;
+}
+
+.yr-page .yr-notice strong {
+  display: block;
+}
+
+.yr-page .yr-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: .5rem;
+  font-size: .8rem;
+  line-height: 1.4;
+}
+
+.yr-page .yr-check-row input {
+  flex: none;
+  inline-size: 1rem;
+  block-size: 1rem;
+  margin-block-start: .1rem;
+  accent-color: var(--yr-green);
+}
+
+/* Live handover sheet ----------------------------------------------------- */
+.yr-page .yr-handover-sheet {
+  --yr-accent: var(--yr-blue);
+  --yr-wash: var(--yr-blue-wash);
+  margin-block-end: 1rem;
+  padding: 1.15rem 1.35rem 1.25rem 1.5rem;
+  border: 1px solid var(--yr-rule);
+  border-inline-start: 5px solid var(--yr-accent);
+  border-radius: 4px;
+  background: var(--yr-wash);
+  container-type: inline-size;
+}
+
+.yr-page .yr-handover-sheet .yr-panel-label {
+  color: var(--yr-accent);
+}
+
+.yr-page .yr-sheet-note .text-danger {
+  color: var(--yr-red) !important;
+}
+
+.yr-page .yr-sheet-note .text-success {
+  color: var(--yr-green) !important;
+}
+
+.yr-page .yr-sheet-note .text-warning {
+  color: var(--yr-gold) !important;
+}
+
+.yr-page .yr-state-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .7rem;
+  margin: 1rem 0 0;
+}
+
+.yr-page .yr-state-facts > div {
+  min-inline-size: 0;
+  padding: .7rem .8rem;
+  border: 1px solid var(--yr-rule);
+  border-radius: 3px;
+  background: var(--yr-paper);
+}
+
+.yr-page .yr-state-facts dt {
+  margin: 0 0 .3rem;
+  color: var(--yr-faint);
+  font-size: .67rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.yr-page .yr-state-facts dd {
+  margin: 0;
+  font-size: .95rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+
+.yr-page .yr-state-facts p {
+  margin: .25rem 0 0;
+  color: var(--yr-muted);
+  font-size: .74rem;
+  line-height: 1.4;
+}
+
+.yr-page #yrCertifiedChecks {
+  margin: -0.55rem 0 1rem;
+  padding: .85rem 1.1rem;
+  border: 1px solid var(--yr-green);
+  border-radius: 4px;
+  background: var(--yr-green-wash);
+}
+
+.yr-page #yrCertifiedChecks h6 {
+  margin: 0 0 .3rem;
+  font-size: .95rem;
+}
+
+.yr-page #yrCertifiedChecks p {
+  margin: 0 0 .5rem;
+  color: var(--yr-muted);
+  font-size: .8rem;
+}
+
+.yr-page #yrCertifiedChecks .list-group {
+  border: 0;
+  background: transparent;
+}
+
+.yr-page #yrCertifiedChecks .list-group-item {
+  border-color: var(--yr-rule);
+  background: transparent;
+  font-size: .8rem;
+}
+
+/* Outgoing-year register -------------------------------------------------- */
+.yr-page .yr-preflight {
+  margin-block-end: 1rem;
+  padding: 1rem 1.25rem 1.15rem;
+  border: 1px solid var(--yr-rule);
+  border-radius: 4px;
+  background: var(--yr-paper);
+  container-type: inline-size;
+}
+
+.yr-page .yr-check-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .75rem;
+  margin: .9rem 0 0;
+}
+
+.yr-page .yr-check {
+  min-inline-size: 0;
+  padding: .8rem .9rem;
+  border: 1px solid var(--yr-rule);
+  border-radius: 3px;
+  background: var(--yr-sheet);
+}
+
+.yr-page .yr-check dt {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  color: var(--yr-muted);
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+
+.yr-page .yr-check dt i {
+  flex: none;
+  color: var(--yr-green) !important;
+  font-size: 1.1rem !important;
+}
+
+.yr-page #yrFeesIcon {
+  color: var(--yr-gold) !important;
+}
+
+.yr-page [id$="Icon"] {
+  margin: 0 !important;
+}
+
+.yr-page .yr-check dd {
+  margin: .5rem 0 0;
+  font-size: .95rem;
+  font-weight: 700;
+}
+
+/* Workflow workspace ------------------------------------------------------ */
+.yr-page .yr-workflow-card {
+  margin-block-end: 1rem;
+  border: 1px solid var(--yr-rule);
+  border-radius: 4px;
+  background: var(--yr-paper);
+  container-type: inline-size;
+}
+
+.yr-page .yr-workflow-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .5rem 1rem;
+  padding: 1.15rem 1.35rem .9rem;
+  border-block-end: 2px solid var(--yr-ink);
+}
+
+.yr-page .yr-workflow-head > div {
+  min-inline-size: 0;
+}
+
+.yr-page .yr-workflow-head h2 {
+  margin: 0;
+  font-size: 1.45rem;
+}
+
+.yr-page .yr-workflow-head p:last-child {
+  max-inline-size: 68ch;
+  margin: .3rem 0 0;
+  color: var(--yr-muted);
+  font-size: .82rem;
+  line-height: 1.5;
+}
+
+.yr-page .yr-workflow-info {
+  margin: 0;
+  color: var(--yr-gold);
+  font-size: .78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.yr-page .yr-target-sheet {
+  display: grid;
+  grid-template-columns: minmax(12rem, 20rem) minmax(0, 1fr);
+  align-items: end;
+  gap: 1rem;
+  padding: 1rem 1.35rem;
+  border-block-end: 1px solid var(--yr-rule);
+  background: var(--yr-sheet);
+}
+
+.yr-page .yr-target-note {
+  min-inline-size: 0;
+  padding: .5rem .7rem;
+  border-inline-start: 3px solid var(--yr-rule-strong);
+  color: var(--yr-muted);
+  font-size: .82rem;
+  line-height: 1.5;
+}
+
+.yr-page #yrAttachWorkflow {
+  min-block-size: 2rem;
+  margin-inline-start: .5rem;
+  padding: .3rem .7rem;
+  border: 1px solid var(--yr-green);
+  border-radius: 3px;
+  background: var(--yr-green);
+  color: #fff;
+  font: inherit;
+  font-size: .76rem;
+  font-weight: 700;
+}
+
+.yr-page .yr-phase-nav {
+  padding: .75rem 1.35rem 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+
+.yr-page #yrPhaseTabs {
+  flex-wrap: nowrap;
+  gap: 0;
+  border-block-end: 1px solid var(--yr-rule-strong);
+}
+
+.yr-page #yrPhaseTabs .nav-link {
+  padding: .55rem .75rem;
+  border: 1px solid transparent;
+  border-block-end: 0;
+  border-radius: 3px 3px 0 0;
+  color: var(--yr-muted);
+  font-size: .78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.yr-page #yrPhaseTabs .nav-link:hover {
+  border-color: var(--yr-rule);
+  background: var(--yr-sheet);
+  color: var(--yr-ink);
+}
+
+.yr-page #yrPhaseTabs .nav-link.active {
+  border-color: var(--yr-rule-strong);
+  background: var(--yr-paper);
+  color: var(--yr-ink);
+  box-shadow: inset 0 3px 0 var(--yr-green);
+}
+
+.yr-page .yr-phase-content {
+  padding: 1.1rem 1.35rem 1.35rem;
+}
+
+.yr-page .yr-phase-panel.active {
+  display: block;
+}
+
+/* Stage docket list ------------------------------------------------------- */
+.yr-page .yr-stage-list {
+  display: grid;
+  gap: .5rem;
+  margin-block-end: 1rem;
+}
+
+.yr-page .yr-stage-list .list-group-item {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .75rem .85rem;
+  border: 1px solid var(--yr-rule);
+  border-inline-start: 3px solid var(--yr-rule-strong);
+  border-radius: 3px;
+  background: var(--yr-sheet);
+}
+
+.yr-page .yr-stage-list .list-group-item:has(.btn) {
+  border-inline-start-color: var(--yr-gold);
+  background: var(--yr-gold-wash);
+}
+
+.yr-page .yr-stage-list .list-group-item .rounded-circle {
+  inline-size: 2.35rem !important;
+  block-size: 2.35rem !important;
+  border: 1px solid var(--yr-rule-strong);
+  background: var(--yr-paper) !important;
+}
+
+.yr-page .yr-stage-list .list-group-item .rounded-circle i {
+  color: var(--yr-green) !important;
+  font-size: 1rem !important;
+}
+
+.yr-page .yr-stage-list .fw-semibold {
+  font-size: .88rem;
+}
+
+.yr-page .yr-stage-list .text-muted.small {
+  font-size: .76rem;
+}
+
+.yr-page .yr-stage-list .btn {
+  min-block-size: 2.1rem;
+  padding: .3rem .65rem;
+  border: 1px solid var(--yr-green);
+  border-radius: 3px;
+  background: var(--yr-green);
+  color: #fff;
+  font-size: .76rem;
+  font-weight: 700;
+}
+
+/* Forms and tables -------------------------------------------------------- */
+.yr-page .yr-form-sheet,
+.yr-page .yr-table-sheet,
+.yr-page .yr-ledger-sheet,
+.yr-page .yr-calendar-sheet,
+.yr-page .yr-promotion-board {
+  margin-block-end: 1rem;
+  padding: 1rem 1.15rem 1.1rem;
+  border: 1px solid var(--yr-rule);
+  border-radius: 4px;
+  background: var(--yr-paper);
+  container-type: inline-size;
+}
+
+.yr-page .yr-form-sheet .yr-sheet-head,
+.yr-page .yr-table-sheet .yr-sheet-head,
+.yr-page .yr-ledger-sheet .yr-sheet-head {
+  margin-block-end: .9rem;
+}
+
+.yr-page .yr-year-fields {
+  margin-block-end: 1rem;
+}
+
+.yr-page .yr-weekday {
+  display: block;
+  margin-block-start: .25rem;
+  color: var(--yr-faint);
+  font-size: .72rem;
+}
+
+.yr-page .yr-half-term-fields {
+  display: grid;
+  gap: .35rem;
+  margin-block-start: .5rem;
+}
+
+.yr-page .yr-half-term-fields.d-none {
+  display: none;
+}
+
+.yr-page .yr-form-actions,
+.yr-page .yr-board-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .6rem 1rem;
+  margin-block-start: .9rem;
+  padding-block-start: .8rem;
+  border-block-start: 1px solid var(--yr-rule);
+}
+
+.yr-page .yr-board-actions strong {
+  font-size: .88rem;
+}
+
+.yr-page .yr-board-actions span {
+  color: var(--yr-muted);
+  font-size: .78rem;
+}
+
+.yr-page .yr-board-actions .yr-primary {
+  margin-inline-start: auto;
+}
+
+.yr-page .yr-table-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.yr-page .yr-calendar-days-scroll {
+  max-block-size: 24rem;
+  overflow: auto;
+}
+
+.yr-page .yr-table {
+  --bs-table-bg: transparent;
+  --bs-table-striped-bg: transparent;
+  margin: 0;
+  color: var(--yr-ink);
+  font-size: .8rem;
+}
+
+.yr-page .yr-table :is(thead, tfoot) {
+  background: var(--yr-sheet);
+}
+
+.yr-page .yr-table thead th {
+  border-block-end: 2px solid var(--yr-rule-strong);
+  color: var(--yr-muted);
+  font-size: .68rem;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.yr-page .yr-table tbody th {
+  color: var(--yr-ink);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.yr-page .yr-table :is(td, th) {
+  padding: .55rem .6rem;
+  border-block-end: 1px solid var(--yr-rule);
+  vertical-align: middle;
+}
+
+.yr-page .yr-table tbody tr:hover {
+  background: var(--yr-sheet);
+}
+
+.yr-page .yr-empty,
+.yr-page .yr-empty-cell {
+  margin: .5rem 0;
+  padding: 1.25rem;
+  color: var(--yr-faint);
+  font-size: .82rem;
+  text-align: center;
+}
+
+.yr-page .yr-calendar-sheet .card-body {
+  padding: 0;
+}
+
+.yr-page .yr-calendar-sheet strong {
+  font-size: .88rem;
+}
+
+.yr-page .yr-calendar-sheet .d-flex > span {
+  color: var(--yr-muted);
+  font-size: .76rem;
+}
+
+.yr-page .yr-calendar-sheet .btn {
+  min-block-size: 2rem;
+  padding: .25rem .6rem;
+  border: 1px solid var(--yr-rule-strong);
+  border-radius: 3px;
+  background: var(--yr-paper);
+  color: var(--yr-ink);
+  font-size: .74rem;
+  font-weight: 700;
+}
+
+/* Finance ledger ---------------------------------------------------------- */
+.yr-page .yr-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .6rem;
+  margin: 0 0 1rem;
+}
+
+.yr-page .yr-metric-grid > div {
+  min-inline-size: 0;
+  padding: .7rem .8rem;
+  border: 1px solid var(--yr-rule);
+  border-radius: 3px;
+  background: var(--yr-sheet);
+}
+
+.yr-page .yr-metric-grid dt {
+  color: var(--yr-faint);
+  font-size: .67rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.yr-page .yr-metric-grid dd {
+  margin: .3rem 0 0;
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.yr-page .yr-ledger-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.yr-page .yr-ledger-columns h4 {
+  margin: 0 0 .5rem;
+  font-size: .95rem;
+}
+
+/* Promotions -------------------------------------------------------------- */
+.yr-page .yr-promotion-board .yr-notice span {
+  display: block;
+}
+
+.yr-page .yr-bulk-grid {
+  align-items: end;
+  margin-block-end: 1rem;
+}
+
+.yr-page .yr-bulk-action {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.yr-page .yr-filter-grid {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1.5fr) repeat(3, minmax(0, 1fr));
+  gap: .85rem 1rem;
+  margin-block-end: 1rem;
+  padding: .9rem 1rem;
+  border: 1px solid var(--yr-rule);
+  border-radius: 4px;
+  background: var(--yr-sheet);
+}
+
+.yr-page .yr-promotion-board .yr-table tbody tr[hidden] {
+  display: none;
+}
+
+/* Journal ----------------------------------------------------------------- */
+.yr-page .yr-log-sheet {
+  padding: 1rem 1.25rem 1.15rem;
+  border: 1px solid var(--yr-rule);
+  border-radius: 4px;
+  background: var(--yr-paper);
+  container-type: inline-size;
+}
+
+.yr-page .yr-log-sheet .yr-section-head {
+  margin-block-end: .9rem;
+}
+
+/* Adaptation -------------------------------------------------------------- */
+.yr-page .yr-print-context {
+  display: none;
+}
+
+@container (width < 900px) {
+  .yr-page .yr-state-facts,
+  .yr-page .yr-check-grid,
+  .yr-page .yr-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .yr-page .yr-ledger-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .yr-page .yr-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (width < 620px) {
+  .yr-page .yr-state-facts,
+  .yr-page .yr-check-grid,
+  .yr-page .yr-metric-grid,
+  .yr-page .yr-field-grid,
+  .yr-page .yr-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .yr-page .yr-target-sheet {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .yr-page .yr-bulk-action,
+  .yr-page .yr-inline-actions {
+    justify-content: flex-start;
+  }
+
+  .yr-page .yr-board-actions .yr-primary {
+    margin-inline-start: 0;
+  }
+
+  .yr-page .yr-phase-actions-right {
+    flex-wrap: wrap;
+  }
+}
+
+@media (width < 760px) {
+  .yr-page .yr-page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .yr-page .yr-workflow-head {
+    flex-direction: column;
+  }
+
+  .yr-page .yr-target-sheet,
+  .yr-page .yr-phase-content,
+  .yr-page .yr-phase-nav {
+    padding-inline: 1rem;
+  }
+
+  .yr-page .yr-handover-sheet,
+  .yr-page .yr-preflight,
+  .yr-page .yr-log-sheet {
+    padding-inline: 1.1rem;
+  }
+}
+
+@media (pointer: coarse) {
+  .yr-page :is(.yr-primary, .yr-quiet, #yrAttachWorkflow) {
+    min-block-size: 2.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .yr-page *,
+  .yr-page *::before,
+  .yr-page *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+  }
+}
+
+/* Print ------------------------------------------------------------------- */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  html,
+  body,
+  #app-shell,
+  .app-shell,
+  .app-main-column,
+  .app-content,
+  #main-content-segment {
+    block-size: auto !important;
+    min-block-size: 0 !important;
+    overflow: visible !important;
+  }
+
+  #sidebar-container,
+  #sidebar-overlay,
+  #app-header,
+  .app-footer,
+  .modal,
+  .offcanvas,
+  .toast,
+  .dropdown-menu,
+  .popover,
+  .tooltip,
+  dialog {
+    display: none !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .yr-page,
+  .yr-page * {
+    visibility: visible !important;
+  }
+
+  .yr-page {
+    position: static !important;
+    inset: auto !important;
+    inline-size: 100%;
+    max-inline-size: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    color: #000;
+    background: #fff;
+  }
+
+  .yr-page .no-print,
+  .yr-page .yr-phase-actions,
+  .yr-page .yr-form-actions,
+  .yr-page .yr-board-actions,
+  .yr-page .yr-inline-actions,
+  .yr-page #yrCreateForm,
+  .yr-page #yrPhaseTabs {
+    display: none !important;
+  }
+
+  .yr-page .yr-phase-panel {
+    display: block !important;
+    opacity: 1 !important;
+  }
+
+  .yr-page .yr-print-context {
+    display: block !important;
+    margin: 0 0 .4rem;
+    padding-block-end: .25rem;
+    border-block-end: 1px solid #aaa;
+    color: #333;
+    font-size: 9pt;
+  }
+
+  .yr-page .yr-page-header h1 {
+    font-size: 18pt;
+  }
+
+  .yr-page .yr-table-scroll,
+  .yr-page .yr-calendar-days-scroll {
+    max-block-size: none !important;
+    overflow: visible !important;
+  }
+
+  .yr-page .yr-table {
+    font-size: 8pt;
+  }
+
+  .yr-page :is(.yr-handover-sheet, .yr-preflight, .yr-form-sheet, .yr-table-sheet,
+    .yr-ledger-sheet, .yr-calendar-sheet, .yr-promotion-board, .yr-log-sheet) {
+    break-inside: avoid;
+    background: #fff;
+  }
+}

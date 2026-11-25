@@ -603,9 +603,9 @@
     $('examResultsPrint').classList.toggle('d-none', !printAllowed);
     $('examResultsPrint').onclick = () => { if (printAllowed) printScope('exam-workspace'); };
     $('examResultsCsv').onclick = () => { if (exportAllowed) exportTable('examPeriodResultsTable', `${p.title}-results.csv`); };
-    root.querySelectorAll('[data-register-review]').forEach((button)=>button.onclick=async()=>{const approve=button.dataset.reviewAction==='approve';const reason=approve?'Class teacher review approved':(prompt('Tell the subject teacher what needs correction:')||'').trim();if(!reason)return;try{await call(`/academic/${approve?'approve':'reject'}-assessment`,'POST',{assessment_id:Number(button.dataset.registerReview),reason});notify(approve?'Register approved for School Administrator publication.':'Register returned to the subject teacher.','success');await showResults(periodId,true);}catch(e){notify(e.message||'Unable to review register.','error');}});
-    root.querySelectorAll('[data-result-edit]').forEach((button)=>button.onclick=async()=>{ const marks=prompt('Corrected marks',button.dataset.marks); if(marks===null)return; const entry_status=prompt('Result status: present, absent, or exempted',button.dataset.entry); if(!entry_status)return; try{await call(`/academic/exam-period-result/${button.dataset.resultEdit}`, 'PUT', {marks_obtained:marks,entry_status,reason:'School administrator correction'}); notify('Result corrected.','success'); await showResults(periodId,mine);}catch(e){notify(e.message||'Unable to update result.','error');} });
-    root.querySelectorAll('[data-result-delete]').forEach((button)=>button.onclick=async()=>{if(!confirm('Delete this result record?'))return;try{await call(`/academic/exam-period-result/${button.dataset.resultDelete}`, 'DELETE');notify('Result record deleted.','success');await showResults(periodId,mine);}catch(e){notify(e.message||'Unable to delete result.','error');}});
+    root.querySelectorAll('[data-register-review]').forEach((button)=>button.onclick=async()=>{const approve=button.dataset.reviewAction==='approve';const reason=approve?'Class teacher review approved':((await window.promptAction?.('Return register','Tell the subject teacher what needs correction:','',{promptLabel:'Correction note'}))||'').trim();if(!reason)return;try{await call(`/academic/${approve?'approve':'reject'}-assessment`,'POST',{assessment_id:Number(button.dataset.registerReview),reason});notify(approve?'Register approved for School Administrator publication.':'Register returned to the subject teacher.','success');await showResults(periodId,true);}catch(e){notify(e.message||'Unable to review register.','error');}});
+    root.querySelectorAll('[data-result-edit]').forEach((button)=>button.onclick=async()=>{ const marks=await window.promptAction?.('Correct result','Corrected marks',button.dataset.marks,{promptLabel:'Marks'}); if(marks===null)return; const entry_status=await window.promptAction?.('Result status','Result status: present, absent, or exempted',button.dataset.entry,{promptLabel:'Status'}); if(!entry_status)return; try{await call(`/academic/exam-period-result/${button.dataset.resultEdit}`, 'PUT', {marks_obtained:marks,entry_status,reason:'School administrator correction'}); notify('Result corrected.','success'); await showResults(periodId,mine);}catch(e){notify(e.message||'Unable to update result.','error');} });
+    root.querySelectorAll('[data-result-delete]').forEach((button)=>button.onclick=async()=>{if(!(await window.confirmAction?.('Delete result','Delete this result record?',{confirmText:'Delete',danger:true})))return;try{await call(`/academic/exam-period-result/${button.dataset.resultDelete}`, 'DELETE');notify('Result record deleted.','success');await showResults(periodId,mine);}catch(e){notify(e.message||'Unable to delete result.','error');}});
     root.querySelectorAll('[data-result-restore]').forEach((button)=>button.onclick=async()=>{try{await call(`/academic/exam-period-result/${button.dataset.resultRestore}/restore`, 'POST', {});notify('Result record restored.','success');await showResults(periodId,mine,true);}catch(e){notify(e.message||'Unable to restore result.','error');}});
     $('toggleDeletedResults')?.addEventListener('click',()=>showResults(periodId,mine,!includeDeleted));
   }
@@ -928,7 +928,7 @@
       catch (e) { notify(e.message || 'Unable to change the status.', 'error'); await showPapers(periodId, sel.dataset.paperStatus); }
     }));
     root.querySelectorAll('[data-paper-delete]').forEach((btn) => btn.addEventListener('click', async () => {
-      if (!confirm('Remove this paper and its record?')) return;
+      if (!(await window.confirmAction('Remove exam paper', 'Remove this paper and its record?', { confirmText: 'Remove', danger: true }))) return;
       try { await call(`/academic/exam-papers/${btn.dataset.paperDelete}`, 'DELETE'); notify('Paper removed.', 'success'); await showPapers(periodId); }
       catch (e) { notify(e.message || 'Unable to remove the paper.', 'error'); }
     }));
@@ -944,7 +944,7 @@
       catch (e) { notify(e.message || 'Unable to download the file.', 'error'); }
     }));
     root.querySelectorAll('[data-paper-file-delete]').forEach((btn) => btn.addEventListener('click', async () => {
-      if (!confirm('Remove this file?')) return;
+      if (!(await window.confirmAction('Remove file', 'Remove this file?', { confirmText: 'Remove', danger: true }))) return;
       try { await call(`/academic/exam-paper-files/${btn.dataset.paperFileDelete}`, 'DELETE'); notify('File removed.', 'success'); await showPapers(periodId); }
       catch (e) { notify(e.message || 'Unable to remove the file.', 'error'); }
     }));
@@ -992,13 +992,13 @@
   }
 
   async function deletePeriod(periodId, label) {
-    if (!confirm(`Delete ${label}? Its records stay in the system but it is hidden from the list.`)) return;
+    if (!(await window.confirmAction('Delete exam period', `Delete ${label}? Its records stay in the system but it is hidden from the list.`, { confirmText: 'Delete', danger: true }))) return;
     try { await call(`/academic/exam-periods/${periodId}`, 'DELETE'); notify('Exam period deleted.', 'success'); await loadPeriods(); }
     catch (error) { notify(error.message || 'Unable to delete exam period.', 'error'); }
   }
 
   async function reopenPeriod(periodId, label) {
-    if (!confirm(`Reopen the timetable for ${label}? Result entry is closed until it is reopened.`)) return;
+    if (!(await window.confirmAction('Reopen exam timetable', `Reopen the timetable for ${label}? Result entry is closed until it is reopened.`, { confirmText: 'Reopen' }))) return;
     try {
       await call(`/academic/exam-periods/${periodId}/reopen`, 'POST', { target: 'timetable' });
       notify('Exam period reopened for timetable editing.', 'success');
@@ -1007,7 +1007,7 @@
   }
 
   async function publishPeriod(periodId, label) {
-    if (!confirm(`Publish the timetable for ${label}? Teachers and learners see the sittings after this.`)) return;
+    if (!(await window.confirmAction('Publish exam timetable', `Publish the timetable for ${label}? Teachers and learners see the sittings after this.`, { confirmText: 'Publish' }))) return;
     try {
       await call(`/academic/exam-periods/${periodId}/publish`, 'POST', {});
       notify('Exam timetable published.', 'success');
@@ -1016,7 +1016,7 @@
   }
 
   async function openPeriodResults(periodId, label) {
-    if (!confirm(`Open result entry for ${label}? Subject teachers can then record marks.`)) return;
+    if (!(await window.confirmAction('Open result entry', `Open result entry for ${label}? Subject teachers can then record marks.`, { confirmText: 'Open entry' }))) return;
     try {
       await call(`/academic/exam-periods/${periodId}/open-results`, 'POST', {});
       notify('Result entry opened.', 'success');

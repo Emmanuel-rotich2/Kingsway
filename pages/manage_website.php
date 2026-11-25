@@ -40,19 +40,15 @@
 .kw-web .btn-icon.danger:hover { color: var(--web-danger); border-color: var(--web-danger); }
 .kw-web :focus-visible { outline: 3px solid rgba(46,139,87,.45); outline-offset: 2px; }
 
-/* Desk: rail | canvas | up next. Three columns with independent scrolling.
-   Each column scrolls independently; the whole page scrolls when inner scrolls are exhausted. */
+/* Desk: internal sidebar | content. Two columns with independent scrolling. */
 .kw-web .web-desk {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 300px;
-  grid-template-areas: "rail canvas next";
-  gap: 20px;
+  display: flex;
+  gap: 14px;
   height: calc(100vh - 130px); /* viewport minus header + padding */
   min-height: 600px;
 }
-.kw-web .web-rail { grid-area: rail; }
-.kw-web .web-canvas { grid-area: canvas; min-width: 0; }
-.kw-web .web-next { grid-area: next; }
+.kw-web .web-rail { flex: 0 0 220px; min-width: 0; }
+.kw-web .web-canvas { flex: 1 1 auto; min-width: 0; }
 
 /* Each column is a flex column with independent vertical scrolling */
 .kw-web .web-desk > * {
@@ -64,21 +60,11 @@
   min-height: 0;
 }
 
-/* Rail: sticky header within its own scroll, then scrollable groups */
+/* Rail: scrolls as a single column */
 .kw-web .web-rail {
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: 14px;
-}
-.kw-web .web-rail > .web-rail-group:first-child {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--web-paper);
-  padding-bottom: 8px;
-  margin-bottom: 8px;
-  border-bottom: 1px solid var(--web-line);
 }
 
 /* Canvas: scrolls independently */
@@ -113,51 +99,18 @@ body.kw-web-workspace .web-desk { flex: 1 1 auto; min-height: 0; height: auto; g
 /* Tighter page chrome: the shared shell padding is generous for this dense workspace. */
 body.kw-web-workspace .app-content-inner { padding: 10px 14px 14px !important; }
 body.kw-web-workspace .kw-web-page { padding: 0 !important; }
-body.kw-web-workspace .web-head { margin-bottom: 14px; }
-@media (min-width: 1700px) {
-  body.kw-web-workspace .web-desk { grid-template-rows: minmax(0, 1fr); }
-}
+body.kw-web-workspace .web-head { margin-bottom: 10px; }
 
-/* Responsive: Tablet - rail + next on left, canvas on right */
-@media (max-width: 1699.98px) {
-  .kw-web .web-desk {
-    grid-template-columns: 210px minmax(0, 1fr);
-    grid-template-areas:
-      "rail next"
-      "rail canvas";
-    grid-template-rows: auto 1fr;
-    height: calc(100vh - 130px);
-  }
-  body.kw-web-workspace .web-desk {
-    /* Bounded rows: "Up next" cannot grow and squeeze the canvas. */
-    grid-template-rows: minmax(0, 2fr) minmax(0, 3fr);
-  }
-  .kw-web .web-next {
-    grid-area: next;
-  }
-  .kw-web .web-next .web-next-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    align-items: stretch;
-  }
-  .kw-web .web-next:not(.is-expanded) .web-next-item:nth-child(n+4) { display: none; }
-  .kw-web .web-next-more:not([hidden]) { display: inline-block; }
-}
-
-/* Responsive: Mobile - single column stack */
+/* Mobile - sidebar becomes a horizontal strip above the content */
 @media (max-width: 991.98px) {
   .kw-web .web-desk {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "rail"
-      "next"
-      "canvas";
-    grid-template-rows: auto auto 1fr;
+    flex-direction: column;
     height: auto;
-    min-height: auto;
+    min-height: 0;
   }
-  .kw-web { padding: 14px; }
   .kw-web .web-rail {
+    flex: 0 0 auto;
+    width: auto;
     position: static;
     flex-direction: row;
     flex-wrap: nowrap;
@@ -167,11 +120,12 @@ body.kw-web-workspace .web-head { margin-bottom: 14px; }
     scrollbar-width: thin;
     max-height: none;
   }
+  .kw-web .web-canvas { flex: 1 1 auto; }
+  .kw-web { padding: 14px; }
   .kw-web .web-rail .web-rail-group { display: contents; }
   .kw-web .web-rail .web-rail-group-label { display: none; }
   .kw-web .web-rail .web-rail-group button { width: auto; flex: 0 0 auto; border: 1px solid var(--web-line); background: var(--web-card); }
   .kw-web .web-rail .web-rail-group button[aria-current="page"] { background: var(--web-green); border-color: var(--web-green); }
-  .kw-web .web-rail > .web-rail-group:first-child { position: static; }
 }
 .kw-web .web-rail-group { display: flex; flex-direction: column; gap: 2px; }
 .kw-web .web-rail-group-label { font-size: .75rem; font-weight: 600; color: var(--web-muted); padding: 0 10px 4px; }
@@ -216,22 +170,6 @@ body.kw-web-workspace .web-head { margin-bottom: 14px; }
 .kw-web .web-tile figcaption { font-size: .8125rem; padding: 7px 9px; display: flex; justify-content: space-between; gap: 6px; align-items: center; }
 .kw-web .web-tile .web-tile-kind { position: absolute; top: 8px; left: 8px; background: rgba(27,38,32,.75); color: #fff; border-radius: 6px; font-size: .7rem; padding: 1px 6px; }
 .kw-web .web-tile.is-hidden img, .kw-web .web-tile.is-hidden video { opacity: .45; }
-
-/* Up next */
-.kw-web .web-next { position: relative; }
-.kw-web .web-next-card { background: var(--web-maize-tint); border: 1px solid #EFD9A0; border-radius: 16px; padding: 16px; }
-.kw-web .web-next-card h2 { display: flex; align-items: center; gap: 8px; }
-.kw-web .web-next-card h2 i { color: #A87410; }
-.kw-web .web-next-list { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 10px; }
-.kw-web .web-next-item { background: #FFFDF7; border: 1px solid #F1E2B9; border-left: 4px solid var(--web-maize); border-radius: 10px; padding: 10px 12px; }
-.kw-web .web-next-item.p1 { border-left-color: #C7861A; }
-.kw-web .web-next-item h3 { font-size: .9rem; }
-.kw-web .web-next-item p { font-size: .8125rem; color: #6B5A33; margin: 3px 0 8px; }
-.kw-web .web-next-item .web-next-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-.kw-web .web-next-item .btn { font-size: .78rem; padding: 3px 10px; border-radius: 8px; }
-.kw-web .web-next-go { background: var(--web-green); color: #fff; border: 0; }
-.kw-web .web-next-go:hover { background: #0F4A2F; color: #fff; }
-.kw-web .web-next-ai { background: transparent; border: 1px solid #D9BE77; color: #6B5A33; }
 
 /* Forms */
 .kw-web-modal .form-label, .kw-web .form-label { font-size: .8125rem; font-weight: 600; color: #2D3A33; margin-bottom: 4px; }
@@ -317,11 +255,7 @@ body.kw-web-workspace .web-head { margin-bottom: 14px; }
 <div class="kw-web" id="kwWeb">
 
   <header class="web-head">
-    <div>
-      <h1>Website</h1>
-      <p class="web-sub">Publish news, photos, events and documents to the school's public website, and answer families who get in touch.</p>
-    </div>
-    <div class="web-head-actions">
+    <div class="web-head-actions ms-auto">
       <button type="button" class="btn btn-web-quiet" data-action="preview" data-preview-page="">
         <i class="bi bi-eye me-1"></i>Preview site
       </button>
@@ -590,19 +524,6 @@ body.kw-web-workspace .web-head { margin-bottom: 14px; }
 
     </main>
 
-    <!-- Up next: grounded posting suggestions -->
-    <aside class="web-next" aria-labelledby="webNextTitle">
-      <div class="web-next-card">
-        <div class="d-flex justify-content-between align-items-center">
-          <h2 id="webNextTitle"><i class="bi bi-lightbulb"></i>Up next</h2>
-          <button type="button" class="btn-icon" data-action="refresh-next" title="Check again" aria-label="Check again"><i class="bi bi-arrow-clockwise"></i></button>
-        </div>
-        <p class="small mb-0" style="color:#6B5A33">Worth posting, based on the school calendar and your website.</p>
-        <ul class="web-next-list" id="webNextList"></ul>
-        <button type="button" class="web-next-more" id="webNextMore" data-action="toggle-next" hidden>Show all suggestions</button>
-      </div>
-    </aside>
-
   </div>
 </div>
 </div>
@@ -685,7 +606,8 @@ body.kw-web-workspace .web-head { margin-bottom: 14px; }
                 <div class="web-live-date" id="newsLiveDate"></div>
               </div>
             </article>
-            <button type="button" class="btn btn-web-quiet w-100 mt-3" data-action="ai-draft-news"><i class="bi bi-stars me-1"></i>Ask the assistant to draft this</button>
+            <button type="button" class="btn btn-web-quiet w-100 mt-3" id="newsAiDraftBtn" data-action="ai-draft-news"><i class="bi bi-stars me-1"></i>Ask the assistant to draft this</button>
+            <div id="newsAiDraftHost"></div>
             <p class="form-hint mt-2">The assistant writes a draft for you to check. Nothing is published until you save.</p>
           </div>
         </div>
@@ -723,7 +645,11 @@ body.kw-web-workspace .web-head { margin-bottom: 14px; }
         </div>
         <div class="col-md-6">
           <label class="form-label" for="galleryCaptionAll">Caption for all (optional)</label>
-          <input type="text" class="form-control" id="galleryCaptionAll" maxlength="200" placeholder="Prize-giving day 2026">
+          <div class="input-group input-group-sm">
+            <input type="text" class="form-control" id="galleryCaptionAll" maxlength="200" placeholder="Prize-giving day 2026">
+            <button class="btn btn-outline-secondary" type="button" id="galleryCaptionAiBtn" title="Suggest a caption"><i class="bi bi-stars"></i></button>
+          </div>
+          <div id="galleryCaptionAiHost"></div>
         </div>
       </div>
       <details class="mt-3"><summary class="small text-muted">Add a YouTube or video link instead</summary>
@@ -773,7 +699,14 @@ body.kw-web-workspace .web-head { margin-bottom: 14px; }
         <div class="col-md-6"><label class="form-label" for="eventStatus">Status</label>
           <select class="form-select" id="eventStatus"><option value="upcoming">Coming up</option><option value="ongoing">Happening now</option><option value="past">Finished</option><option value="cancelled">Cancelled</option></select></div>
         <div class="col-12"><label class="form-label" for="eventLocation">Where</label><input type="text" class="form-control" id="eventLocation" placeholder="School field"></div>
-        <div class="col-12"><label class="form-label" for="eventDescription">What families should know</label><textarea class="form-control" id="eventDescription" rows="4"></textarea></div>
+        <div class="col-12">
+          <div class="d-flex justify-content-between align-items-center">
+            <label class="form-label mb-0" for="eventDescription">What families should know</label>
+            <button type="button" class="btn btn-link btn-sm p-0" id="eventAiDraftBtn"><i class="bi bi-stars me-1"></i>Draft with AI</button>
+          </div>
+          <textarea class="form-control" id="eventDescription" rows="4"></textarea>
+          <div id="eventAiDraftHost"></div>
+        </div>
       </div>
     </div>
     <div class="modal-footer"><button type="button" class="btn btn-web-quiet" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-web" data-action="save-event">Save event</button></div>
@@ -795,7 +728,14 @@ body.kw-web-workspace .web-head { margin-bottom: 14px; }
       <div class="row g-3 mt-1">
         <div class="col-md-8"><label class="form-label" for="dlTitle">Title families will see</label><input type="text" class="form-control" id="dlTitle" maxlength="200" placeholder="Term 1 book list"></div>
         <div class="col-md-4"><label class="form-label" for="dlCategory">Group</label><input type="text" class="form-control" id="dlCategory" list="dlCategoryOptions" maxlength="50" value="General"><datalist id="dlCategoryOptions"></datalist></div>
-        <div class="col-12"><label class="form-label" for="dlDesc">Short description</label><input type="text" class="form-control" id="dlDesc" maxlength="400"></div>
+        <div class="col-12">
+          <div class="d-flex justify-content-between align-items-center">
+            <label class="form-label mb-0" for="dlDesc">Short description</label>
+            <button type="button" class="btn btn-link btn-sm p-0" id="dlDescAiBtn"><i class="bi bi-stars me-1"></i>Suggest</button>
+          </div>
+          <input type="text" class="form-control" id="dlDesc" maxlength="400">
+          <div id="dlDescAiHost"></div>
+        </div>
         <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" id="dlActive" checked><label class="form-check-label" for="dlActive">Show on the downloads page</label></div></div>
       </div>
     </div>
@@ -816,7 +756,14 @@ body.kw-web-workspace .web-head { margin-bottom: 14px; }
         <div class="col-md-4"><label class="form-label" for="jobDeadline">Apply by</label><input type="date" class="form-control" id="jobDeadline"></div>
         <div class="col-md-4"><label class="form-label" for="jobStatus">Status</label><select class="form-select" id="jobStatus"><option value="open">Open for applications</option><option value="closed">Closed</option><option value="filled">Filled</option></select></div>
         <div class="col-12"><label class="form-label" for="jobLocation">Location</label><input type="text" class="form-control" id="jobLocation" value="Londiani, Kenya"></div>
-        <div class="col-12"><label class="form-label" for="jobDescription">About the role</label><textarea class="form-control" id="jobDescription" rows="4"></textarea></div>
+        <div class="col-12">
+          <div class="d-flex justify-content-between align-items-center">
+            <label class="form-label mb-0" for="jobDescription">About the role</label>
+            <button type="button" class="btn btn-link btn-sm p-0" id="jobAiDraftBtn"><i class="bi bi-stars me-1"></i>Draft all three with AI</button>
+          </div>
+          <textarea class="form-control" id="jobDescription" rows="4"></textarea>
+          <div id="jobAiDraftHost"></div>
+        </div>
         <div class="col-md-6"><label class="form-label" for="jobRequirements">Requirements</label><textarea class="form-control" id="jobRequirements" rows="5" placeholder="One per line&#10;P1 or B.Ed (Primary)&#10;TSC registration"></textarea></div>
         <div class="col-md-6"><label class="form-label" for="jobResponsibilities">Responsibilities</label><textarea class="form-control" id="jobResponsibilities" rows="5" placeholder="One per line&#10;Teach CBC lessons&#10;Keep class registers"></textarea></div>
       </div>
@@ -846,6 +793,33 @@ body.kw-web-workspace .web-head { margin-bottom: 14px; }
     </div>
     <div class="modal-body p-0 d-flex">
       <div class="web-preview-stage" id="previewStage"><iframe id="previewFrame" title="Public website preview" referrerpolicy="same-origin"></iframe></div>
+    </div>
+  </div></div>
+</div>
+
+<!-- Enquiry reply -->
+<div class="modal fade kw-web-modal" id="wsReplyModal" tabindex="-1" aria-labelledby="wsReplyTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title fw-bold" id="wsReplyTitle">Reply to enquiry</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="replyEditId">
+      <div class="web-box mb-3">
+        <div class="small text-muted" id="replyContext"></div>
+      </div>
+      <label class="form-label" for="replyText">Your reply</label>
+      <textarea class="form-control" id="replyText" rows="8" placeholder="Write your reply to the family…"></textarea>
+      <div class="d-flex justify-content-between align-items-center mt-2">
+        <button type="button" class="btn btn-link btn-sm p-0" id="replyAiDraftBtn"><i class="bi bi-stars me-1"></i>Draft a reply with AI</button>
+        <span class="small text-muted">Queued for email delivery when you send.</span>
+      </div>
+      <div id="replyAiDraftHost"></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-web-quiet" data-bs-dismiss="modal">Cancel</button>
+      <button type="button" class="btn btn-web" id="replySendBtn" data-action="send-reply">Send reply</button>
     </div>
   </div></div>
 </div>

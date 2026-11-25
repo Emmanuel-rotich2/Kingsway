@@ -230,7 +230,7 @@
 
     async function saveRoute() {
         const name = document.getElementById('routeName').value.trim();
-        if (!name) { alert('Route name is required.'); return; }
+        if (!name) { await window.infoDialog('Route name required', 'Enter a route name before saving.', { type: 'warning' }); return; }
         const id = document.getElementById('routeId').value;
         const data = {
             name,
@@ -247,7 +247,7 @@
             await loadRoutes();
             await loadStats();
         } catch (e) {
-            alert('Failed to save route: ' + (e.message || 'Error'));
+            await window.infoDialog('Route not saved', 'Failed to save route: ' + (e.message || 'Error'), { type: 'error' });
         }
     }
 

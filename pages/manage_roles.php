@@ -6,32 +6,39 @@
 
 ?>
 <div class="container-fluid py-4" id="manageRolesPage">
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <link
+        rel="stylesheet"
+        href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/manage-roles.css?v=<?= asset_version('css/pages/manage-roles.css') ?>"
+    >
+    <header class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h3 mb-1">Role Definitions</h2>
+            <h2 class="h3 mb-1">Role definitions</h2>
             <p class="text-muted mb-0">
                 Create and maintain role names, descriptions, scope and activation status.
                 Permission assignments remain in the Role-Permission Matrix.
             </p>
         </div>
-        <div class="d-flex flex-wrap gap-2">
+        <div class="d-flex flex-wrap gap-2 no-print">
             <a
                 class="btn btn-outline-primary"
                 href="<?= htmlspecialchars($appBase) ?>/home.php?route=role_permission_matrix"
             >
-                <i class="bi bi-key me-1"></i> Permission matrix
+                <i class="bi bi-key me-1" aria-hidden="true"></i> Permission matrix
             </a>
             <button type="button" class="btn btn-outline-secondary" id="exportRolesBtn">
-                <i class="bi bi-file-export me-1"></i> Export
+                <i class="bi bi-filetype-csv me-1" aria-hidden="true"></i> Export CSV
+            </button>
+            <button type="button" class="btn btn-outline-secondary" data-kw-sa-print>
+                <i class="bi bi-printer me-1" aria-hidden="true"></i> Print / PDF
             </button>
             <button type="button" class="btn btn-outline-secondary" id="refreshRolesBtn">
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i> Refresh
             </button>
             <button type="button" class="btn btn-primary" id="createRoleBtn">
-                <i class="bi bi-plus-lg me-1"></i> Create role
+                <i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Create role
             </button>
         </div>
-    </div>
+    </header>
 
     <div class="row g-3 mb-4" id="roleDefinitionsSummary"></div>
 
@@ -44,18 +51,20 @@
         Waiting for authentication...
     </div>
 
-    <div class="card border-0 shadow-sm">
-        <div class="card-header bg-white">
+    <div class="card">
+        <div class="card-header">
+            <h3 class="h6 mb-3">Role definitions</h3>
             <div class="row g-2 align-items-end">
                 <div class="col-lg-6">
                     <label class="form-label small text-muted" for="searchRoles">Search</label>
                     <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
                         <input
                             class="form-control"
                             id="searchRoles"
                             type="search"
                             placeholder="Search role name or description"
+                            aria-label="Search role definitions"
                             autocomplete="off"
                         >
                     </div>
@@ -86,41 +95,19 @@
                 </div>
             </div>
         </div>
-        <div class="card-body border-bottom py-2 bg-light" id="bulkActionBar" hidden>
-            <div class="d-flex flex-wrap align-items-center gap-2">
-                <span class="fw-semibold small" id="bulkSelectedCount">0 selected</span>
-                <button type="button" class="btn btn-sm btn-outline-success" id="bulkActivateBtn">
-                    <i class="bi bi-check2-circle me-1"></i> Activate
-                </button>
-                <button type="button" class="btn btn-sm btn-outline-warning" id="bulkDeactivateBtn">
-                    <i class="bi bi-x-circle me-1"></i> Deactivate
-                </button>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkClearBtn">
-                    Clear selection
-                </button>
-            </div>
-        </div>
-
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
+                <caption class="visually-hidden">Role definitions and their status</caption>
                 <thead id="roleDefinitionsTableHead">
                     <tr>
-                        <th class="text-center" style="width: 40px">
-                            <input
-                                class="form-check-input"
-                                type="checkbox"
-                                data-select-all
-                                aria-label="Select all matching roles"
-                            >
-                        </th>
                         <th scope="col">Role</th>
                         <th scope="col">Description</th>
                         <th scope="col">Scope</th>
                         <th scope="col">Type</th>
-                        <th class="text-center">Users</th>
-                        <th class="text-center">Permissions</th>
+                        <th class="text-center" scope="col">Users</th>
+                        <th class="text-center" scope="col">Permissions</th>
                         <th scope="col">Status</th>
-                        <th class="text-end">Actions</th>
+                        <th class="text-end" scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="roleDefinitionsTableBody">
@@ -150,17 +137,17 @@
                     <ul class="nav nav-pills nav-justified mb-4" id="roleWizardSteps">
                         <li class="nav-item">
                             <button type="button" class="nav-link active" id="roleStep1Btn" data-role-step="1">
-                                <i class="bi bi-pencil-square me-1"></i>Details
+                                <i class="bi bi-pencil-square me-1" aria-hidden="true"></i>Details
                             </button>
                         </li>
                         <li class="nav-item">
                             <button type="button" class="nav-link" id="roleStep2Btn" data-role-step="2" disabled>
-                                <i class="bi bi-key me-1"></i>Permissions
+                                <i class="bi bi-key me-1" aria-hidden="true"></i>Permissions
                             </button>
                         </li>
                         <li class="nav-item">
                             <button type="button" class="nav-link" id="roleStep3Btn" data-role-step="3" disabled>
-                                <i class="bi bi-check2-circle me-1"></i>Confirm
+                                <i class="bi bi-check2-circle me-1" aria-hidden="true"></i>Confirm
                             </button>
                         </li>
                     </ul>
@@ -207,9 +194,8 @@
                         </div>
                         <input class="form-control mb-3" type="search"
                                id="rolePermissionsSearch" placeholder="Search permissions..."
-                               autocomplete="off">
-                        <div class="border rounded p-3" id="rolePermissionsContainer"
-                             style="max-height:340px;overflow-y:auto">
+                               aria-label="Search permissions" autocomplete="off">
+                        <div class="border rounded p-3 role-permissions-scroll" id="rolePermissionsContainer">
                             <div class="text-muted py-3" id="rolePermissionsLoading">
                                 <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Loading permissions...
                             </div>
@@ -232,15 +218,15 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-role-wiz="prev" id="roleWizardPrevBtn" disabled>
-                        <i class="bi bi-arrow-left me-1"></i>Back
+                        <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Back
                     </button>
                     <div class="ms-auto">
                         <button type="button" class="btn btn-outline-secondary me-2" data-bs-dismiss="modal">Cancel</button>
                         <button type="button" class="btn btn-primary" id="roleWizardNextBtn">
-                            Next<i class="bi bi-arrow-right ms-1"></i>
+                            Next<i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>
                         </button>
                         <button type="submit" class="btn btn-success d-none" id="roleWizardSaveBtn">
-                            <i class="bi bi-check-lg me-1"></i>Save role
+                            <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Save role
                         </button>
                     </div>
                 </div>

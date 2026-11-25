@@ -981,7 +981,7 @@ $dateAwarded = certificateValue(
         </div>
     </article>
 
-    <script>
+    <script nonce="<?= csp_nonce() ?>">
         (function () {
             "use strict";
 

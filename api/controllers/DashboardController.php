@@ -172,6 +172,7 @@ class DashboardController extends BaseController
                 $result = self::withoutInternalScopeChecks(
                     $bridge->assist($context, $question)
                 );
+                $this->persistAssistantOutcome($context, $question, $result);
                 return $this->success($result, 'Agent answer prepared');
             }
 
@@ -181,6 +182,7 @@ class DashboardController extends BaseController
                 $context,
                 $question
             );
+            $this->persistAssistantOutcome($context, $question, $result);
             return $this->success($result, 'Agent answer prepared');
         } catch (\RuntimeException $e) {
             // Python platform down mid-redeploy: degrade to the PHP engine
@@ -191,6 +193,7 @@ class DashboardController extends BaseController
                     $context,
                     $question
                 );
+                $this->persistAssistantOutcome($context, $question, $result);
                 return $this->success($result, 'Agent answer prepared');
             } catch (\Throwable $inner) {
                 \App\API\Services\Logger::legacyError('[DashboardController] agent assist failed: ' . $inner->getMessage());
@@ -424,6 +427,36 @@ class DashboardController extends BaseController
     }
 
     /**
+     * POST /api/dashboard/agent-context-clear
+     * Clears per-user, per-role AI coworker memory stored server-side.
+     */
+    public function postAgentContextClear($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $uid = (int) ($this->getUserId() ?? 0);
+        $roles = $this->user['roles'] ?? $this->user['role_ids'] ?? [];
+        $rid = 0;
+        if (is_array($roles) && !empty($roles)) {
+            $first = $roles[0];
+            if (is_array($first)) {
+                $rid = (int) ($first['id'] ?? $first['role_id'] ?? 0);
+            } elseif (is_object($first)) {
+                $rid = (int) ($first->id ?? $first->role_id ?? 0);
+            } else {
+                $rid = (int) $first;
+            }
+        }
+        if ($rid <= 0) $rid = (int) ($this->user['role_id'] ?? 0);
+        try {
+            $svc = new \App\API\Services\AgentUserContextService();
+            $svc->clear($uid, $rid);
+            return $this->success(['cleared' => true], 'AI context cleared');
+        } catch (\Throwable $e) {
+            return $this->serverError('Unable to clear AI context');
+        }
+    }
+
+    /**
      * POST /api/dashboard/agent-suggest
      *
      * The page-aware nudge the assistant offers when a workspace sits idle.
@@ -495,6 +528,50 @@ class DashboardController extends BaseController
         );
     }
 
+
+    /**
+     * Persist the latest assistant outcome to per-user/role context store.
+     * This must never block or change the assistant response.
+     *
+     * @param array<string,mixed> $context
+     * @param array<string,mixed> $result
+     */
+    private function persistAssistantOutcome(array $context, string $question, array $result): void
+    {
+        try {
+            $uid = (int) ($context['user_id'] ?? 0);
+            $rid = 0;
+            $roles = $this->user['roles'] ?? $this->user['role_ids'] ?? [];
+            if (is_array($roles) && !empty($roles)) {
+                $first = $roles[0];
+                if (is_array($first)) $rid = (int) ($first['id'] ?? $first['role_id'] ?? 0);
+                elseif (is_object($first)) $rid = (int) ($first->id ?? $first->role_id ?? 0);
+                else $rid = (int) $first;
+            }
+            if ($rid <= 0) $rid = (int) ($this->user['role_id'] ?? 0);
+            if ($uid <= 0) return;
+            $answer = '';
+            if (is_array($result['answer'] ?? null)) {
+                $answer = (string) ($result['answer']['body'] ?? $result['answer']['text'] ?? '');
+            } elseif (is_string($result['answer'] ?? null)) {
+                $answer = (string) $result['answer'];
+            } elseif (is_string($result['body'] ?? null)) {
+                $answer = (string) $result['body'];
+            }
+            $svc = new \App\API\Services\AgentUserContextService();
+            $incoming = is_array($context['user_memory'] ?? null) ? $context['user_memory'] : [];
+            $recent = is_array($incoming['recent'] ?? null) ? $incoming['recent'] : [];
+            $recent[] = ['q' => mb_substr($question, 0, 160), 'route' => (string) ($context['route'] ?? ''), 'at' => time()];
+            $incoming['recent'] = $recent;
+            $svc->merge($uid, $rid, $incoming, [
+                'route' => (string) ($context['route'] ?? ''),
+                'prompt' => $question,
+                'answer' => $answer,
+            ]);
+        } catch (\Throwable $e) {
+            // Never block assistant.
+        }
+    }
     private function assistantDomainForCurrentUser(): string
     {
         $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
@@ -3034,6 +3111,10 @@ class DashboardController extends BaseController
         // the open record's label, the selected text, visible KPI names and
         // filter labels. These are short labels, never row values, so the
         // governed tool still has to authorize any real data.
+        $pageState = $data['page_state'] ?? ($data['page_context']['page_state'] ?? '');
+        if (is_scalar($pageState) && trim((string) $pageState) !== '') {
+            $context['page_state'] = mb_substr(trim((string) $pageState), 0, 60);
+        }
         if (!empty($data['page_entity']) && is_array($data['page_entity'])) {
             $entity = [];
             foreach (['kind', 'label', 'name', 'id', 'status'] as $key) {
@@ -3085,6 +3166,102 @@ class DashboardController extends BaseController
             if ($filters) {
                 $context['filters'] = $filters;
             }
+        }
+        if (!empty($data['page_context']) && is_array($data['page_context'])) {
+            $pc = $data['page_context'];
+            $safePc = [];
+            foreach (['route','title','modalTitle','module'] as $k) {
+                if (!empty($pc[$k]) && is_scalar($pc[$k])) $safePc[$k] = mb_substr((string)$pc[$k], 0, 120);
+            }
+            if (!empty($pc['field']) && is_array($pc['field'])) {
+                $f = [];
+                foreach (['id','name','label','type'] as $k) {
+                    if (!empty($pc['field'][$k]) && is_scalar($pc['field'][$k])) $f[$k] = mb_substr((string)$pc['field'][$k], 0, 80);
+                }
+                if ($f) $safePc['field'] = $f;
+            }
+            if (!empty($pc['filters']) && is_array($pc['filters'])) {
+                $filt = [];
+                foreach (array_slice($pc['filters'], 0, 8) as $it) {
+                    if (!is_array($it)) continue;
+                    $name = mb_substr((string)($it['name'] ?? ''), 0, 40);
+                    $val = mb_substr((string)($it['value'] ?? ''), 0, 60);
+                    if ($name !== '') $filt[] = ['name'=>$name,'value'=>$val];
+                }
+                if ($filt) $safePc['filters'] = $filt;
+            }
+            if ($safePc) $context['page_context'] = $safePc;
+        }
+        if (!empty($data['user_memory']) && is_array($data['user_memory'])) {
+            $um = $data['user_memory'];
+            $safeUm = [];
+            if (!empty($um['last_route']) && is_scalar($um['last_route'])) $safeUm['last_route'] = mb_substr((string)$um['last_route'], 0, 120);
+            if (!empty($um['recent']) && is_array($um['recent'])) {
+                $recent = [];
+                foreach (array_slice($um['recent'], -6) as $it) {
+                    if (!is_array($it)) continue;
+                    $q = mb_substr((string)($it['q'] ?? ''), 0, 160);
+                    $r = mb_substr((string)($it['route'] ?? ''), 0, 120);
+                    if ($q !== '' || $r !== '') $recent[] = ['q'=>$q,'route'=>$r];
+                }
+                if ($recent) $safeUm['recent'] = $recent;
+            }
+            if ($safeUm) $context['user_memory'] = $safeUm;
+        }
+
+        try {
+            $uid = (int) ($context['user_id'] ?? 0);
+            $rid = 0;
+            $roles = $this->user['roles'] ?? $this->user['role_ids'] ?? [];
+            if (is_array($roles) && !empty($roles)) {
+                $first = $roles[0];
+                $rid = is_array($first) ? (int) ($first['id'] ?? $first['role_id'] ?? 0) : (int) $first;
+            }
+            if ($rid <= 0) $rid = (int) ($this->user['role_id'] ?? 0);
+            if ($uid > 0) {
+                $svc = new \App\API\Services\AgentUserContextService();
+                $stored = $svc->get($uid, $rid);
+                $incoming = is_array($context['user_memory'] ?? null) ? $context['user_memory'] : [];
+                $merged = $svc->merge($uid, $rid, $incoming, [
+                    'route' => (string) ($context['route'] ?? ''),
+                    'prompt' => (string) ($data['question'] ?? ''),
+                ]);
+                $context['user_memory'] = $merged;
+                $context['user_context'] = [
+                    'user_id' => $uid,
+                    'role_id' => $rid,
+                    'updated_at' => $merged['updated_at'] ?? null,
+                ];
+            }
+        } catch (\Throwable $e) {
+            // Context persistence must never block assistant.
+        }
+
+        // Server-side page awareness: the catalog knows what this route is,
+        // which components it has and which roles reach it — facts the
+        // browser cannot be trusted to report. The agent's page-help and
+        // "where do I do X" answers are grounded in this, not in guesses.
+        try {
+            $route = trim((string) ($context['route'] ?? ''));
+            if ($route !== '') {
+                $roleIds = [];
+                $roles = $this->user['roles'] ?? $this->user['role_ids'] ?? [];
+                if (is_array($roles)) {
+                    foreach ($roles as $r) {
+                        $rid = is_array($r) ? (int) ($r['id'] ?? $r['role_id'] ?? 0) : (int) $r;
+                        if ($rid > 0) {
+                            $roleIds[] = $rid;
+                        }
+                    }
+                }
+                $info = (new \App\API\Services\SystemContextService())->entryForRoute($route);
+                if (is_array($info) && ($info['status'] ?? '') === 'ok') {
+                    unset($info['activity']); // keep the per-question envelope lean
+                    $context['page_info'] = $info;
+                }
+            }
+        } catch (\Throwable $e) {
+            // Page awareness is additive; never block the assistant on it.
         }
         return $context;
     }

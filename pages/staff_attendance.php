@@ -520,5 +520,6 @@
      SCRIPTS
 ========================================================= -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<?php asset_script($appBase, 'js/core/chart_theme.js'); ?>
 <?php asset_script($appBase, 'js/pages/staff_access.js'); ?>
 <?php asset_script($appBase, 'js/pages/staff_attendance.js'); ?>

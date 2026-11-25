@@ -27,7 +27,7 @@
 .kw-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; background: rgba(255,255,255,.16); font-size: .8rem; font-weight: 600; }
 .kw-console-actions .btn { border-color: rgba(255,255,255,.45); color: #fff; background: rgba(255,255,255,.08); }
 .kw-console-actions .btn:hover { background: rgba(255,255,255,.2); color: #fff; }
-.kw-console-actions .kw-btn-primary { background: #fff; color: var(--kw-primary-dark); border-color: #fff; font-weight: 600; }
+.kw-console-actions .kw-btn-primary { background: var(--kw-theme-surface); color: var(--kw-primary-dark); border-color: #fff; font-weight: 600; }
 
 /* ── Folder rail with one list / message workspace ───────── */
 .kw-console-body {
@@ -177,17 +177,17 @@
 .kw-compose-whatsapp .offcanvas-title .bi { font-size: 1.35rem; }
 .kw-compose-whatsapp .offcanvas-body { background: #f1f4ef; padding: 18px 22px 24px; }
 .kw-compose-whatsapp .kw-wa-composer-layout { grid-template-columns: minmax(250px, .72fr) minmax(0, 1.8fr); gap: 18px; align-items: start; }
-.kw-compose-whatsapp .kw-wa-audience-column { padding: 16px; border: 1px solid #dce5df; border-radius: 14px; background: #fff; }
+.kw-compose-whatsapp .kw-wa-audience-column { padding: 16px; border: 1px solid #dce5df; border-radius: 14px; background: var(--kw-theme-surface); }
 .kw-compose-whatsapp .kw-wa-content-column { min-width: 0; }
 .kw-compose-whatsapp .kw-wa-content-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(250px, .8fr); gap: 18px; align-items: start; }
 .kw-compose-whatsapp .kw-wa-message-controls { min-width: 0; }
 .kw-compose-whatsapp .kw-wa-message-controls > .mb-3:first-child { display: flex; align-items: center; gap: 12px; }
 .kw-compose-whatsapp .kw-wa-message-controls > .mb-3:first-child .form-label { margin: 0; white-space: nowrap; }
-.kw-compose-whatsapp .form-control#messageBody { min-height: 230px; border: 1px solid #d6e3da; border-radius: 14px; background: #fff; line-height: 1.55; padding: 14px; }
+.kw-compose-whatsapp .form-control#messageBody { min-height: 230px; border: 1px solid #d6e3da; border-radius: 14px; background: var(--kw-theme-surface); line-height: 1.55; padding: 14px; }
 .kw-compose-whatsapp .form-control#messageBody:focus { border-color: #128c7e; box-shadow: 0 0 0 .2rem rgba(18,140,126,.14); }
-.kw-compose-whatsapp #mediaAttachment { background: #fff; border-color: #c9d7cf; }
+.kw-compose-whatsapp #mediaAttachment { background: var(--kw-theme-surface); border-color: #c9d7cf; }
 .kw-compose-whatsapp .kw-compose-hint { color: #52645b; }
-.kw-compose-whatsapp .kw-wa-media { padding: 15px; border: 1px solid #d5e1d8; border-radius: 14px; background: #fff; }
+.kw-compose-whatsapp .kw-wa-media { padding: 15px; border: 1px solid #d5e1d8; border-radius: 14px; background: var(--kw-theme-surface); }
 .kw-compose-whatsapp .kw-wa-media .btn-group { display: grid; grid-template-columns: repeat(3, 1fr); }
 .kw-compose-whatsapp .kw-wa-media .btn { border-color: #c5d7cc; color: #285b46; }
 .kw-compose-whatsapp .kw-wa-media .btn.active { color: #fff; background: #128c7e; border-color: #128c7e; }
@@ -204,10 +204,10 @@
 .kw-wa-preview-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; line-height: 1.45; }
 .kw-wa-preview-bubble time { position: absolute; right: 8px; bottom: 3px; color: #66766c; font-size: .57rem; }
 .kw-wa-preview-media { min-height: 56px; margin-bottom: 7px; padding: 11px 8px; border-radius: 6px; background: rgba(255,255,255,.62); color: #38614a; font-size: .7rem; overflow-wrap: anywhere; }
-.kw-wa-preview-compose { display: flex; align-items: center; gap: 10px; margin: 8px; padding: 9px 10px; border-radius: 18px; background: #fff; color: #728077; font-size: .72rem; }
+.kw-wa-preview-compose { display: flex; align-items: center; gap: 10px; margin: 8px; padding: 9px 10px; border-radius: 18px; background: var(--kw-theme-surface); color: #728077; font-size: .72rem; }
 .kw-wa-preview-compose span { flex: 1; }
 .kw-wa-preview-caption { margin: 9px 2px 0; color: #53645a; font-size: .7rem; line-height: 1.4; }
-.kw-compose-whatsapp .kw-compose-footer { background: #fff; }
+.kw-compose-whatsapp .kw-compose-footer { background: var(--kw-theme-surface); }
 .kw-contacts-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
 .kw-contacts-toolbar .form-control { max-width: 220px; }
 .kw-contact-form { background: var(--kw-bg); border: 1px solid var(--kw-border); border-radius: 9px; padding: 12px; margin-bottom: 12px; }

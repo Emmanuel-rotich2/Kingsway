@@ -182,6 +182,12 @@ class JobHandlerRegistry
             'automation.run' => static function (array $payload, PDO $pdo): void {
                 (new \App\API\Services\automations\AutomationArtifacts())->execute($payload, $pdo);
             },
+            // System-wide document extraction. PHP stages the authorized upload
+            // bytes and re-checks the uploader account here; the pinned Python
+            // stack parses the document and PHP stores a checksummed artifact.
+            'documents.extract' => static function (array $payload, PDO $pdo): void {
+                (new DocumentExtractionService())->process($payload, $pdo);
+            },
             // Bulk messaging (TALKSASA) resilience path. Python is the primary
             // executor; when it is disabled or its lease is recovered, this
             // handler sends the same staged batch through the gateways (which
@@ -757,32 +763,7 @@ class JobHandlerRegistry
                     \App\API\Services\JobQueue::updateMeta($jobId, $meta);
                 }
             },
-            // Admission: document extraction, import preview
-            'admission.document_extract' => static function (array $payload, PDO $pdo): void {
-                $jobId = (string) ($payload['job_id'] ?? '');
-                $fileId = (int) ($payload['file_id'] ?? 0);
-                $docType = (string) ($payload['doc_type'] ?? ''); // 'birth_cert', 'transfer_letter', 'medical_form', 'id_doc'
-
-                if ($jobId === '' || $fileId <= 0 || $docType === '') {
-                    throw new RuntimeException('admission.document_extract: job_id, file_id, doc_type required');
-                }
-
-                $bridge = new \App\API\Services\PythonDocumentBridge();
-                if (!$bridge->available()) {
-                    throw new RuntimeException('Python service not configured for admission.document_extract');
-                }
-
-                $result = $bridge->extractAdmissionDocument($jobId, $fileId, $docType);
-
-                $job = \App\API\Services\JobQueue::fetchJob($jobId);
-                if ($job) {
-                    $meta = $job['meta'] ?? [];
-                    $meta['extracted_fields'] = $result['extracted_fields'] ?? [];
-                    $meta['confidence'] = $result['confidence'] ?? 0;
-                    $meta['requires_review'] = $result['requires_review'] ?? false;
-                    \App\API\Services\JobQueue::updateMeta($jobId, $meta);
-                }
-            },
+            // Admission: import preview
             'admission.import_preview' => static function (array $payload, PDO $pdo): void {
                 $jobId = (string) ($payload['job_id'] ?? '');
                 $fileId = (int) ($payload['file_id'] ?? 0);
@@ -945,32 +926,7 @@ class JobHandlerRegistry
                     \App\API\Services\JobQueue::updateMeta($jobId, $meta);
                 }
             },
-            // Health: document extract, summarize
-            'health.document_extract' => static function (array $payload, PDO $pdo): void {
-                $jobId = (string) ($payload['job_id'] ?? '');
-                $fileId = (int) ($payload['file_id'] ?? 0);
-                $docType = (string) ($payload['doc_type'] ?? ''); // 'medical_form', 'vaccination_record', 'incident_report', 'consent_form'
-
-                if ($jobId === '' || $fileId <= 0 || $docType === '') {
-                    throw new RuntimeException('health.document_extract: job_id, file_id, doc_type required');
-                }
-
-                $bridge = new \App\API\Services\PythonDocumentBridge();
-                if (!$bridge->available()) {
-                    throw new RuntimeException('Python service not configured for health.document_extract');
-                }
-
-                $result = $bridge->extractHealthDocument($jobId, $fileId, $docType);
-
-                $job = \App\API\Services\JobQueue::fetchJob($jobId);
-                if ($job) {
-                    $meta = $job['meta'] ?? [];
-                    $meta['extracted_fields'] = $result['extracted_fields'] ?? [];
-                    $meta['confidence'] = $result['confidence'] ?? 0;
-                    $meta['requires_review'] = $result['requires_review'] ?? false;
-                    \App\API\Services\JobQueue::updateMeta($jobId, $meta);
-                }
-            },
+            // Health: summarize
             'health.summarize' => static function (array $payload, PDO $pdo): void {
                 $jobId = (string) ($payload['job_id'] ?? '');
                 $dateFrom = (string) ($payload['date_from'] ?? '');

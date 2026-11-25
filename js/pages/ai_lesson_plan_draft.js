@@ -38,7 +38,7 @@
       window.showNotification?.('Select an approved scheme row first','warning');
       return;
     }
-    const intent=window.prompt('Optional teaching intent for this lesson:','Create an inclusive lesson with clear activities and formative assessment.');
+    const intent=await (window.promptAction?.('AI lesson plan draft','Optional teaching intent for this lesson:','Create an inclusive lesson with clear activities and formative assessment.') ?? Promise.resolve(null));
     if(intent===null)return;
     
     const b=document.getElementById('queueAiLessonPlanDraft');

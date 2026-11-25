@@ -126,7 +126,7 @@
       (_data.term_dates || []).forEach(function (t) {
         rows2.push(['Term', t.term_name, '', t.opening_date + ' to ' + t.closing_date, '', t.status, 'Half-term ' + t.half_term_start + ' – ' + t.half_term_end]);
       });
-      if (!rows2.length) { alert('Nothing to export right now.'); return; }
+      if (!rows2.length) { window.infoDialog?.('Nothing to export', 'Nothing to export right now.', { type: 'warning' }); return; }
       P.exportCsv('events-and-dates.csv', P.csvFromHeaders(['Kind', 'Title/Category', 'Type/Area', 'Date(s)', 'Venue/Class', 'Status', 'Details'], rows2));
     }
   });

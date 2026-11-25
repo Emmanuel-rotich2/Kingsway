@@ -2,15 +2,15 @@
 .noscript-overlay {
   position: fixed; inset: 0; z-index: 99999;
   display: flex; align-items: center; justify-content: center;
-  background: #f8f9fa; font-family: system-ui, -apple-system, sans-serif;
+  background: var(--kw-theme-surface-2); font-family: system-ui, -apple-system, sans-serif;
 }
 .noscript-card {
-  background: #fff; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.12);
+  background: var(--kw-theme-surface); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.12);
   padding: 2.5rem 2rem; max-width: 420px; width: 90%; text-align: center;
 }
 .noscript-card .icon { font-size: 2.5rem; margin-bottom: 1rem; display: block; }
 .noscript-card h2 { font-size: 1.25rem; margin: 0 0 .5rem; color: #dc3545; }
-.noscript-card p { font-size: .9rem; color: #6c757d; margin: 0 0 1.25rem; line-height: 1.5; }
+.noscript-card p { font-size: .9rem; color: var(--kw-theme-muted); margin: 0 0 1.25rem; line-height: 1.5; }
 .noscript-card .badge {
   display: inline-block; background: #198754; color: #fff;
   padding: .35em .75em; border-radius: 20px; font-size: .8rem;
