@@ -11,7 +11,7 @@ const supplierPaymentsController = {
 
   notify(msg, type) {
     if (window.showNotification) window.showNotification(msg, type);
-    else alert(msg);
+    else if (window.infoDialog) window.infoDialog('Notice', msg);
   },
 
   async loadReferencesComposed() {

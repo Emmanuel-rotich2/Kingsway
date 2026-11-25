@@ -60,12 +60,16 @@ if (!function_exists('renderStudentsTable')) {
                         } else if (action === 'Edit') {
                             window.location.href = `?route=edit_student&id=${studentId}`;
                         } else if (action === 'Delete') {
-                            if (confirm('Are you sure you want to delete this student?')) {
+                            window.confirmAction('Delete student', 'Are you sure you want to delete this student?', {
+                                confirmText: 'Delete',
+                                danger: true
+                            }).then(function (confirmed) {
+                                if (!confirmed) return;
                                 parseApiResponse(StudentsAPI.delete(studentId), {
                                     onSuccess: () => { showNotification('Student deleted', 'success'); reloadStudentsTable(); },
                                     onError: err => showNotification('Error deleting student: ' + err.message, 'error')
                                 });
-                    }
+                            });
                         }
                     };
             });

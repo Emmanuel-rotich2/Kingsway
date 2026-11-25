@@ -18,8 +18,8 @@
             position: sticky;
             top: 0;
             z-index: 5;
-            background: #fff;
-            box-shadow: inset 0 -2px 0 #dee2e6;
+            background: #f1f6f3;
+            box-shadow: inset 0 -2px 0 #d7e2dc;
         }
         #manageUsersPage table.table .col-actions {
             min-width: 4.5rem;
@@ -57,7 +57,7 @@
             text-align: center;
         }
         .manage-user-actions-menu .dropdown-item:focus-visible {
-            outline: 2px solid #245b8f;
+            outline: 2px solid #a86f16;
             outline-offset: 1px;
         }
         #manageUsersPage .users-pager .form-select { width: auto; min-width: 72px; }
@@ -77,29 +77,29 @@
             #manageUsersPage .users-pager { display: none !important; }
         }
     </style>
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <header class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h3 mb-1">User Accounts</h2>
+            <h2 class="h3 mb-1">User accounts</h2>
             <p class="text-muted mb-0">
                 Create and maintain technical user identities and their primary roles.
                 Activation, suspension and unlocking are managed from Account Status.
             </p>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex flex-wrap gap-2 no-print">
             <button type="button" class="btn btn-outline-secondary" id="exportUsersBtn">
-                <i class="bi bi-download me-1"></i> Export CSV
+                <i class="bi bi-filetype-csv me-1" aria-hidden="true"></i> Export CSV
             </button>
             <button type="button" class="btn btn-outline-secondary" id="printUsersBtn">
-                <i class="bi bi-printer me-1"></i> Print
+                <i class="bi bi-printer me-1" aria-hidden="true"></i> Print / PDF
             </button>
             <button type="button" class="btn btn-outline-secondary" id="refreshUsersBtn">
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i> Refresh
             </button>
             <button type="button" class="btn btn-primary" id="createUserBtn">
-                <i class="bi bi-person-plus me-1"></i> Create user
+                <i class="bi bi-person-plus me-1" aria-hidden="true"></i> Create user
             </button>
         </div>
-    </div>
+    </header>
 
     <div class="card border-warning shadow-sm mb-4" id="operatingModeCard">
         <div class="card-body">
@@ -148,17 +148,18 @@
         Waiting for authentication...
     </div>
 
-    <div class="card border-0 shadow-sm">
-        <div class="card-header bg-white d-flex flex-wrap gap-2 justify-content-between align-items-center">
-            <strong>User Accounts</strong>
+    <div class="card">
+        <div class="card-header d-flex flex-wrap gap-2 justify-content-between align-items-center">
+            <h3 class="h6 mb-0">User accounts</h3>
             <div class="d-flex gap-2 align-items-center">
                 <div class="input-group" style="max-width: 360px">
-                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
                     <input
                         class="form-control"
                         id="searchUsers"
                         type="search"
                         placeholder="Search name, username, email, role or status"
+                        aria-label="Search user accounts"
                         autocomplete="off"
                     >
                 </div>
@@ -168,19 +169,19 @@
             <div class="d-flex flex-wrap align-items-center gap-2">
                 <span class="fw-semibold small" id="bulkSelectedCount">0 selected</span>
                 <button type="button" class="btn btn-sm btn-outline-primary" id="bulkRoleBtn">
-                    <i class="bi bi-people me-1"></i> Assign role
+                    <i aria-hidden="true" class="bi bi-people me-1"></i> Assign role
                 </button>
                 <button type="button" class="btn btn-sm btn-outline-primary" id="bulkRevokeRoleBtn">
-                    <i class="bi bi-person-dash me-1"></i> Revoke role
+                    <i aria-hidden="true" class="bi bi-person-dash me-1"></i> Revoke role
                 </button>
                 <button type="button" class="btn btn-sm btn-outline-primary" id="bulkScopeBtn">
-                    <i class="bi bi-symmetry-vertical me-1"></i> Update data scope
+                    <i aria-hidden="true" class="bi bi-symmetry-vertical me-1"></i> Update data scope
                 </button>
                 <div class="dropdown">
                     <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">More actions</button>
                     <div class="dropdown-menu p-2">
-                        <button type="button" class="dropdown-item" id="bulkGrantBtn"><i class="bi bi-check2-circle me-2"></i>Grant test access</button>
-                        <button type="button" class="dropdown-item" id="bulkRevokeBtn"><i class="bi bi-x-circle me-2"></i>Revoke test access</button>
+                        <button type="button" class="dropdown-item" id="bulkGrantBtn"><i aria-hidden="true" class="bi bi-check2-circle me-2"></i>Grant test access</button>
+                        <button type="button" class="dropdown-item" id="bulkRevokeBtn"><i aria-hidden="true" class="bi bi-x-circle me-2"></i>Revoke test access</button>
                         <hr class="dropdown-divider">
                         <button type="button" class="dropdown-item" id="bulkActivateBtn">Activate accounts</button>
                         <button type="button" class="dropdown-item" id="bulkDeactivateBtn">Deactivate accounts</button>
@@ -209,6 +210,7 @@
         </div>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
+                <caption class="visually-hidden">User accounts and their assigned roles</caption>
                 <thead id="userAccountsTableHead">
                     <tr>
                         <th class="text-center" style="width: 40px">
@@ -277,11 +279,11 @@
                     <option value="0">All</option>
                 </select>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="usersPrevBtn" aria-label="Previous page" disabled>
-                    <i class="bi bi-chevron-left"></i>
+                    <i aria-hidden="true" class="bi bi-chevron-left"></i>
                 </button>
                 <span class="small text-muted" id="usersPageInfo"></span>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="usersNextBtn" aria-label="Next page" disabled>
-                    <i class="bi bi-chevron-right"></i>
+                    <i aria-hidden="true" class="bi bi-chevron-right"></i>
                 </button>
             </div>
         </div>

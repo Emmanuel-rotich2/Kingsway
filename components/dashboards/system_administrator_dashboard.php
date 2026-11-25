@@ -3,19 +3,35 @@
 $rootId = 'systemAdministratorDashboardPage';
 ?>
 <section
-  class="container-fluid py-4 role-dashboard dashboard-surface dashboard-system-grid"
+  class="container-fluid py-4 role-dashboard"
   id="systemAdministratorDashboardPage"
   data-dashboard-layout="system-operations-grid"
   aria-labelledby="systemAdministratorDashboardTitle"
   aria-busy="true"
 >
+  <header class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h2 class="h3 mb-1" id="systemAdministratorDashboardTitle">System administrator dashboard</h2>
+      <p class="text-muted mb-0">
+        A working view of accounts, sessions, security signals and service health.
+      </p>
+    </div>
+    <nav class="d-flex flex-wrap gap-2" aria-label="System administration quick actions">
+      <a href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/home.php?route=active_sessions" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-person-check me-1" aria-hidden="true"></i>Active sessions
+      </a>
+      <a href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/home.php?route=activity_audit_logs" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-journal-check me-1" aria-hidden="true"></i>Audit activity
+      </a>
+      <a href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/home.php?route=api_metrics" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-activity me-1" aria-hidden="true"></i>API metrics
+      </a>
+      <a href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/home.php?route=error_logs" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-terminal me-1" aria-hidden="true"></i>Error logs
+      </a>
+    </nav>
+  </header>
 
-  <nav class="dashboard-action-strip mb-4" aria-label="System administration quick actions">
-    <a href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/home.php?route=active_sessions"><i class="bi bi-person-check"></i><span>Active sessions</span></a>
-    <a href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/home.php?route=activity_audit_logs"><i class="bi bi-journal-check"></i><span>Audit activity</span></a>
-    <a href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/home.php?route=api_metrics"><i class="bi bi-activity"></i><span>API metrics</span></a>
-    <a href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/home.php?route=error_logs"><i class="bi bi-terminal"></i><span>Error logs</span></a>
-  </nav>
   <div
     class="alert alert-info"
     id="systemAdministratorDashboardState"
@@ -27,7 +43,7 @@ $rootId = 'systemAdministratorDashboardPage';
 
   <div class="row g-3 mb-4" id="systemAdministratorMetricCards">
     <div class="col-sm-6 col-xl-3">
-      <div class="card border-0 shadow-sm h-100">
+      <div class="card h-100">
         <div class="card-body">
           <div class="text-muted small">Enabled users</div>
           <div class="fs-3 fw-bold" id="metricEnabledUsers">—</div>
@@ -36,7 +52,7 @@ $rootId = 'systemAdministratorDashboardPage';
       </div>
     </div>
     <div class="col-sm-6 col-xl-3">
-      <div class="card border-0 shadow-sm h-100">
+      <div class="card h-100">
         <div class="card-body">
           <div class="text-muted small">Active sessions</div>
           <div class="fs-3 fw-bold" id="metricActiveSessions">—</div>
@@ -45,7 +61,7 @@ $rootId = 'systemAdministratorDashboardPage';
       </div>
     </div>
     <div class="col-sm-6 col-xl-3">
-      <div class="card border-0 shadow-sm h-100">
+      <div class="card h-100">
         <div class="card-body">
           <div class="text-muted small">Failed logins · 24h</div>
           <div class="fs-3 fw-bold" id="metricFailedLogins">—</div>
@@ -54,7 +70,7 @@ $rootId = 'systemAdministratorDashboardPage';
       </div>
     </div>
     <div class="col-sm-6 col-xl-3">
-      <div class="card border-0 shadow-sm h-100">
+      <div class="card h-100">
         <div class="card-body">
           <div class="text-muted small">Open incidents</div>
           <div class="fs-3 fw-bold" id="metricOpenIncidents">—</div>
@@ -66,13 +82,28 @@ $rootId = 'systemAdministratorDashboardPage';
 
   <div class="row g-3">
     <div class="col-xl-7">
-      <div class="card border-0 shadow-sm h-100">
-        <div class="card-header bg-white d-flex justify-content-between align-items-center">
-          <strong>Recent authentication activity</strong>
-          <small class="text-muted" id="systemAdministratorActivityCount"></small>
+      <div class="card h-100">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <h3 class="h6 mb-0">Recent authentication activity</h3>
+          <div class="d-flex flex-wrap align-items-center gap-2" role="group" aria-label="Recent activity actions">
+            <small class="text-muted" id="systemAdministratorActivityCount"></small>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-secondary no-print"
+              data-kw-sa-export
+              data-kw-sa-export-target="#systemAdministratorActivityTable"
+              data-kw-sa-export-name="system_activity"
+            >
+              <i class="bi bi-filetype-csv me-1" aria-hidden="true"></i>Export CSV
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary no-print" data-kw-sa-print>
+              <i class="bi bi-printer me-1" aria-hidden="true"></i>Print / PDF
+            </button>
+          </div>
         </div>
         <div class="table-responsive">
-          <table class="table table-hover align-middle mb-0">
+          <table class="table table-hover align-middle mb-0" id="systemAdministratorActivityTable">
+            <caption class="visually-hidden">Recent authentication activity, last 24 hours</caption>
             <thead>
               <tr>
                 <th scope="col">Time</th>
@@ -94,29 +125,29 @@ $rootId = 'systemAdministratorDashboardPage';
 
     <div class="col-xl-5">
       <div class="d-flex flex-column gap-3 h-100">
-        <div class="row g-3 system-operations-mini">
+        <div class="row g-3">
           <div class="col-6">
-            <div class="card border-0 shadow-sm h-100 bg-success text-white">
+            <div class="card h-100 border-start border-success border-3">
               <div class="card-body">
-                <div class="small opacity-75">Pending jobs</div>
+                <div class="small text-muted">Pending jobs</div>
                 <div class="fs-3 fw-bold" id="metricPendingJobs">—</div>
-                <small class="opacity-75" id="metricPendingJobsNote"></small>
+                <small class="text-muted" id="metricPendingJobsNote"></small>
               </div>
             </div>
           </div>
           <div class="col-6">
-            <div class="card border-0 shadow-sm h-100 bg-warning text-dark">
+            <div class="card h-100 border-start border-warning border-3">
               <div class="card-body">
-                <div class="small opacity-75">API errors · 24h</div>
+                <div class="small text-muted">API errors · 24h</div>
                 <div class="fs-3 fw-bold" id="metricApiErrors">—</div>
-                <small class="opacity-75" id="metricApiErrorsNote"></small>
+                <small class="text-muted" id="metricApiErrorsNote"></small>
               </div>
             </div>
           </div>
         </div>
-        <div class="card border-0 shadow-sm">
-          <div class="card-header bg-white">
-            <strong>Technical checks</strong>
+        <div class="card">
+          <div class="card-header">
+            <h3 class="h6 mb-0">Technical checks</h3>
           </div>
           <div
             class="list-group list-group-flush"
@@ -126,9 +157,9 @@ $rootId = 'systemAdministratorDashboardPage';
           </div>
         </div>
 
-        <div class="card border-0 shadow-sm flex-grow-1">
-          <div class="card-header bg-white">
-            <strong>Current system attention</strong>
+        <div class="card flex-grow-1">
+          <div class="card-header">
+            <h3 class="h6 mb-0">Current system attention</h3>
           </div>
           <div class="list-group list-group-flush" id="systemAdministratorAlerts">
             <div class="list-group-item text-muted">Loading...</div>

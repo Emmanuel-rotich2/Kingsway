@@ -406,7 +406,7 @@
       return;
     }
     if (!rows.length) {
-      alert('Nothing to export for this tab yet.'); // eslint-disable-line no-alert
+      window.infoDialog?.('Nothing to export', 'Nothing to export for this tab yet.', { type: 'warning' });
       return;
     }
     P.exportCsv(filename, P.csvFromHeaders(headers, rows));

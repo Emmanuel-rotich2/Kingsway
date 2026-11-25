@@ -493,7 +493,7 @@
     }
 
     async function deleteCharge(id) {
-        if (!confirm('Remove this extra charge?')) return;
+        if (!(await window.confirmAction('Remove extra charge', 'Remove this extra charge?', { confirmText: 'Remove', danger: true }))) return;
         try {
             await window.API.finance.deleteExtraCharge(id);
             notify('Charge removed', 'success');

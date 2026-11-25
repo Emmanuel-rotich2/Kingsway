@@ -6,6 +6,36 @@
  * Each role theme imports this and customizes specific aspects.
  */
 
+/* Light palette fallback for documents that load this sheet without the
+ * authenticated theme.css (standalone sign-in and password pages). The
+ * authenticated shell loads theme.css afterwards, so its light/dark values win. */
+:root {
+  color-scheme: light;
+  --kw-theme-bg: #f4f6f8;
+  --kw-theme-surface: #ffffff;
+  --kw-theme-surface-2: #f8fafc;
+  --kw-theme-surface-3: #eef2f6;
+  --kw-theme-text: #172033;
+  --kw-theme-muted: #697386;
+  --kw-theme-border: #e4e8ed;
+  --kw-theme-border-strong: #cbd5e1;
+  --kw-theme-link: #0f6b3d;
+  --kw-theme-link-hover: #0a4f2f;
+  --kw-theme-focus: #f3bd18;
+  --kw-theme-good: #178a50;
+  --kw-theme-good-soft: #e7f6ed;
+  --kw-theme-warn: #a86f16;
+  --kw-theme-warn-soft: #fff5df;
+  --kw-theme-bad: #b53747;
+  --kw-theme-bad-soft: #fdecec;
+  --kw-theme-info: #0e7490;
+  --kw-theme-info-soft: #e6f6fa;
+  --kw-theme-shadow: 0 10px 30px rgb(23 32 51 / 0.08);
+  --kw-theme-shadow-strong: 0 18px 46px rgb(4 20 12 / 0.22);
+  --kw-theme-overlay: rgb(255 255 255 / 0.12);
+  --kw-theme-glass: rgb(255 255 255 / 0.86);
+}
+
 /* ============================================================================
    CSS CUSTOM PROPERTIES (Variables)
    ============================================================================ */

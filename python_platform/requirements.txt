@@ -7,6 +7,15 @@ odfpy==1.4.1
 pypdfium2==5.13.0
 pytesseract==0.3.13
 Pillow==12.3.0
+# Primary offline OCR: no system tesseract binary needed on shared hosting.
+rapidocr_onnxruntime==1.2.3
+onnxruntime==1.32.0
+opencv-python==5.1.0.95
+pyclipper==1.4.0
+Shapely==2.2.0
+protobuf==7.36.2
+flatbuffers==25.12.19
+six==1.17.0
 defusedxml==0.7.1
 # Batch document/packaging/graphics layer (scaling masterplan 2026-10-04)
 reportlab==4.4.4

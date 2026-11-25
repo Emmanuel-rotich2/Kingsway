@@ -17,7 +17,7 @@
 
 .settings-hero {
     border-radius: 1rem !important;
-    background: #fff !important;
+    background: var(--kw-theme-surface) !important;
     overflow: visible !important;
     border: 1px solid #e5e9e7 !important;
     box-shadow: 0 10px 32px rgba(31, 48, 40, .06) !important;
@@ -83,7 +83,7 @@
     overflow: hidden;
     font-size: 1.25rem;
     font-weight: 800;
-    background: #fff;
+    background: var(--kw-theme-surface);
     color: var(--account-green);
 }
 
@@ -159,7 +159,7 @@
 .account-stat {
     min-height: 98px;
     padding: 1.15rem 1.25rem;
-    background: #fff;
+    background: var(--kw-theme-surface);
     border: 1px solid #e4ebe7;
     box-shadow: 0 .3rem 1rem rgba(22, 59, 43, .05);
 }

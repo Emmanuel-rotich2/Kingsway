@@ -1105,6 +1105,124 @@ class SchedulesController extends BaseController
             return $this->badRequest($e->getMessage());
         }
     }
+    /** POST /api/schedules/ai-timetable-review-queue */
+    public function postAiTimetableReviewQueue($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        try {
+            $this->contract('App\\API\\Services\\WorkflowAuthorization')->authorize(
+                'academics.timetable_review',
+                $this->aiTimetableContext()
+            );
+        } catch (\DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) $e->getCode(), false);
+        }
+        try {
+            [$yearId, $termId] = (new \App\API\Services\AcademicPeriodService($this->db->getConnection()))
+                ->planningTerm((int)($data['academic_year_id'] ?? 0), (int)($data['academic_year_term_id'] ?? 0));
+            if ($yearId < 1 || $termId < 1) {
+                return $this->badRequest('No academic year and term are available for review.');
+            }
+            $scope = substr(trim((string)($data['class_band'] ?? 'whole_school')), 0, 40);
+            if (!in_array($scope, ['whole_school', 'lower_primary', 'upper_primary'], true)) {
+                $scope = 'whole_school';
+            }
+            $facts = (new \App\API\Services\TimetablePlanningFacts($this->db->getConnection()))
+                ->build($yearId, $termId, $scope);
+            $input = $facts;
+            $input['review_scope'] = $scope;
+            $input['review_brief'] = 'Summarize timetable readiness for the selected year and term: setup gaps, lessons still to place, stream load balance and teacher load concentration. Recommend the next safe preparation steps. Never name teachers or learners and never place lessons.';
+            $queued = $this->contract('App\\API\\Services\\DraftRepository')->queue(
+                'academics.timetable_review',
+                $this->aiTimetableContext(),
+                $input,
+                [
+                    'subject_type' => 'academic_timetable_review',
+                    'scope' => 'authorized_timetable_aggregates',
+                    'academic_year_id' => $yearId,
+                    'academic_year_term_id' => $termId,
+                ]
+            );
+            return $this->accepted($queued, 'Timetable review queued');
+        } catch (\DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[SchedulesController] AI timetable review queue failed: ' . $e->getMessage());
+            return $this->serverError('Unable to queue timetable review');
+        }
+    }
+
+    /** GET /api/schedules/ai-timetable-review-drafts?scope=own|review */
+    public function getAiTimetableReviewDrafts($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        $scope = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own'));
+        $review = $scope === 'review';
+        if ($review && !$this->canApproveAiTimetableReview()) {
+            return $this->forbidden('Timetable approval permission is required');
+        }
+        try {
+            $drafts = $this->contract('App\\API\\Services\\DraftRepository')->listForReview(
+                $this->db->getConnection(), (int) ($this->currentUserId() ?? 0), $review, 'academics'
+            );
+            $drafts = array_values(array_filter(
+                $drafts,
+                static fn(array $d): bool => ($d['workflow_id'] ?? '') === 'academics.timetable_review'
+            ));
+            return $this->success(['drafts' => $drafts, 'scope' => $review ? 'review' : 'own'], 'Timetable AI drafts retrieved');
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[SchedulesController] AI timetable review list failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load timetable assistance');
+        }
+    }
+
+    /** POST /api/schedules/ai-timetable-review-draft-approve/{id} */
+    public function postAiTimetableReviewDraftApprove($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        if (!$this->canApproveAiTimetableReview()) {
+            return $this->forbidden('Timetable approval permission is required');
+        }
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) return $this->badRequest('draft_id is required');
+        try {
+            $approved = $this->contract('App\\API\\Services\\DraftRepository')->approve(
+                $this->db->getConnection(), $draftId, (int) ($this->currentUserId() ?? 0), 'academics.timetable_review'
+            );
+            return $this->success([
+                'draft_id' => $draftId,
+                'status' => 'approved',
+                'review_only' => true,
+                'draft' => $approved['draft'] ?? [],
+            ], 'Timetable review approved; lesson placement stays in the normal timetable workflow');
+        } catch (\DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[SchedulesController] AI timetable review approval failed: ' . $e->getMessage());
+            return $this->serverError('Unable to approve timetable assistance');
+        }
+    }
+
+    private function aiTimetableContext(): array
+    {
+        return [
+            'user_id' => (int) ($this->currentUserId() ?? 0),
+            'permissions' => array_values(array_unique((array) (
+                $this->user['effective_permissions'] ?? $this->user['permissions'] ?? $this->user['permission_codes'] ?? []
+            ))),
+            'request_id' => $_SERVER['REQUEST_ID'] ?? '',
+        ];
+    }
+
+    private function canApproveAiTimetableReview(): bool
+    {
+        return $this->userHasAny(
+            ['schedules_approve', 'schedules_manage', 'schedules_update'],
+            [1, 3, 4, 5],
+            ['admin', 'director', 'school_admin', 'headteacher']
+        );
+    }
+
     public function getSchedulingWorkflowStatus($id = null, $data = [], $segments = [])
     {
         $workflowId = $id ?? ($data['workflow_id'] ?? null);

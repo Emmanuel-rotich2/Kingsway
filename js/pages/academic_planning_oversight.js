@@ -127,9 +127,9 @@ const academicPlanningOversight = {
         for (const id of ids) await window.API.academic.approveLessonPlan({ plan_id: id });
         window.showNotification?.(ids.length === 1 ? 'Lesson plan approved.' : `${ids.length} lesson plans approved.`, 'success');
       } else if (action === 'return') {
-        const reason = window.prompt('What should the teacher change?', '');
-        if (!reason || !reason.trim()) return;
-        await window.API.academic.rejectLessonPlan({ plan_id: ids[0], reason: reason.trim() });
+        const reason = await (window.promptAction?.('Send lesson plan back', 'What should the teacher change?', '') ?? Promise.resolve(null));
+        if (!reason || !String(reason).trim()) return;
+        await window.API.academic.rejectLessonPlan({ plan_id: ids[0], reason: String(reason).trim() });
         window.showNotification?.('Lesson plan returned to the teacher.', 'success');
       }
       bootstrap.Modal.getInstance(document.getElementById('apoLessonModal'))?.hide();
@@ -140,10 +140,10 @@ const academicPlanningOversight = {
     }
   },
   async reopenRevision(workbookId) {
-    const reason = window.prompt('Why should this workbook be revised?', 'Please add or correct the required planning details');
+    const reason = await (window.promptAction?.('Request revision', 'Why should this workbook be revised?', 'Please add or correct the required planning details') ?? Promise.resolve(null));
     if (reason === null) return;
     try {
-      await window.API.academic.reopenSchemeWorkbookRevision(workbookId, { reason });
+      await window.API.academic.reopenSchemeWorkbookRevision(workbookId, { reason: String(reason) });
       window.showNotification?.('A new teacher revision draft was created. The official version remains preserved.', 'success');
       await this.load();
     } catch (error) { window.showNotification?.(error.message || 'Unable to reopen workbook', 'danger'); }

@@ -5,18 +5,18 @@
 <div class="container-fluid py-4" id="sidebarMenusPage">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h2 fw-bold mb-1"><i class="bi bi-layout-sidebar text-success me-2"></i>Sidebar Menus</h2>
+            <h2 class="h2 fw-bold mb-1"><i aria-hidden="true" class="bi bi-layout-sidebar text-success me-2"></i>Sidebar Menus</h2>
             <p class="text-muted mb-0">Effective menus generated from <code>config/role_sidebars.php</code> — exactly what users receive at login.</p>
         </div>
         <div class="d-flex flex-wrap gap-2">
             <button type="button" class="btn btn-outline-secondary" id="sidebarMenusExportCsvBtn" title="Export to CSV">
-                <i class="bi bi-filetype-csv me-1"></i> Export CSV
+                <i aria-hidden="true" class="bi bi-filetype-csv me-1"></i> Export CSV
             </button>
             <button type="button" class="btn btn-outline-secondary" id="sidebarMenusPrintBtn" title="Print / save as PDF">
-                <i class="bi bi-printer me-1"></i> Print / PDF
+                <i aria-hidden="true" class="bi bi-printer me-1"></i> Print / PDF
             </button>
             <button type="button" class="btn btn-outline-secondary" id="sidebarMenusRefreshBtn">
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i aria-hidden="true" class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
     </div>
@@ -31,7 +31,7 @@
                 <div class="col-lg-5 col-xl-4">
                     <label class="form-label small text-muted mt-2 mb-1" for="sidebarMenusSearch">Search</label>
                     <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <span class="input-group-text"><i aria-hidden="true" class="bi bi-search"></i></span>
                         <input class="form-control" id="sidebarMenusSearch" type="search" maxlength="200" placeholder="Role, menu item or route" autocomplete="off">
                     </div>
                 </div>
@@ -43,6 +43,7 @@
 
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
+                <caption class="visually-hidden">Sidebar menus by role</caption>
                 <thead>
                     <tr>
                         <th scope="col">Role</th>
@@ -74,11 +75,11 @@
             <nav aria-label="Sidebar menu pages">
                 <div class="btn-group btn-group-sm">
                     <button type="button" class="btn btn-outline-secondary" id="sidebarMenusPreviousPage">
-                        <i class="bi bi-chevron-left me-1"></i> Previous
+                        <i aria-hidden="true" class="bi bi-chevron-left me-1"></i> Previous
                     </button>
                     <span class="btn btn-outline-secondary disabled" id="sidebarMenusPageIndicator">Page 1 of 1</span>
                     <button type="button" class="btn btn-outline-secondary" id="sidebarMenusNextPage">
-                        Next <i class="bi bi-chevron-right ms-1"></i>
+                        Next <i aria-hidden="true" class="bi bi-chevron-right ms-1"></i>
                     </button>
                 </div>
             </nav>

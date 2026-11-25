@@ -1,7 +1,7 @@
 #paymentIntegrationSettingsPage .pis-instrument {
     width: 100%; min-height: 92px; display: flex; align-items: center; gap: 1rem;
     text-align: left; padding: 1rem; border: 1px solid var(--bs-border-color);
-    border-radius: .75rem; background: #fff; color: inherit; transition: .15s ease;
+    border-radius: .75rem; background: var(--kw-theme-surface); color: inherit; transition: .15s ease;
 }
 #paymentIntegrationSettingsPage .pis-instrument:hover,
 #paymentIntegrationSettingsPage .pis-instrument.selected { border-color: var(--bs-primary); background: #f1f6ff; box-shadow: 0 0 0 .15rem rgba(13,110,253,.1); }
@@ -14,3 +14,26 @@
 #pisModal .pis-step.done { color: var(--bs-success); border-color: var(--bs-success); }
 #pisModal .pis-wizard-pane h5 { font-weight: 700; }
 #pisModal .pis-wizard-pane .form-text { font-size: .78rem; }
+
+/* The ID selectors above outrank the generic Bootstrap card/table rules. */
+html[data-kw-theme="dark"] #paymentIntegrationSettingsPage :is(
+  .pis-instrument:hover,
+  .pis-instrument.selected,
+  .pis-instrument:hover *,
+  .pis-instrument.selected *
+) {
+  color: var(--kw-theme-text) !important;
+  background: var(--kw-theme-info-soft) !important;
+  border-color: var(--kw-theme-link) !important;
+}
+
+html[data-kw-theme="dark"] #paymentIntegrationSettingsPage .pis-instrument i {
+  color: var(--kw-theme-info) !important;
+}
+
+html[data-kw-theme="dark"] #pisModal :is(
+  .pis-step.active,
+  .pis-step.done
+) {
+  color: var(--kw-theme-link) !important;
+}

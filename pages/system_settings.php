@@ -10,13 +10,13 @@
         </div>
         <div class="d-flex flex-wrap gap-2">
             <button type="button" class="btn btn-outline-secondary" id="systemSettingsExportCsvBtn" title="Export to CSV">
-                <i class="bi bi-filetype-csv me-1"></i> Export CSV
+                <i aria-hidden="true" class="bi bi-filetype-csv me-1"></i> Export CSV
             </button>
             <button type="button" class="btn btn-outline-secondary" id="systemSettingsPrintBtn" title="Print / save as PDF">
-                <i class="bi bi-printer me-1"></i> Print / PDF
+                <i aria-hidden="true" class="bi bi-printer me-1"></i> Print / PDF
             </button>
             <button type="button" class="btn btn-primary" id="systemSettingsRefreshBtn">
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i aria-hidden="true" class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
     </div>
@@ -36,7 +36,7 @@
         <div class="card-body">
             <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
                 <div class="input-group input-group-sm ms-auto" style="max-width: 300px">
-                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <span class="input-group-text"><i aria-hidden="true" class="bi bi-search"></i></span>
                     <input class="form-control" id="systemSettingsSearch" type="search" maxlength="200" placeholder="Key, value or description" autocomplete="off">
                 </div>
                 <span class="text-muted small" id="systemSettingsCount">No settings loaded</span>
@@ -50,7 +50,7 @@
 
 <template id="systemSettingsCategoryTemplate">
     <section class="mb-4">
-        <h6 class="text-primary text-uppercase small mb-2"><i class="bi bi-tag me-1"></i><span data-fill="category"></span></h6>
+        <h6 class="text-primary text-uppercase small mb-2"><i aria-hidden="true" class="bi bi-tag me-1"></i><span data-fill="category"></span></h6>
         <div class="list-group" data-fill="settings"></div>
     </section>
 </template>
@@ -63,7 +63,7 @@
             <div class="small text-muted text-break" data-fill="description"></div>
         </div>
         <button type="button" class="btn btn-outline-info btn-sm" data-action="edit" title="Edit setting">
-            <i class="bi bi-pencil me-1"></i> Edit
+            <i aria-hidden="true" class="bi bi-pencil me-1"></i> Edit
         </button>
     </div>
 </template>

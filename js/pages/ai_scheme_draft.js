@@ -36,7 +36,7 @@
     const areaId=document.getElementById('genLearningArea')?.value;
     const strandId=document.getElementById('genStrand')?.value;
     const subId=document.getElementById('genSubStrand')?.value;
-    const intent=window.prompt('Optional teaching intent for this draft:','Create a practical, learner-centred sequence with assessment opportunities.');
+    const intent=(await (window.promptAction?.('AI scheme draft','Optional teaching intent for this draft:','Create a practical, learner-centred sequence with assessment opportunities.') ?? Promise.resolve(null)));
     if(intent===null)return;
     if(!streamId||!areaId){
       window.showNotification?.('Select class stream and learning area first','warning');

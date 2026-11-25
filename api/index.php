@@ -117,6 +117,11 @@ try {
         $_SERVER['browser_session_id'] = $browserSession;
     }
 
+    $deviceId = (string) ($_SERVER['HTTP_X_DEVICE_ID'] ?? '');
+    if ($deviceId !== '' && preg_match('/^[A-Za-z0-9._-]{1,128}$/', $deviceId)) {
+        $_SERVER['device_id'] = $deviceId;
+    }
+
     if (!headers_sent()) {
         header('X-Request-ID: ' . $requestId);
     }
@@ -131,6 +136,15 @@ if (!headers_sent()) {
     header('X-Frame-Options: DENY');
     header('X-XSS-Protection: 1; mode=block');
     header('Referrer-Policy: strict-origin');
+    // API payloads are same-site JSON for the SPA; same-site still permits
+    // the first-party PHP/Python/Node subdomains while blocking cross-site
+    // embedding of responses.
+    header('Cross-Origin-Resource-Policy: same-site');
+    header('X-Permitted-Cross-Domain-Policies: none');
+    // Isolate this browsing context from cross-origin pages while still
+    // allowing popups this page opens (payment/print flows) to keep their
+    // opener handle. No OAuth popup flow exists; KCB OAuth is server-side.
+    header('Cross-Origin-Opener-Policy: same-origin-allow-popups');
     // Camera access is required by the authenticated QR scanner page. Keep
     // microphone and geolocation disabled; the page still requires HTTPS and
     // the browser's explicit camera permission.

@@ -189,6 +189,8 @@
     <div class="col-sm-6 col-xl-3"><div class="stat-card bg-info-subtle"><div class="stat-number" id="ttClassDraftStatus">Not started</div><small>Draft Status</small><div class="text-muted small mt-1">Submit for academic review</div></div></div>
 </div>
 
+<div class="card border-success-subtle bg-light mb-4" id="aiTimetableReviewPanel"><div class="card-body py-2"><div class="d-flex justify-content-between align-items-center gap-2 flex-wrap"><div><strong><i class="bi bi-stars text-success me-1"></i>Timetable review assistant</strong><div class="small text-muted">Aggregate readiness, setup-gap and workload guidance for the selected year, term and class band. It never places lessons and never names staff.</div></div><button type="button" class="btn btn-outline-success btn-sm" id="queueAiTimetableReview"><i class="bi bi-stars me-1"></i>Review timetable with assistant</button></div><div id="aiTimetableReviewDrafts" class="row g-2 mt-2"></div></div></div>
+
 <!-- =======================================================
  FILTER BAR
 ======================================================= -->
@@ -359,3 +361,4 @@
 ======================================================= -->
 <?php asset_script($appBase, 'js/pages/manage_timetable.js'); ?>
 <?php asset_script($appBase, 'js/pages/timetable_drafting.js'); ?>
+<?php asset_script($appBase, 'js/pages/ai_timetable_review.js'); ?>

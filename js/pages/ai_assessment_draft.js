@@ -40,7 +40,7 @@
       return;
     }
     const type=document.getElementById('faType')?.selectedOptions?.[0]?.textContent?.trim()||'';
-    const intent=window.prompt('Optional assessment intent:','Create a fair, age-appropriate assessment with clear evidence of the outcome.');
+    const intent=(await (window.promptAction?.('AI assessment draft','Optional assessment intent:','Create a fair, age-appropriate assessment with clear evidence of the outcome.') ?? Promise.resolve(null)));
     if(intent===null)return;
     const b=document.getElementById('queueAiAssessmentDraft');
     if(b) b.disabled=true;

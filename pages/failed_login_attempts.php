@@ -19,21 +19,37 @@
                 class="btn btn-outline-secondary"
                 id="resetFailedLoginAttemptFiltersBtn"
             >
-                <i class="bi bi-arrow-counterclockwise me-1"></i> Reset filters
+                <i aria-hidden="true" class="bi bi-arrow-counterclockwise me-1"></i> Reset filters
+            </button>
+            <button
+                type="button"
+                class="btn btn-outline-secondary"
+                data-kw-sa-export
+                data-kw-sa-export-target="#failedLoginAttemptsTable"
+                data-kw-sa-export-name="failed_login_attempts"
+            >
+                <i class="bi bi-filetype-csv me-1" aria-hidden="true"></i>Export CSV
+            </button>
+            <button
+                type="button"
+                class="btn btn-outline-secondary"
+                data-kw-sa-print
+            >
+                <i class="bi bi-printer me-1" aria-hidden="true"></i>Print / PDF
             </button>
             <button
                 type="button"
                 class="btn btn-outline-secondary"
                 id="liveFailedLoginAttemptsBtn"
             >
-                <i class="bi bi-broadcast me-1"></i> Live
+                <i aria-hidden="true" class="bi bi-broadcast me-1"></i> Live
             </button>
             <button
                 type="button"
                 class="btn btn-primary"
                 id="refreshFailedLoginAttemptsBtn"
             >
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i aria-hidden="true" class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
     </div>
@@ -61,7 +77,7 @@
                     </label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="bi bi-search"></i>
+                            <i aria-hidden="true" class="bi bi-search"></i>
                         </span>
                         <input
                             class="form-control"
@@ -131,7 +147,8 @@
         </div>
 
         <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
+            <table class="table table-hover align-middle mb-0" id="failedLoginAttemptsTable">
+                <caption class="visually-hidden">Failed login attempt records</caption>
                 <thead>
                     <tr>
                         <th scope="col">Date and time</th>
@@ -182,7 +199,7 @@
                         class="btn btn-outline-secondary"
                         id="failedLoginAttemptsPreviousPage"
                     >
-                        <i class="bi bi-chevron-left me-1"></i> Previous
+                        <i aria-hidden="true" class="bi bi-chevron-left me-1"></i> Previous
                     </button>
                     <span
                         class="btn btn-outline-secondary disabled"
@@ -195,7 +212,7 @@
                         class="btn btn-outline-secondary"
                         id="failedLoginAttemptsNextPage"
                     >
-                        Next <i class="bi bi-chevron-right ms-1"></i>
+                        Next <i aria-hidden="true" class="bi bi-chevron-right ms-1"></i>
                     </button>
                 </div>
             </nav>

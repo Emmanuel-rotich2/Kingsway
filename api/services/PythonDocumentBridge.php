@@ -8,7 +8,7 @@ use App\Config\Config;
 use RuntimeException;
 
 /** Sends bounded, PHP-authorized school documents to the private Python renderer. */
-final class PythonDocumentBridge
+class PythonDocumentBridge
 {
     private InterServiceClient $client;
 
@@ -1135,19 +1135,169 @@ final class PythonDocumentBridge
         return ['preview_rows' => (int)($data['preview_rows'] ?? 0), 'columns' => $data['columns'] ?? [], 'sample_data' => $data['sample_data'] ?? []];
     }
 
-    // Admission
-    public function extractAdmissionDocument(string $jobId, int $fileId, string $docType): array
+    /**
+     * Parse one PHP-authorized, staged upload with the pinned Python packages.
+     * Raw bytes are never logged; only bounded metadata is journaled.
+     *
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    public function extractUploadedDocument(array $payload): array
     {
-        if (!$this->available()) throw new RuntimeException('Python service not configured.');
-        $body = json_encode(['job_id' => $jobId, 'file_id' => $fileId, 'doc_type' => $docType], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $headers = ['Content-Type: application/json', 'Accept: application/json', 'Authorization: Bearer ' . (string) Config::get('AI_PYTHON_SECRET', '')];
+        if (!$this->available()) {
+            throw new RuntimeException('Python document extraction is not configured.');
+        }
+        $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($body) || strlen($body) > 12 * 1024 * 1024) {
+            throw new RuntimeException('The staged document exceeds the extraction transport limit.');
+        }
+        $headers = [
+            'Content-Type: application/json',
+            'Accept: application/json',
+            'Authorization: Bearer ' . (string) Config::get('AI_PYTHON_SECRET', ''),
+        ];
         $started = microtime(true);
-        [$raw, $status, $te] = $this->client->post('python_ai', '/api/admission/document-extract', $headers, $body, 300);
-        $this->log('python_admission_document_extract', compact('jobId', 'fileId', 'docType', 'status', 'te', 'started'));
-        if (!is_string($raw) || $status < 200 || $status >= 300) throw new RuntimeException('Python admission document extract failed.');
-        $data = (json_decode($raw, true)['data'] ?? []);
-        return ['extracted_fields' => $data['extracted_fields'] ?? [], 'confidence' => (float)($data['confidence'] ?? 0), 'requires_review' => (bool)($data['requires_review'] ?? false)];
+        [$raw, $status, $te] = $this->client->post(
+            'python_ai',
+            '/api/documents/extract',
+            $headers,
+            $body,
+            300
+        );
+        $this->log('python_document_extract', [
+            'filename' => substr((string) ($payload['filename'] ?? ''), 0, 120),
+            'profile' => (string) ($payload['profile'] ?? ''),
+            'request_bytes' => strlen($body),
+            'status' => (int) $status,
+            'te' => $te,
+            'started' => $started,
+        ]);
+        if (!is_string($raw) || $status < 200 || $status >= 300) {
+            throw new RuntimeException('Python document extraction failed.');
+        }
+        $decoded = json_decode($raw, true);
+        $data = is_array($decoded) ? ($decoded['data'] ?? null) : null;
+        if (!is_array($data) || !isset($data['text'], $data['rows'], $data['fields'])) {
+            throw new RuntimeException('Python document extraction returned an invalid response.');
+        }
+        return $data;
     }
+
+    /**
+     * Verify one PHP-authorized upload against the document type requested by
+     * the form. Only the bounded verdict crosses back to PHP; raw document text
+     * is never returned to the upload caller.
+     *
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    public function verifyDocument(array $payload): array
+    {
+        if (!$this->available()) {
+            throw new RuntimeException('Python document verification is not configured.');
+        }
+        $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($body) || strlen($body) > 12 * 1024 * 1024) {
+            throw new RuntimeException('The document exceeds the verification transport limit.');
+        }
+        $headers = [
+            'Content-Type: application/json',
+            'Accept: application/json',
+            'Authorization: Bearer ' . (string) Config::get('AI_PYTHON_SECRET', ''),
+        ];
+        $started = microtime(true);
+        [$raw, $status, $te] = $this->client->post(
+            'python_ai',
+            '/api/documents/verify',
+            $headers,
+            $body,
+            120
+        );
+        $this->log('python_document_verify', [
+            'filename' => substr((string) ($payload['filename'] ?? ''), 0, 120),
+            'expected_type' => (string) ($payload['expected_type'] ?? ''),
+            'request_bytes' => strlen($body),
+            'status' => (int) $status,
+            'te' => $te,
+            'started' => $started,
+        ]);
+        if (!is_string($raw) || $status < 200 || $status >= 300) {
+            throw new RuntimeException('Python document verification failed.');
+        }
+        $decoded = json_decode($raw, true);
+        $data = is_array($decoded) ? ($decoded['data'] ?? null) : null;
+        if (!is_array($data) || !isset($data['decision'], $data['expected_type'])) {
+            throw new RuntimeException('Python document verification returned an invalid response.');
+        }
+        return $data;
+    }
+
+    /**
+     * Optimize one PHP-authorized photo with Pillow. Returns null when the
+     * image is already small enough or cannot be safely improved; PHP then
+     * falls back to its local GD path.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function optimizeImage(string $absolutePath, int $maxEdge, int $quality = 80): ?array
+    {
+        if (!$this->available()) {
+            throw new RuntimeException('Python image optimization is not configured.');
+        }
+        $content = file_get_contents($absolutePath);
+        if (!is_string($content) || $content === '' || strlen($content) > 8 * 1024 * 1024) {
+            throw new RuntimeException('The uploaded image cannot be optimized.');
+        }
+        $body = json_encode([
+            'content_base64' => base64_encode($content),
+            'extension' => strtolower(pathinfo($absolutePath, PATHINFO_EXTENSION)),
+            'max_edge' => $maxEdge,
+            'quality' => $quality,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($body)) {
+            throw new RuntimeException('The uploaded image could not be encoded for optimization.');
+        }
+        $headers = [
+            'Content-Type: application/json',
+            'Accept: application/json',
+            'Authorization: Bearer ' . (string) Config::get('AI_PYTHON_SECRET', ''),
+        ];
+        $started = microtime(true);
+        [$raw, $status, $te] = $this->client->post(
+            'python_ai',
+            '/api/images/optimize',
+            $headers,
+            $body,
+            120
+        );
+        $this->log('python_image_optimize', [
+            'filename' => basename($absolutePath),
+            'status' => (int) $status,
+            'te' => $te,
+            'started' => $started,
+        ]);
+        if (!is_string($raw) || $status < 200 || $status >= 300) {
+            throw new RuntimeException('Python image optimization failed.');
+        }
+        $decoded = json_decode($raw, true);
+        $data = is_array($decoded) ? ($decoded['data'] ?? null) : null;
+        if (!is_array($data) || empty($data['optimized'])) {
+            return null;
+        }
+        $encoded = $data['content_base64'] ?? null;
+        $optimized = is_string($encoded) ? base64_decode($encoded, true) : false;
+        if (!is_string($optimized) || $optimized === '' || strlen($optimized) >= strlen($content)) {
+            return null;
+        }
+        return [
+            'content' => $optimized,
+            'mime_type' => (string) ($data['mime_type'] ?? ''),
+            'before_bytes' => (int) ($data['before_bytes'] ?? strlen($content)),
+            'after_bytes' => strlen($optimized),
+        ];
+    }
+
+    // Admission
     public function admissionImportPreview(string $jobId, int $fileId, string $importType): array
     {
         if (!$this->available()) throw new RuntimeException('Python service not configured.');
@@ -1226,18 +1376,6 @@ final class PythonDocumentBridge
     }
 
     // Health
-    public function extractHealthDocument(string $jobId, int $fileId, string $docType): array
-    {
-        if (!$this->available()) throw new RuntimeException('Python service not configured.');
-        $body = json_encode(['job_id' => $jobId, 'file_id' => $fileId, 'doc_type' => $docType], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $headers = ['Content-Type: application/json', 'Accept: application/json', 'Authorization: Bearer ' . (string) Config::get('AI_PYTHON_SECRET', '')];
-        $started = microtime(true);
-        [$raw, $status, $te] = $this->client->post('python_ai', '/api/health/document-extract', $headers, $body, 300);
-        $this->log('python_health_document_extract', compact('jobId', 'fileId', 'docType', 'status', 'te', 'started'));
-        if (!is_string($raw) || $status < 200 || $status >= 300) throw new RuntimeException('Python health document extract failed.');
-        $data = (json_decode($raw, true)['data'] ?? []);
-        return ['extracted_fields' => $data['extracted_fields'] ?? [], 'confidence' => (float)($data['confidence'] ?? 0), 'requires_review' => (bool)($data['requires_review'] ?? false)];
-    }
     public function summarizeHealth(string $jobId, string $dateFrom, string $dateTo, string $scope, string $outputFormat): array
     {
         if (!$this->available()) throw new RuntimeException('Python service not configured.');

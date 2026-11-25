@@ -3,23 +3,23 @@
 
 ?>
 <div class="container-fluid py-4" id="securityIncidentsPage">
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <header class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h2 fw-bold mb-1">Security Incidents</h2>
+            <h2 class="h2 mb-1">Security Incidents</h2>
             <p class="text-muted mb-0">Authentication and authorization incidents recorded by the security layer.</p>
         </div>
-        <div class="d-flex flex-wrap gap-2">
+        <div class="d-flex flex-wrap gap-2" role="group" aria-label="Incident actions">
             <button type="button" class="btn btn-outline-secondary" id="securityIncidentsExportCsvBtn" title="Export to CSV">
-                <i class="bi bi-filetype-csv me-1"></i> Export CSV
+                <i aria-hidden="true" class="bi bi-filetype-csv me-1"></i> Export CSV
             </button>
             <button type="button" class="btn btn-outline-secondary" id="securityIncidentsPrintBtn" title="Print / save as PDF">
-                <i class="bi bi-printer me-1"></i> Print / PDF
+                <i aria-hidden="true" class="bi bi-printer me-1"></i> Print / PDF
             </button>
             <button type="button" class="btn btn-primary" id="securityIncidentsRefreshBtn">
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i aria-hidden="true" class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
-    </div>
+    </header>
 
     <div class="alert alert-info" id="securityIncidentsState" role="status" aria-live="polite">
         Loading security incidents...
@@ -27,7 +27,7 @@
 
     <div class="row g-3 mb-3" id="securityIncidentsStrip"></div>
 
-    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-3" role="search" aria-label="Filter security incidents">
         <div class="btn-group btn-group-sm" role="group" aria-label="Status filter" id="securityIncidentsStatusFilter">
             <button type="button" class="btn btn-outline-secondary active" data-status="all">All</button>
             <button type="button" class="btn btn-outline-secondary" data-status="open">Open</button>
@@ -36,7 +36,7 @@
             <button type="button" class="btn btn-outline-secondary" data-status="dismissed">Dismissed</button>
         </div>
         <div class="input-group input-group-sm ms-auto" style="max-width: 300px">
-            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <span class="input-group-text"><i aria-hidden="true" class="bi bi-search"></i></span>
             <input class="form-control" id="securityIncidentsSearch" type="search" maxlength="200" placeholder="Event, user or entity" autocomplete="off">
         </div>
         <span class="text-muted small" id="securityIncidentsCount">No incidents loaded</span>
@@ -58,11 +58,11 @@
                 <div class="mt-2">
                     <div class="fw-semibold" data-fill="username"></div>
                     <div class="small text-muted mt-1">
-                        <span class="me-2"><i class="bi bi-box me-1"></i><span data-fill="entity"></span></span>
-                        <span><i class="bi bi-hash me-1"></i><span data-fill="entity_id"></span></span>
+                        <span class="me-2"><i aria-hidden="true" class="bi bi-box me-1"></i><span data-fill="entity"></span></span>
+                        <span><i aria-hidden="true" class="bi bi-hash me-1"></i><span data-fill="entity_id"></span></span>
                     </div>
                     <div class="small text-muted text-break mt-1" data-fill="details"></div>
-                    <div class="small text-muted mt-2"><i class="bi bi-clock me-1"></i><span data-fill="created_at"></span></div>
+                    <div class="small text-muted mt-2"><i aria-hidden="true" class="bi bi-clock me-1"></i><span data-fill="created_at"></span></div>
                 </div>
             </div>
         </div>

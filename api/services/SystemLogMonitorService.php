@@ -13,9 +13,12 @@ use PDO;
  * Round-the-clock log watch for the system administrator.
  *
  * The ticker calls the worker endpoint every few seconds. Each run reads only
- * the bytes appended since the last run to the error journals
- * (errors.log, security.log and today's php-errors file), grades every new
- * entry and alerts the system administrators:
+ * the bytes appended since the last run to the error, audit, authentication
+ * and client journals (errors.log, security.log, audit.log, auth.log,
+ * client.log and today's php-errors file) plus the Python platform journals
+ * (python_platform/logs/*.log) and the Node gateway log
+ * (node_platform/server.log), grades every new entry and alerts the system
+ * administrators:
  *
  *   critical  fatal/critical errors, database down, disk full, memory
  *             exhausted, or any one problem repeating fast (a spike):
@@ -42,6 +45,8 @@ final class SystemLogMonitorService
     private const SPIKE_COUNT = 20;          // same signature this many times in one run = critical
     private const RECENT_KEEP = 50;
     private const STATE_FILE = '.log_monitor_state.json';
+    private const DEVICE_CHECK_SECONDS = 600;   // anomaly sweep cadence
+    private const DEVICE_CHECK_CATEGORIES = ['http', 'client', 'audit', 'device'];
 
     private const CRITICAL_PATTERNS = [
         '/\b(PHP )?(Fatal error|Parse error)\b/i' => 'PHP fatal error',
@@ -79,6 +84,21 @@ final class SystemLogMonitorService
     {
         $now = ($this->clock)();
         $state = $this->loadState();
+        // First time a watched source is covered (fresh install or a newly
+        // added journal), seed its offset at end-of-file so history is never
+        // replayed as one stale digest. php-errors is exempt: each daily file
+        // is genuinely new and readNew() reads it from the top.
+        $covered = (array) ($state['covered'] ?? []);
+        foreach ($this->watchedFiles($now) as $name => $path) {
+            if (isset($covered[$name])) {
+                continue;
+            }
+            $covered[$name] = true;
+            if ($name !== 'php-errors' && is_file($path) && is_readable($path)) {
+                $state['offsets'][$name . ':' . basename($path)] = (int) filesize($path);
+            }
+        }
+        $state['covered'] = $covered;
         $findings = [];
         foreach ($this->watchedFiles($now) as $name => $path) {
             foreach ($this->readNew($path, $name, $state) as $line) {
@@ -87,6 +107,11 @@ final class SystemLogMonitorService
                     $findings[] = $finding;
                 }
             }
+        }
+
+        // Periodic device/account anomaly sweep (rate-limit evasion signals).
+        foreach ($this->deviceAnomalyFindings($now, $state) as $f) {
+            $findings[] = $f;
         }
 
         // Group by signature; a fast repeat is a spike and becomes critical.
@@ -156,11 +181,23 @@ final class SystemLogMonitorService
     /** @return array<string,string> name => path */
     private function watchedFiles(int $now): array
     {
-        return [
+        $files = [
             'errors' => $this->logDir . '/errors.log',
             'security' => $this->logDir . '/security.log',
+            'audit' => $this->logDir . '/audit.log',
+            'auth' => $this->logDir . '/auth.log',
+            'client' => $this->logDir . '/client.log',
             'php-errors' => $this->logDir . '/php-errors-' . date('Y-m-d', $now) . '.log',
         ];
+        // Python platform journals (JSON-lines) and the Node gateway log live
+        // outside logs/<env>; they are watched with the same offset logic.
+        $root = dirname(dirname($this->logDir));
+        $pyDir = $root . '/python_platform/logs';
+        foreach (['ticker', 'ticker.out', 'ai_generation', 'ai_behavior', 'communications', 'document_generation', 'ai_performance', 'reads'] as $name) {
+            $files['py-' . $name] = $pyDir . '/' . $name . (str_ends_with($name, '.out') ? '' : '.log');
+        }
+        $files['node-server'] = $root . '/node_platform/server.log';
+        return $files;
     }
 
     /** New complete lines since the stored offset (handles rotation and truncation). */
@@ -175,7 +212,9 @@ final class SystemLogMonitorService
         if ($offset === null) {
             // First ever run: start at the end, never replay old history.
             // After that, a file we have not seen is new (today's php-errors
-            // file after midnight), so read it from the top.
+            // file after midnight, or a journal created later), so read it
+            // from the top. Sources covered for the first time are seeded at
+            // end-of-file by run() before this is reached.
             $firstRun = empty($state['last_run']);
             $offset = $firstRun ? $size : 0;
         }
@@ -207,7 +246,7 @@ final class SystemLogMonitorService
         return array_filter(explode("\n", substr($chunk, 0, $end)), static fn ($l) => trim($l) !== '');
     }
 
-    /** @return array{severity:string,title:string,detail:string,source:string,signature:string}|null */
+    /** @return array{severity:string,title:string,detail:string,source:string,signature:string,location?:string}|null */
     private function classify(string $line, string $source): ?array
     {
         $entry = json_decode($line, true);
@@ -217,8 +256,41 @@ final class SystemLogMonitorService
                 return null; // never alert on our own entries
             }
             $level = strtolower((string) ($entry['level'] ?? 'info'));
-            $message = trim((string) ($entry['message'] ?? $entry['error'] ?? $type));
-            $text = $message . ' ' . (string) ($entry['error'] ?? '');
+            $rawMessage = $entry['message'] ?? $entry['error'] ?? $entry['msg'] ?? $type;
+            $message = trim(is_scalar($rawMessage) ? (string) $rawMessage : (string) json_encode($rawMessage));
+            $extra = $entry['error'] ?? '';
+            $text = $message . ' ' . (is_array($extra) ? (string) json_encode($extra) : (string) $extra);
+
+            // Node gateway log is pino (JSON or ANSI pretty text); it must be
+            // handled before the generic JSON path, which would misread the
+            // numeric pino level as a string level.
+            if ($source === 'node-server') {
+                return $this->classifyNode($line);
+            }
+            // Audit journal: canonical security actions (failed_login,
+            // security_incident, permission_denied, ...). These carry an
+            // 'action' rather than an error level.
+            if ($source === 'audit') {
+                return $this->classifyAudit($entry, $message);
+            }
+            // Auth journal: login_attempt success/failure and lockouts.
+            if ($source === 'auth') {
+                return $this->classifyAuth($entry, $message);
+            }
+            // Browser telemetry: only genuine client errors are findings.
+            if ($source === 'client') {
+                if (!in_array($level, ['error', 'critical', 'warning'], true)) {
+                    return null;
+                }
+                $severity = in_array($level, ['error', 'critical'], true) ? 'error' : 'warning';
+                $route = trim((string) ($entry['client_route'] ?? $entry['route'] ?? ''));
+                $title = 'Browser ' . ($level === 'warning' ? 'warning' : 'error') . ($route !== '' ? ' on ' . $route : '');
+                return $this->finding($severity, $title, $message, $source);
+            }
+            // Python platform journals carry level + event/category fields.
+            if (str_starts_with($source, 'py-')) {
+                return $this->classifyPython($entry, $level, $message, $source);
+            }
         } else {
             $level = preg_match('/PHP (Fatal error|Parse error)/i', $line) ? 'critical'
                 : (preg_match('/PHP Warning/i', $line) ? 'warning'
@@ -251,10 +323,244 @@ final class SystemLogMonitorService
                 ? 'Security: ' . ($type !== '' ? str_replace('_', ' ', $type) : 'warning')
                 : ($type !== '' && $type !== 'error' ? str_replace('_', ' ', $type) : 'Application error');
         }
-        $detail = mb_substr($message, 0, 300);
+        return $this->finding($severity, $title, $message, $source);
+    }
+
+    /**
+     * Audit journal entries carry a canonical security 'action'.
+     * Failures and incidents are digest items; lockouts and throttles are
+     * errors; anything else is ignored.
+     */
+    private function classifyAudit(array $entry, string $message): ?array
+    {
+        $action = strtolower((string) ($entry['action'] ?? ''));
+        $map = [
+            'failed_login' => ['warning', 'Failed login'],
+            'login_failed' => ['warning', 'Failed login'],
+            'permission_denied' => ['warning', 'Permission denied'],
+            'unauthorized_access' => ['warning', 'Unauthorized access'],
+            'policy_violation' => ['warning', 'Policy violation'],
+            'security_incident' => ['error', 'Security incident'],
+            'account_locked' => ['error', 'Account locked'],
+            'account_lockout' => ['error', 'Account locked'],
+            'rate_limit_exceeded' => ['error', 'Rate limit exceeded'],
+            'rate_limited' => ['error', 'Rate limit exceeded'],
+        ];
+        if (!isset($map[$action])) {
+            // Unknown audit actions still surface when logged at error+.
+            $level = strtolower((string) ($entry['level'] ?? 'info'));
+            if (!in_array($level, ['error', 'critical', 'warning'], true)) {
+                return null;
+            }
+            return $this->finding(in_array($level, ['error', 'critical'], true) ? 'error' : 'warning',
+                'Audit: ' . ($action !== '' ? str_replace('_', ' ', $action) : 'event'), $message, 'audit');
+        }
+        [$severity, $title] = $map[$action];
+        // Include route/user context in the detail when the audit entry has it.
+        $where = trim((string) ($entry['route'] ?? ''));
+        if ($where !== '') {
+            $message .= ' [' . $where . ']';
+        }
+        return $this->finding($severity, $title, $message, 'audit');
+    }
+
+    /** Auth journal: failed attempts are digest warnings; lockouts are errors. */
+    private function classifyAuth(array $entry, string $message): ?array
+    {
+        $type = strtolower((string) ($entry['type'] ?? ''));
+        if (str_contains($type, 'lock') || str_contains($type, 'disable') || str_contains($type, 'suspend')) {
+            return $this->finding('error', 'Account security event', $message, 'auth');
+        }
+        if ($type === 'login_attempt') {
+            $status = strtolower((string) ($entry['status'] ?? 'failed'));
+            if ($status === 'success') {
+                return null; // successful logins are noise
+            }
+            $reason = trim((string) ($entry['failure_reason'] ?? ''));
+            return $this->finding('warning', 'Failed login attempt' . ($reason !== '' ? ': ' . $reason : ''), $message, 'auth');
+        }
+        $level = strtolower((string) ($entry['level'] ?? 'info'));
+        if (in_array($level, ['error', 'critical'], true)) {
+            return $this->finding('error', 'Auth error', $message, 'auth');
+        }
+        return null;
+    }
+
+    /** Python journals: JSON-lines with level, event, category and error. */
+    private function classifyPython(array $entry, string $level, string $message, string $source): ?array
+    {
+        $event = strtolower((string) ($entry['event'] ?? ''));
+        $category = (string) ($entry['category'] ?? '');
+        $eventFailed = str_ends_with($event, '_failed') || $event === 'job_failed' || str_contains($event, 'failure');
+        $failed = in_array($level, ['error', 'critical', 'warning'], true) || $eventFailed;
+        if (!$failed) {
+            return null;
+        }
+        // A *_failed/job_failed event is an operational error even when the
+        // journal records it at info level; plain warnings stay warnings.
+        $severity = (in_array($level, ['error', 'critical'], true) || $eventFailed) ? 'error' : 'warning';
+        $job = trim((string) ($entry['job'] ?? ''));
+        $title = 'Python ' . ($category !== '' ? $category : 'platform')
+            . ($event !== '' ? ' ' . str_replace('_', ' ', $event) : ' failure')
+            . ($job !== '' ? ' (' . $job . ')' : '');
+        return $this->finding($severity, $title, $message, $source);
+    }
+
+    /** Node gateway log: pino (JSON or pretty) with ANSI escapes. */
+    private function classifyNode(string $line): ?array
+    {
+        $clean = (string) preg_replace('/\x1b\[[0-9;]*m/', '', $line);
+        $entry = json_decode($clean, true);
+        if (is_array($entry)) {
+            // pino numeric levels: 50 = error, 60 = fatal.
+            $pino = (int) ($entry['level'] ?? 0);
+            if ($pino >= 60) {
+                return $this->finding('critical', 'Node fatal', (string) ($entry['msg'] ?? $entry['err']['message'] ?? 'fatal'), 'node-server');
+            }
+            if ($pino >= 50) {
+                return $this->finding('error', 'Node error', (string) ($entry['msg'] ?? $entry['err']['message'] ?? 'error'), 'node-server');
+            }
+            if ($pino >= 40) {
+                return $this->finding('warning', 'Node warning', (string) ($entry['msg'] ?? 'warning'), 'node-server');
+            }
+            return null;
+        }
+        if (preg_match('/\b(FATAL|fatal error|uncaught exception)\b/i', $clean)) {
+            return $this->finding('critical', 'Node fatal', trim($clean), 'node-server');
+        }
+        if (preg_match('/\b(ERROR|error:|ERR!)\b/i', $clean) && !preg_match('/level.*info|"level":(30|20|10)\b/', $clean)) {
+            return $this->finding('error', 'Node error', trim(mb_substr($clean, 0, 300)), 'node-server');
+        }
+        if (preg_match('/\b(WARN|warning)\b/i', $clean)) {
+            return $this->finding('warning', 'Node warning', trim(mb_substr($clean, 0, 300)), 'node-server');
+        }
+        return null;
+    }
+
+    /** Build a finding with a repeat-friendly signature. */
+    private function finding(string $severity, string $title, string $message, string $source): array
+    {
+        $detail = mb_substr(trim($message), 0, 300);
         // Signature without numbers/ids so repeats group together.
-        $signature = hash('sha1', $source . '|' . $title . '|' . preg_replace('/\d+|0x[0-9a-f]+|[0-9a-f]{16,}/i', '#', mb_substr($message, 0, 160)));
+        $signature = hash('sha1', $source . '|' . $title . '|' . preg_replace('/\d+|0x[0-9a-f]+|[0-9a-f]{16,}/i', '#', mb_substr($detail, 0, 160)));
         return ['severity' => $severity, 'title' => $title, 'detail' => $detail, 'source' => $source, 'signature' => $signature];
+    }
+
+    /**
+     * Device/account anomaly sweep over the recent journal window, run at
+     * most every DEVICE_CHECK_SECONDS. IPs rotate legitimately (DHCP, mobile
+     * networks), so a single address proves nothing - the signals are
+     * aggregate: one device_id on many IPs, one account on many devices or
+     * IPs, and one server-computed browser signature (signal_fp) claiming
+     * several different device_ids, which is the fingerprint of an attacker
+     * rotating the client-asserted X-Device-Id to evade per-device rate
+     * limits. Findings flow through the normal grouping/cooldown/digest
+     * pipeline; only extreme counts escalate to critical (SMS).
+     */
+    private function deviceAnomalyFindings(int $now, array &$state): array
+    {
+        // The sweep reads the shared journals via FileLogger, which always
+        // resolves the real log root - not the injected $logDir. When the
+        // monitor is pointed at a scratch dir (unit tests) the sweep must
+        // not read production journals, so it only runs on the real root.
+        if ($this->logDir !== dirname(FileLogger::path('errors'))) {
+            return [];
+        }
+        if ($now - (int) ($state['last_device_check'] ?? 0) < self::DEVICE_CHECK_SECONDS) {
+            return [];
+        }
+        $state['last_device_check'] = $now;
+
+        $ipsPerDevice = [];
+        $devicesPerUser = [];
+        $ipsPerUser = [];
+        $devicesPerSignal = [];
+        foreach (self::DEVICE_CHECK_CATEGORIES as $category) {
+            foreach (FileLogger::recent($category, 1200) as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                $ip = trim((string) ($entry['ip'] ?? ''));
+                $deviceId = trim((string) ($entry['device_id'] ?? $entry['details']['device_id'] ?? ''));
+                $signal = trim((string) ($entry['signal_fp'] ?? ''));
+                $uid = (int) ($entry['user_id'] ?? 0);
+                if ($deviceId !== '' && $ip !== '') {
+                    $ipsPerDevice[$deviceId][$ip] = true;
+                }
+                if ($uid > 0 && $deviceId !== '') {
+                    $devicesPerUser[$uid][$deviceId] = true;
+                }
+                if ($uid > 0 && $ip !== '') {
+                    $ipsPerUser[$uid][$ip] = true;
+                }
+                if ($signal !== '' && $deviceId !== '') {
+                    $devicesPerSignal[$signal][$deviceId] = true;
+                }
+            }
+        }
+
+        $findings = [];
+        foreach ($ipsPerDevice as $deviceId => $ips) {
+            $n = count($ips);
+            if ($n >= 4) {
+                $label = 'device_' . substr(md5($deviceId), 0, 10);
+                $findings[] = $this->finding(
+                    $n >= 10 ? 'critical' : 'warning',
+                    'Device seen on many IPs',
+                    $label . ' used from ' . $n . ' distinct IP addresses in the recent window - possible IP rotation or credential sharing. Review account activity for this device.',
+                    'device-signals'
+                );
+            }
+        }
+        foreach ($devicesPerUser as $uid => $devices) {
+            $n = count($devices);
+            if ($n >= 3) {
+                $findings[] = $this->finding(
+                    $n >= 8 ? 'critical' : 'warning',
+                    'Account on many devices',
+                    'user_' . $uid . ' authenticated from ' . $n . ' distinct device ids in the recent window - possible shared credentials or account compromise.',
+                    'device-signals'
+                );
+            }
+        }
+        foreach ($ipsPerUser as $uid => $ips) {
+            $n = count($ips);
+            if ($n >= 6) {
+                $findings[] = $this->finding(
+                    $n >= 15 ? 'critical' : 'warning',
+                    'Account on many IPs',
+                    'user_' . $uid . ' seen from ' . $n . ' distinct IP addresses in the recent window.',
+                    'device-signals'
+                );
+            }
+        }
+        foreach ($devicesPerSignal as $signal => $devices) {
+            $n = count($devices);
+            if ($n >= 2) {
+                $findings[] = $this->finding(
+                    $n >= 5 ? 'critical' : 'warning',
+                    'Device-id rotation suspected',
+                    'One browser signature (' . $signal . ') claimed ' . $n . ' different device ids - the client-asserted X-Device-Id is being rotated, likely to evade per-device rate limits.',
+                    'device-signals'
+                );
+            }
+        }
+        return $findings;
+    }
+
+    /** Human-readable journal location for alerts (SMS + email). */
+    private function locationFor(string $source, string $env): string
+    {
+        if (str_starts_with($source, 'py-')) {
+            return 'python_platform/logs/' . substr($source, 3) . (str_ends_with($source, '.out') ? '' : '.log');
+        }
+        if ($source === 'node-server') {
+            return 'node_platform/server.log';
+        }
+        if ($source === 'device-signals') {
+            return 'aggregate of logs/*/http, client, audit and device journals';
+        }
+        return 'logs/' . $env . '/' . $source . '.log';
     }
 
     private function coolingDown(array $state, string $key, int $now): bool
@@ -266,8 +572,8 @@ final class SystemLogMonitorService
     {
         $env = (string) ($_ENV['APP_ENV'] ?? 'production');
         $sms = mb_substr(sprintf(
-            'Kingsway %s ALERT: %s (x%d) at %s. Check logs/%s/%s.log.',
-            strtoupper($env), $g['title'], $g['count'], date('H:i', $now), $env, $g['source']
+            'Kingsway %s ALERT: %s (x%d) at %s. Check %s.',
+            strtoupper($env), $g['title'], $g['count'], date('H:i', $now), $this->locationFor($g['source'], $env)
         ), 0, 300);
         $hourAgo = $now - 3600;
         $state['sms_times'] = array_values(array_filter($state['sms_times'] ?? [], static fn ($t) => $t > $hourAgo));
@@ -277,7 +583,7 @@ final class SystemLogMonitorService
         }
         $body = '<p><strong>' . htmlspecialchars($g['title']) . '</strong> occurred ' . (int) $g['count']
             . ' time(s) at ' . date('Y-m-d H:i:s', $now) . ' (' . htmlspecialchars($env) . ').</p>'
-            . '<p>Source: logs/' . htmlspecialchars($env . '/' . $g['source']) . '.log</p>'
+            . '<p>Source: ' . htmlspecialchars($this->locationFor($g['source'], $env)) . '</p>'
             . '<pre style="white-space:pre-wrap">' . htmlspecialchars($g['detail']) . '</pre>'
             . '<p>Further alerts for this problem are paused for ' . self::COOLDOWN_MINUTES . ' minutes.</p>';
         if ($this->send('email', 'CRITICAL: ' . $g['title'] . ' (Kingsway ' . $env . ')', $body)) {

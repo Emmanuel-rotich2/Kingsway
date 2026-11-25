@@ -3,34 +3,34 @@
 
 ?>
 <div class="container-fluid py-4" id="activityAuditLogsPage">
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <header class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h2 fw-bold mb-1">Activity Audit Logs</h2>
+            <h2 class="h2 mb-1">Activity Audit Logs</h2>
             <p class="text-muted mb-0">Immutable system activity as a chronological timeline.</p>
         </div>
-        <div class="d-flex flex-wrap gap-2">
+        <div class="d-flex flex-wrap gap-2" role="group" aria-label="Activity log actions">
             <button type="button" class="btn btn-outline-secondary" id="activityAuditLogsExportCsvBtn" title="Export to CSV">
-                <i class="bi bi-filetype-csv me-1"></i> Export CSV
+                <i aria-hidden="true" class="bi bi-filetype-csv me-1"></i> Export CSV
             </button>
             <button type="button" class="btn btn-outline-secondary" id="activityAuditLogsPrintBtn" title="Print / save as PDF">
-                <i class="bi bi-printer me-1"></i> Print / PDF
+                <i aria-hidden="true" class="bi bi-printer me-1"></i> Print / PDF
             </button>
             <button type="button" class="btn btn-outline-secondary" id="activityAuditLogsLiveBtn">
-                <i class="bi bi-broadcast me-1"></i> Live
+                <i aria-hidden="true" class="bi bi-broadcast me-1"></i> Live
             </button>
             <button type="button" class="btn btn-primary" id="activityAuditLogsRefreshBtn">
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i aria-hidden="true" class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
-    </div>
+    </header>
 
     <div class="alert alert-info" id="activityAuditLogsState" role="status" aria-live="polite">
         Loading activity audit logs...
     </div>
 
-    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-3" role="search" aria-label="Filter activity logs">
         <div class="input-group input-group-sm" style="max-width: 340px">
-            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <span class="input-group-text"><i aria-hidden="true" class="bi bi-search"></i></span>
             <input class="form-control" id="activityAuditLogsSearch" type="search" maxlength="200" placeholder="User, action, resource or IP" autocomplete="off">
         </div>
         <span class="text-muted small ms-auto" id="activityAuditLogsCount">No activity records loaded</span>
@@ -57,9 +57,9 @@
                     <span class="small text-muted" data-fill="created_at"></span>
                 </div>
                 <div class="small text-muted d-flex flex-wrap gap-3 mt-1">
-                    <span><i class="bi bi-box me-1"></i><span data-fill="resource_type"></span></span>
-                    <span><i class="bi bi-hash me-1"></i><span data-fill="resource_id"></span></span>
-                    <span><i class="bi bi-globe2 me-1"></i><code data-fill="ip_address"></code></span>
+                    <span><i aria-hidden="true" class="bi bi-box me-1"></i><span data-fill="resource_type"></span></span>
+                    <span><i aria-hidden="true" class="bi bi-hash me-1"></i><span data-fill="resource_id"></span></span>
+                    <span><i aria-hidden="true" class="bi bi-globe2 me-1"></i><code data-fill="ip_address"></code></span>
                 </div>
             </div>
         </div>

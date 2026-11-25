@@ -11,6 +11,8 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use App\Config\DashboardRouter;
 
+require_once __DIR__ . '/../config/system_admin_console.php';
+
 $route = $_GET['route'] ?? 'loading';
 $route = is_string($route) ? trim($route) : 'loading';
 $route = $route === 'loading'
@@ -93,6 +95,14 @@ $sidebar_items = [];
             >
 <?php endif; ?>
 
+                <?php if (system_admin_is_console_route($route)): ?>
+                    <link
+                        rel="stylesheet"
+                        href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/system-admin-console.css?v=<?= asset_version('css/pages/system-admin-console.css') ?>"
+                    >
+                    <div class="kw-sysadmin-console" data-system-console="1">
+                <?php endif; ?>
+
                 <?php if ($route === 'loading'): ?>
                     <section class="app-loading-state" aria-live="polite">
                         <div class="spinner-border text-success" role="status">
@@ -134,6 +144,11 @@ $sidebar_items = [];
                         window.location.replace((window.APP_BASE || '') + dest);
                     })();
                     </script>
+                <?php endif; ?>
+
+                <?php if (system_admin_is_console_route($route)): ?>
+                    </div>
+                    <?php asset_script($appBase, 'js/pages/system/system_console_ui.js'); ?>
                 <?php endif; ?>
 
 <?php if (!$isFragment): ?>

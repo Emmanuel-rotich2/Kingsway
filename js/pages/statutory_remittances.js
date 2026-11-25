@@ -535,7 +535,7 @@ const statutoryRemittancesController = {
 
   async notify(msg, type = 'info') {
     if (window.showNotification) window.showNotification(msg, type);
-    else alert(msg);
+    else if (window.infoDialog) window.infoDialog('Notice', msg);
   },
 
   esc(str) {

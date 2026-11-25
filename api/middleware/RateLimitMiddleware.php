@@ -155,6 +155,16 @@ class RateLimitMiddleware
             }
         }
 
+        // Device key before IP fallback: the SPA sends a persistent
+        // localStorage-backed X-Device-Id, so an attacker rotating IPs
+        // (VPN, mobile data, proxy pool) still lands in the same bucket.
+        // IP remains the last resort for clients that send no device id
+        // (scripts, curl, old browsers).
+        $deviceId = (string) ($_SERVER['device_id'] ?? $_SERVER['HTTP_X_DEVICE_ID'] ?? '');
+        if ($deviceId !== '' && preg_match('/^[A-Za-z0-9._-]{1,128}$/', $deviceId)) {
+            return 'device:' . $deviceId;
+        }
+
         return 'ip:' . $ipAddress;
     }
 

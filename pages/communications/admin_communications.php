@@ -423,11 +423,11 @@ $whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED',
         el.innerHTML = body;
         const modal = document.getElementById('messagePreviewModal');
         if (modal) { bootstrap.Modal.getOrCreateInstance(modal).show(); }
-        else { alert(msg.subject + '\n\n' + (msg.body || msg.message || '')); }
+        else { window.infoDialog(msg.subject || 'Message', msg.body || msg.message || ''); }
     }
 
     async function resendMessage(id) {
-        if (!confirm('Resend this message?')) return;
+        if (!(await window.confirmAction('Resend message', 'Resend this message?', { confirmText: 'Resend' }))) return;
         try {
             await callAPI('/communications/resend', 'POST', { id });
             showNotification('Message queued for resend', 'success');
@@ -436,7 +436,7 @@ $whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED',
     }
 
     async function deleteMessage(id) {
-        if (!confirm('Delete this message record?')) return;
+        if (!(await window.confirmAction('Delete message', 'Delete this message record?', { confirmText: 'Delete', danger: true }))) return;
         try {
             await callAPI('/communications/delete/' + id, 'DELETE');
             showNotification('Message deleted', 'success');

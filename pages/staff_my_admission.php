@@ -1,15 +1,14 @@
 <?php
 /** Staff self-service admission: this stays inside the authenticated staff shell. */
 ?>
-<section class="card border-0 shadow-sm">
-  <div class="card-header bg-white d-flex justify-content-between align-items-center">
+<section class="card">
+  <header class="card-header d-flex justify-content-between align-items-center">
     <div>
-      <div class="text-uppercase small text-success fw-semibold">Staff self-service</div>
-      <h4 class="mb-1">Apply for admission for my child</h4>
-      <p class="text-muted small mb-0">Your staff identity is loaded from your account. Only learner details and relationship are requested.</p>
+      <h2 class="mb-1">Apply for admission for my child</h2>
+      <p class="text-muted mb-0">Your staff identity is loaded from your account. Only learner details and relationship are requested.</p>
     </div>
-    <i class="bi bi-person-vcard fs-2 text-success"></i>
-  </div>
+    <i class="bi bi-person-vcard fs-2" aria-hidden="true"></i>
+  </header>
   <div class="card-body">
     <div id="staffAdmissionIdentity" class="alert alert-light border mb-4">Loading your saved staff profile…</div>
     <form id="staffAdmissionForm" enctype="multipart/form-data">
@@ -27,8 +26,9 @@
         <div class="col-md-6"><label class="form-label">Passport photo <span class="text-danger">*</span></label><input type="file" name="doc_passport_photo" class="form-control" accept=".jpg,.jpeg,.png" required></div>
         <div class="col-12"><div id="staffAdmissionMessage" class="alert d-none mb-0"></div></div>
       </div>
-      <div class="mt-4 d-flex justify-content-end"><button class="btn btn-success" id="staffAdmissionSubmit"><i class="bi bi-send me-1"></i>Submit application</button></div>
+      <div class="mt-4 d-flex justify-content-end"><button type="submit" class="btn btn-primary" id="staffAdmissionSubmit"><i class="bi bi-send me-1" aria-hidden="true"></i>Submit application</button></div>
     </form>
   </div>
 </section>
+<?php asset_script($appBase, 'js/utils/document_camera_capture.js'); ?>
 <?php asset_script($appBase, 'js/pages/staff_my_admission.js'); ?>

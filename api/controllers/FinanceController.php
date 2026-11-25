@@ -705,6 +705,101 @@ class FinanceController extends BaseController
         }
     }
 
+    /** POST /api/finance/ai-arrears-review-queue */
+    public function postAiArrearsReviewQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canUseAiArrears()) return $this->forbidden('Finance arrears permission is required');
+        try {
+            $response = $this->contract('App\\API\\Modules\\finance\\FeeManager')
+                ->getOutstandingFeesReport([]);
+            $payload = is_array($response) ? ($response['data'] ?? $response) : [];
+            $rows = array_slice((array) ($payload['outstanding_fees'] ?? []), 0, 5000);
+            if ($rows === []) return $this->badRequest('There are no outstanding fee balances to review.');
+
+            $studentIds = [];
+            $total = 0.0;
+            $aging = ['under_30_days' => 0, '30_to_60_days' => 0, '60_to_90_days' => 0, 'over_90_days' => 0];
+            $byClass = [];
+            foreach ($rows as $row) {
+                if (!is_array($row)) continue;
+                $studentIds[(int) ($row['student_id'] ?? 0)] = true;
+                $total += (float) ($row['outstanding_balance'] ?? 0);
+                $days = (int) ($row['days_overdue'] ?? 0);
+                $band = $days < 30 ? 'under_30_days' : ($days < 60 ? '30_to_60_days' : ($days < 90 ? '60_to_90_days' : 'over_90_days'));
+                $aging[$band]++;
+                $className = trim((string) ($row['class_name'] ?? ''));
+                if ($className !== '') $byClass[$className] = ($byClass[$className] ?? 0) + 1;
+            }
+            arsort($byClass);
+            $topClasses = array_slice(array_keys($byClass), 0, 5);
+            $input = [
+                'student_count' => (string) count($studentIds),
+                'total_outstanding_band' => 'KES ' . ($total < 100000 ? 'under 100,000' : ($total < 1000000 ? '100,000-1,000,000' : 'over 1,000,000')),
+                'currency' => 'KES',
+                'aging_bands' => implode(', ', array_map(static fn(string $k, int $v): string => "{$k}: {$v}", array_keys($aging), $aging)),
+                'class_concentration' => $topClasses ? 'Highest balances by class: ' . implode(', ', $topClasses) : 'No class breakdown available',
+                'collection_notes' => 'Review aging bands and class concentration; suggest collection priorities, payment-plan candidates and guardian-contact drafts. Never name individual learners.',
+            ];
+            $queued = $this->contract(DraftRepository::class)->queue(
+                'finance.arrears_review',
+                $this->aiFinanceContext(),
+                $input,
+                [
+                    'subject_type' => 'finance_arrears_review',
+                    'subject_id' => 0,
+                    'scope' => 'authorized_fee_arrears_aggregates',
+                    'currency' => 'KES',
+                ]
+            );
+            return $this->accepted($queued, 'Fee arrears review queued');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[FinanceController] AI arrears queue failed: ' . $e->getMessage());
+            return $this->serverError('Unable to queue fee arrears assistance');
+        }
+    }
+
+    /** GET /api/finance/ai-arrears-drafts?scope=own|review */
+    public function getAiArrearsDrafts($id = null, $data = [], $segments = [])
+    {
+        $scope = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own'));
+        $review = $scope === 'review';
+        if ($review && !$this->canApproveAiArrears()) return $this->forbidden('Senior finance permission is required');
+        try {
+            $drafts = $this->contract(DraftRepository::class)->listForReview(
+                $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'finance'
+            );
+            $drafts = array_values(array_filter($drafts, static fn(array $d): bool => ($d['workflow_id'] ?? '') === 'finance.arrears_review'));
+            return $this->success(['drafts' => $drafts, 'scope' => $review ? 'review' : 'own'], 'Fee arrears AI drafts retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[FinanceController] AI arrears list failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load fee arrears assistance');
+        }
+    }
+
+    /** POST /api/finance/ai-arrears-draft-approve/{id} */
+    public function postAiArrearsDraftApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canApproveAiArrears()) return $this->forbidden('Senior finance permission is required');
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) return $this->badRequest('draft_id is required');
+        try {
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'finance.arrears_review');
+            return $this->success([
+                'draft_id' => $draftId,
+                'status' => 'approved',
+                'review_only' => true,
+                'draft' => $approved['draft'] ?? [],
+            ], 'AI arrears review approved; collection actions stay in the normal finance workflow');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[FinanceController] AI arrears approval failed: ' . $e->getMessage());
+            return $this->serverError('Unable to approve fee arrears assistance');
+        }
+    }
+
     private function aiFinanceContext(): array
     {
         return [
@@ -723,6 +818,17 @@ class FinanceController extends BaseController
     }
 
     private function canApproveAiReconciliation(): bool
+    {
+        return $this->userHasAny(['finance.reconcile', 'finance_reconcile', 'finance.manage', 'finance_manage'], [3, 4, 10], ['accountant', 'finance', 'admin']);
+    }
+
+    private function canUseAiArrears(): bool
+    {
+        try { $this->contract(WorkflowAuthorization::class)->authorize('finance.arrears_review', $this->aiFinanceContext()); return true; }
+        catch (DomainException $e) { return false; }
+    }
+
+    private function canApproveAiArrears(): bool
     {
         return $this->userHasAny(['finance.reconcile', 'finance_reconcile', 'finance.manage', 'finance_manage'], [3, 4, 10], ['accountant', 'finance', 'admin']);
     }

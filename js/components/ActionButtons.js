@@ -292,46 +292,10 @@ class ActionButtons {
      * @returns {Promise<boolean>}
      */
     static async confirm(message, buttonLabel = 'Confirm', isDangerous = false) {
-        return new Promise((resolve) => {
-            const modalId = 'confirm-modal-' + Math.random().toString(36).substr(2, 9);
-            const html = `
-                <div class="modal fade" id="${modalId}" tabindex="-1" data-bs-backdrop="static">
-                    <div class="modal-dialog modal-dialog-scrollable modal-sm">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title">Confirm Action</h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                            </div>
-                            <div class="modal-body">
-                                ${message}
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                <button type="button" class="btn btn-${isDangerous ? 'danger' : 'primary'}" id="${modalId}-confirm">
-                                    ${buttonLabel}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            document.body.insertAdjacentHTML('beforeend', html);
-            const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById(modalId));
-            
-            document.getElementById(`${modalId}-confirm`).addEventListener('click', () => {
-                modal.hide();
-                resolve(true);
-            });
-
-            modal.show();
-            
-            // Cleanup on hide
-            document.getElementById(modalId).addEventListener('hidden.bs.modal', () => {
-                document.getElementById(modalId).remove();
-                resolve(false);
-            });
-        });
+        return (await window.confirmAction?.('Confirm action', message, {
+            confirmText: buttonLabel,
+            danger: isDangerous,
+        })) ?? false;
     }
 
     /**

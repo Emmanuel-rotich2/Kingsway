@@ -200,11 +200,13 @@ $ppAdminGradeOptions = $ppAdminGradeOptions ?? ($ppGrades ?: ['PP1','PP2','Grade
 <!-- Shared parent scripts + page controller -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
 <?php asset_script($appBase, 'js/api.js'); ?>
+<?php asset_script($appBase, 'js/core/chart_theme.js'); ?>
 <?php asset_script($appBase, 'js/core/frontend_logger.js'); ?>
 <?php asset_script($appBase, 'js/core/grading_scale.js'); ?>
 <?php asset_script($appBase, 'js/utils/file_lifecycle.js'); ?>
 <?php asset_script($appBase, 'js/utils/print_manager.js'); ?>
 <?php asset_script($appBase, 'js/utils/form-validation.js'); ?>
+<?php asset_script($appBase, 'js/utils/document_camera_capture.js'); ?>
 <?php asset_script($appBase, 'js/core/realtime_dispatch.js'); ?>
 <?php asset_script($appBase, 'js/core/realtime_sse.js'); ?>
 <?php

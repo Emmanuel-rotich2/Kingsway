@@ -81,6 +81,7 @@
         </div>
         <div class="col-12 ws-form-group"><label>Location</label><input type="text" id="eventLocation" placeholder="e.g. School Assembly Ground"></div>
         <div class="col-12 ws-form-group"><label>Description</label><textarea id="eventDescription" rows="4" placeholder="Full event details…"></textarea></div>
+        <div class="col-12"><button type="button" class="btn btn-link btn-sm p-0" id="eventDraftDescBtn"><i class="bi bi-stars me-1"></i>Draft description with AI</button><div id="eventAiHostDesc"></div></div>
         <div class="col-md-6 ws-form-group">
           <label>Status</label>
           <select id="eventStatus"><option value="upcoming">Upcoming</option><option value="ongoing">Ongoing</option><option value="past">Past</option><option value="cancelled">Cancelled</option></select>

@@ -574,7 +574,7 @@ const manageCommunicationsController = {
     },
 
     async deleteTemplate(catalogId) {
-        if (!confirm('Delete this template and all its versions?')) return;
+        if (!(await window.confirmAction('Delete template', 'Delete this template and all its versions?', { confirmText: 'Delete', danger: true }))) return;
         try {
             const res = await this.API('DELETE', `/api/communications/templates/${catalogId}`);
             if (res.success) {
@@ -589,7 +589,7 @@ const manageCommunicationsController = {
     },
 
     async approveVersion(versionId) {
-        if (!confirm('Approve this version? It will become the active version.')) return;
+        if (!(await window.confirmAction('Approve template version', 'Approve this version? It will become the active version.', { confirmText: 'Approve' }))) return;
         try {
             const res = await this.API('POST', `/api/communications/templates/versions/${versionId}/approve`);
             if (res.success) {

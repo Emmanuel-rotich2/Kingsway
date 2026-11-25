@@ -29,8 +29,8 @@ const internalProductsCatalogController = {
   notify(message, type = 'success') {
     if (typeof showNotification === 'function') {
       showNotification(message, type);
-    } else {
-      window.alert(message);
+    } else if (typeof window.infoDialog === 'function') {
+      window.infoDialog('Notice', message);
     }
   },
 
@@ -366,7 +366,7 @@ const internalProductsCatalogController = {
     const images = product.images || [];
     document.getElementById('ipcCurrentImages').innerHTML = images.length ? images.map((img) => `<div class="position-relative border rounded overflow-hidden"><img src="${this.esc(img.url)}" alt="${this.esc(img.alt_text || product.title)}" style="width:86px;height:72px;object-fit:cover"><button type="button" class="btn btn-danger btn-sm position-absolute top-0 end-0 py-0 px-1" data-delete-image="${Number(img.id)}" aria-label="Remove image"><i class="bi bi-x"></i></button><span class="position-absolute bottom-0 start-0 badge bg-dark bg-opacity-75">${this.esc(img.view_type || 'catalog')}</span></div>`).join('') : '<span class="text-muted small">No images uploaded.</span>';
     document.querySelectorAll('[data-delete-image]').forEach((btn) => btn.addEventListener('click', async () => {
-      if (!window.confirm('Remove this catalogue image?')) return;
+      if (!(await window.confirmAction('Remove catalogue image', 'Remove this catalogue image?', { confirmText: 'Remove', danger: true }))) return;
       try { await window.API.inventory.deleteUniformCatalogImage(Number(btn.dataset.deleteImage)); this.notify('Catalogue image removed.'); bootstrap.Modal.getInstance(document.getElementById('ipcImageModal')).hide(); await this.loadData(); }
       catch (err) { this.notify(err?.message || 'Unable to remove image.', 'danger'); }
     }));

@@ -15,6 +15,45 @@ MAX_PAYLOAD_BYTES = 200_000
 _SESSION_ID_RE = re.compile(r"^[a-f0-9]{8,64}$")
 
 
+def _bounded_label(value: object, limit: int) -> str:
+    """Short scalar label only; page hints must never become a data path."""
+    if isinstance(value, (str, int, float)):
+        return str(value).strip()[:limit]
+    return ""
+
+
+def _bounded_label_map(
+    value: object, keys: tuple[str, ...], limit: int = 80
+) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, str] = {}
+    for key in keys:
+        label = _bounded_label(value.get(key), limit)
+        if label:
+            out[key] = label
+    return out
+
+
+def _bounded_label_list(value: object, limit: int = 60) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [
+        label for label in (_bounded_label(item, limit) for item in value[:10]) if label
+    ]
+
+
+def _bounded_filter_map(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, str] = {}
+    for key, raw in list(value.items())[:10]:
+        label = _bounded_label(raw, 60)
+        if label:
+            out[str(key)[:40]] = label
+    return out
+
+
 def bearer_authorized(headers, secret: str) -> bool:
     if not secret:
         return False
@@ -47,7 +86,11 @@ def ensure_staff_context(context: dict) -> dict:
         for role in roles:
             if isinstance(role, dict):
                 label = next(
-                    (role.get(key) for key in ("name", "role_name", "label", "slug", "code") if role.get(key)),
+                    (
+                        role.get(key)
+                        for key in ("name", "role_name", "label", "slug", "code")
+                        if role.get(key)
+                    ),
                     "",
                 )
             else:
@@ -68,8 +111,7 @@ def ensure_staff_context(context: dict) -> dict:
                 _humanized.append(" ".join(w.capitalize() for w in t.split()))
         scope_labels = _humanized
     normalized_roles = {
-        re.sub(r"[^a-z0-9]+", " ", label.lower()).strip()
-        for label in role_labels
+        re.sub(r"[^a-z0-9]+", " ", label.lower()).strip() for label in role_labels
     }
     is_system_admin = "system_admin" in permissions
     # Role labels select advisory tone only. The system administrator
@@ -103,6 +145,30 @@ def ensure_staff_context(context: dict) -> dict:
         "system_admin": bool(context.get("system_admin")) and is_system_admin,
         "assistant_domain": assistant_domain,
         "assistant_profile": assistant_profile,
+        # Bounded page hints from the PHP edge. They are labels the operator can
+        # already see, never a second route to school data: the governed tools
+        # remain the only source of figures.
+        "page_state": _bounded_label(context.get("page_state"), 60),
+        "page_entity": _bounded_label_map(
+            context.get("page_entity"), ("kind", "label", "name", "id", "status")
+        ),
+        "selection": _bounded_label_map(
+            context.get("selection"), ("label", "text"), 200
+        ),
+        "modal": _bounded_label(context.get("modal"), 100),
+        "visible_metrics": _bounded_label_list(context.get("visible_metrics")),
+        "filters": _bounded_filter_map(context.get("filters")),
+        "page_info": {
+            **_bounded_label_map(
+                context.get("page_info"), ("route", "label", "domain", "status"), 120
+            ),
+            "components": _bounded_label_list(
+                (context.get("page_info") or {}).get("components")
+                if isinstance(context.get("page_info"), dict)
+                else None,
+                40,
+            ),
+        },
     }
 
 

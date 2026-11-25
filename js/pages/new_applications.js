@@ -274,7 +274,10 @@ const newApplicationsController = {
       const input = wrap.querySelector("input");
       if (input) {
         if (show) input.setAttribute("required", "required");
-        else { input.removeAttribute("required"); input.value = ""; }
+        else {
+          input.removeAttribute("required");
+          window.KingswayDocumentCamera?.clear(input);
+        }
       }
     };
 
@@ -917,8 +920,10 @@ const newApplicationsController = {
     const files = [];
     formData.forEach((value, key) => {
       if (docTypeMap[key]) {
-        if (value && value.size > 0) {
-          files.push({ fieldName: key, docType: docTypeMap[key], file: value });
+        const input = this.dom.newApplicationForm?.elements?.[key];
+        const resolved = window.KingswayDocumentCamera?.fileFromInput(input) || value;
+        if (resolved && resolved.size > 0) {
+          files.push({ fieldName: key, docType: docTypeMap[key], file: resolved });
         }
       } else {
         data[key] = value;

@@ -1,249 +1,246 @@
 <?php /* PARTIAL — no DOCTYPE/html/head/body */ ?>
-<div class="container-fluid py-4" id="page-term_transition">
+<?php $ttBase = htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8'); ?>
+<link rel="stylesheet" href="<?= $ttBase ?>/css/pages/term-transition.css?v=<?= asset_version('css/pages/term-transition.css') ?>">
 
-  <!-- Header -->
-  <div class="d-flex flex-wrap justify-content-between align-items-start mb-4 gap-3">
-    <div>
-      <h3 class="mb-1"><i class="bi bi-arrow-right-circle-fill me-2 text-primary"></i>Term Transition</h3>
-      <p class="text-muted mb-0 small">Review and prepare the next term, then close the current term and activate the next term in one final atomic action.</p>
-    </div>
-    <span class="badge bg-warning fs-6 align-self-center" id="ttCurrentTermBadge">Loading…</span>
-  </div>
+<div class="tt-page kw-clean" id="page-term_transition">
+    <p class="tt-print-context" id="ttPrintContext"></p>
+    <p class="visually-hidden" id="ttAnnouncement" role="status" aria-live="polite"></p>
 
-  <!-- Step bar -->
-  <div class="d-flex align-items-center mb-4 gap-0" id="ttStepBar">
-    <div class="tt-step active" data-step="1"><span class="tt-num">1</span><span class="tt-lbl" id="ttStepLbl1">Review Current Term</span></div>
-    <div class="tt-connector"></div>
-    <div class="tt-step" data-step="2"><span class="tt-num">2</span><span class="tt-lbl">Close Term</span></div>
-    <div class="tt-connector"></div>
-    <div class="tt-step" data-step="3"><span class="tt-num">3</span><span class="tt-lbl">Rollover Timetable</span></div>
-    <div class="tt-connector"></div>
-    <div class="tt-step" data-step="4"><span class="tt-num">4</span><span class="tt-lbl" id="ttStepLbl4">Setup Next Term</span></div>
-    <div class="tt-connector"></div>
-    <div class="tt-step" data-step="5"><span class="tt-num">5</span><span class="tt-lbl">Activate</span></div>
-  </div>
-
-  <!-- ── STEP 1: Review current term ─────────────────────────────────────── -->
-  <div id="ttStep1">
-    <div class="row g-3 mb-4" id="ttReviewStats">
-      <div class="col-12 text-center py-4"><div class="spinner-border text-primary"></div></div>
-    </div>
-    <div class="row g-3 mb-4">
-      <div class="col-md-6">
-        <div class="card border-0 shadow-sm">
-          <div class="card-header bg-transparent fw-semibold">
-            <i class="bi bi-check2-circle text-success me-2"></i>Completed This Term
-          </div>
-          <div class="card-body" id="ttCompletedList">
-            <div class="text-center py-3"><div class="spinner-border spinner-border-sm text-success"></div></div>
-          </div>
+    <header class="tt-page-header">
+        <div>
+            <p class="tt-eyebrow">Academic handover</p>
+            <h1>Term Transition</h1>
+            <p class="tt-intro">Close one term and open the next with the dates, timetable and records checked before the final handover.</p>
         </div>
-      </div>
-      <div class="col-md-6">
-        <div class="card border-0 shadow-sm">
-          <div class="card-header bg-transparent fw-semibold">
-            <i class="bi bi-exclamation-triangle text-warning me-2"></i>Pending / Incomplete
-          </div>
-          <div class="card-body" id="ttPendingList">
-            <div class="text-center py-3"><div class="spinner-border spinner-border-sm text-warning"></div></div>
-          </div>
+        <div class="tt-header-actions">
+            <p class="tt-state-badge" id="ttCurrentTermBadge" data-state="loading">Reading the calendar…</p>
+            <button class="tt-quiet no-print" type="button" id="ttPrintBtn">
+                <i class="bi bi-printer" aria-hidden="true"></i> Print handover
+            </button>
         </div>
-      </div>
-    </div>
-    <div class="d-flex justify-content-end">
-      <button class="btn btn-primary" data-kw-onclick="termTransitionController.goStep(2)">
-        Proceed to Close Term <i class="bi bi-arrow-right ms-1"></i>
-      </button>
-    </div>
-  </div>
+    </header>
 
-  <!-- ── STEP 2: Close current term ──────────────────────────────────────── -->
-  <div id="ttStep2" style="display:none;">
-    <div class="card border-0 shadow-sm mb-4 border-start border-danger border-3">
-      <div class="card-body">
-        <h5 class="fw-semibold mb-3"><i class="bi bi-lock-fill text-danger me-2"></i>Prepare Current Term for Closure</h5>
-        <p class="text-muted">Confirm that <strong id="ttCurrentTermName"></strong> is ready to be closed. The database will only mark it <span class="badge bg-secondary">Completed</span> during final activation.</p>
-        <div class="form-check mb-3">
-          <input class="form-check-input" type="checkbox" id="ttConfirmClose">
-          <label class="form-check-label fw-semibold" for="ttConfirmClose">
-            I confirm that all <span id="ttConfirmTermName">current term</span> data (results, attendance, lesson plans) has been finalised
-          </label>
+    <section class="tt-state-sheet" id="ttStatePanel" data-state="loading" aria-labelledby="ttStateTitle">
+        <div class="tt-state-story">
+            <p class="tt-panel-label" id="ttStateEyebrow">School today</p>
+            <h2 id="ttStateTitle">Checking the handover…</h2>
+            <p class="tt-state-detail" id="ttStateDetail">Reading the live term, calendar period and year-transition workflow.</p>
         </div>
-        <div id="ttResultsReadiness" class="alert alert-warning d-none mb-3"></div>
-        <div id="ttCloseError" class="alert alert-danger d-none"></div>
-      </div>
-    </div>
-    <div class="d-flex gap-2">
-      <button class="btn btn-outline-secondary" data-kw-onclick="termTransitionController.goStep(1)">
-        <i class="bi bi-arrow-left me-1"></i> Back
-      </button>
-        <button class="btn btn-danger ms-auto" id="ttCloseTermBtn" data-kw-onclick="termTransitionController.closeTerm()" data-year-write>
-        <i class="bi bi-arrow-right me-1"></i> Confirm and Continue
-      </button>
-    </div>
-  </div>
-
-  <!-- ── STEP 3: Rollover timetable ──────────────────────────────────────── -->
-  <div id="ttStep3" style="display:none;">
-    <div class="card border-0 shadow-sm mb-4">
-      <div class="card-body">
-        <h5 class="fw-semibold mb-3"><i class="bi bi-arrow-repeat text-primary me-2"></i>Roll Over Timetable</h5>
-        <p class="text-muted">Prepare to copy the current term's class timetable to the next term. The copy occurs only during final activation; you can edit individual slots afterward.</p>
-
-        <div class="row g-3 mb-3" id="ttTimetableStats">
-          <div class="col-md-3">
-            <div class="card border-0 bg-light text-center p-3">
-              <div class="fs-2 fw-bold text-primary" id="ttSlotCount">—</div>
-              <div class="small text-muted">Timetable Slots (Term 1)</div>
+        <dl class="tt-state-facts">
+            <div>
+                <dt>Outgoing</dt>
+                <dd id="ttStateFrom">—</dd>
             </div>
-          </div>
-          <div class="col-md-3">
-            <div class="card border-0 bg-light text-center p-3">
-              <div class="fs-2 fw-bold text-success" id="ttClassCount">—</div>
-              <div class="small text-muted">Classes Covered</div>
+            <div>
+                <dt>Incoming</dt>
+                <dd id="ttStateTo">—</dd>
             </div>
-          </div>
-          <div class="col-md-3">
-            <div class="card border-0 bg-light text-center p-3">
-              <div class="fs-2 fw-bold text-info" id="ttTeacherCount">—</div>
-              <div class="small text-muted">Teachers in Timetable</div>
+            <div>
+                <dt>Cutover</dt>
+                <dd id="ttStateSwitch">—</dd>
             </div>
-          </div>
-          <div class="col-md-3">
-            <div class="card border-0 bg-light text-center p-3">
-              <div class="fs-2 fw-bold text-secondary" id="ttRolloverStatus">Ready</div>
-              <div class="small text-muted">Rollover Status</div>
+            <div>
+                <dt>Stage</dt>
+                <dd id="ttStateStage">—</dd>
             </div>
-          </div>
-        </div>
+        </dl>
+        <a class="tt-state-link no-print" id="ttStateLink" href="<?= $ttBase ?>/home.php?route=year_rollover">
+            <span id="ttStateLinkLabel">Open Year Rollover</span>
+            <i class="bi bi-arrow-right" aria-hidden="true"></i>
+        </a>
+    </section>
 
-        <div class="form-check mb-3">
-          <input class="form-check-input" type="checkbox" id="ttKeepTeachers" checked>
-          <label class="form-check-label" for="ttKeepTeachers">Keep same teacher assignments</label>
+    <section class="tt-handover" aria-labelledby="ttHandoverTitle">
+        <div class="tt-handover-head">
+            <h2 id="ttHandoverTitle">The handover at a glance</h2>
+            <p id="ttHandoverNote">Reading the term register…</p>
         </div>
-        <div class="form-check mb-3">
-          <input class="form-check-input" type="checkbox" id="ttKeepRooms" checked>
-          <label class="form-check-label" for="ttKeepRooms">Keep same room assignments</label>
-        </div>
-        <div id="ttRolloverError" class="alert alert-danger d-none"></div>
-      </div>
-    </div>
-    <div class="d-flex gap-2">
-      <button class="btn btn-outline-secondary" data-kw-onclick="termTransitionController.goStep(2)">
-        <i class="bi bi-arrow-left me-1"></i> Back
-      </button>
-      <button class="btn btn-primary ms-auto" id="ttRolloverBtn" data-kw-onclick="termTransitionController.rolloverTimetable()">
-        <i class="bi bi-arrow-repeat me-1"></i> Roll Over Timetable to Next Term
-      </button>
-      <button class="btn btn-outline-secondary" data-kw-onclick="termTransitionController.goStep(4)">
-        Skip (no timetable yet) <i class="bi bi-arrow-right ms-1"></i>
-      </button>
-    </div>
-  </div>
+        <ol class="tt-ledger-row">
+            <li class="tt-ledger-entry" id="ttRecentEntry">
+                <p class="tt-entry-label">Recently completed</p>
+                <h3 id="ttRecentName">—</h3>
+                <p class="tt-entry-meta" id="ttRecentDates">—</p>
+            </li>
+            <li class="tt-ledger-arrow" aria-hidden="true"><span></span></li>
+            <li class="tt-ledger-entry" id="ttIncomingEntry">
+                <p class="tt-entry-label">Next in line</p>
+                <h3 id="ttIncomingName">—</h3>
+                <p class="tt-entry-meta" id="ttIncomingDates">—</p>
+            </li>
+        </ol>
+    </section>
 
-  <!-- ── STEP 4: Setup Term 2 ─────────────────────────────────────────────── -->
-  <div id="ttStep4" style="display:none;">
-    <div class="card border-0 shadow-sm mb-4">
-      <div class="card-body">
-        <h5 class="fw-semibold mb-3"><i class="bi bi-calendar2-check text-info me-2"></i><span id="ttNextTermHeader">Next Term Setup</span></h5>
-        <div class="row g-3" id="ttNextTermDetails">
-          <div class="col-md-4">
-            <label class="form-label fw-semibold" id="ttNextTermStartLabel">Next Term Start Date</label>
-            <input type="date" id="ttTerm2Start" class="form-control">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold" id="ttNextTermEndLabel">Next Term End Date</label>
-            <input type="date" id="ttTerm2End" class="form-control">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">Mid-Term Break Start</label>
-            <input type="date" id="ttMidtermStart" class="form-control">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">Mid-Term Break End</label>
-            <input type="date" id="ttMidtermEnd" class="form-control">
-          </div>
-        </div>
-        <div class="mt-3">
-          <h6 class="fw-semibold" id="ttNextTermChecklistTitle">Next Term Checklist</h6>
-          <div id="ttSetupChecklist" class="row g-2 mt-1"></div>
-        </div>
-        <div id="ttSetupError" class="alert alert-danger mt-3 d-none"></div>
-      </div>
-    </div>
-    <div class="d-flex gap-2">
-      <button class="btn btn-outline-secondary" data-kw-onclick="termTransitionController.goStep(3)">
-        <i class="bi bi-arrow-left me-1"></i> Back
-      </button>
-        <button class="btn btn-success ms-auto" data-kw-onclick="termTransitionController.saveTerm2Setup()" data-year-write>
-        Save Setup and Review Activation <i class="bi bi-arrow-right ms-1"></i>
-      </button>
-    </div>
-  </div>
+    <div id="ttWizard" hidden>
+        <nav class="tt-progress no-print" aria-label="Transition steps">
+            <ol id="ttStepBar">
+                <li class="tt-step" data-step="1" aria-current="step"><span class="tt-step-num" aria-hidden="true">1</span><span class="tt-step-label" id="ttStepLbl1">Review outgoing term</span></li>
+                <li class="tt-step" data-step="2"><span class="tt-step-num" aria-hidden="true">2</span><span class="tt-step-label">Confirm closure</span></li>
+                <li class="tt-step" data-step="3"><span class="tt-step-num" aria-hidden="true">3</span><span class="tt-step-label">Rollover timetable</span></li>
+                <li class="tt-step" data-step="4"><span class="tt-step-num" aria-hidden="true">4</span><span class="tt-step-label" id="ttStepLbl4">Set incoming dates</span></li>
+                <li class="tt-step" data-step="5"><span class="tt-step-num" aria-hidden="true">5</span><span class="tt-step-label">Activate</span></li>
+            </ol>
+        </nav>
 
-  <!-- ── STEP 5: Activate Term 2 ─────────────────────────────────────────── -->
-  <div id="ttStep5" style="display:none;">
-    <div class="card border-0 shadow-sm mb-4 border-start border-success border-3">
-      <div class="card-body">
-        <h5 class="fw-semibold mb-3"><i class="bi bi-play-fill text-success me-2"></i><span id="ttActivateHeader">Activate Next Term</span></h5>
-        <div id="ttActivateSummary" class="row g-3 mb-3"></div>
-        <div class="alert alert-success mb-0">
-          <i class="bi bi-check-circle me-2"></i>
-          Final activation will:
-          <ul class="mb-0 mt-1">
-            <li>Set the next term status to <strong>Current</strong></li>
-            <li>Mark the previous term as <strong>Completed</strong> (if not already done)</li>
-            <li>Enable lesson planning for the next term</li>
-            <li>Make the next term timetable active across all teacher views</li>
-          </ul>
-        </div>
-        <div id="ttActivateError" class="alert alert-danger mt-3 d-none"></div>
-      </div>
-    </div>
-    <div class="d-flex gap-2">
-      <button class="btn btn-outline-secondary" data-kw-onclick="termTransitionController.goStep(4)">
-        <i class="bi bi-arrow-left me-1"></i> Back
-      </button>
-      <button class="btn btn-success ms-auto btn-lg" id="ttActivateBtn" data-kw-onclick="termTransitionController.activateTerm2()" data-year-write>
-        <i class="bi bi-play-fill me-1"></i> Close Current &amp; Activate Next Term
-      </button>
-    </div>
-  </div>
+        <div class="tt-workspace">
+            <div class="tt-panels">
+                <section class="tt-panel" id="ttStep1" aria-labelledby="ttStep1Title">
+                    <h2 id="ttStep1Title" tabindex="-1">Review <span id="ttStep1Name">the outgoing term</span></h2>
+                    <p class="tt-panel-intro">Confirm that the term ending now has its timetable and lesson-plan record before anything is closed.</p>
+                    <dl class="tt-ledger" id="ttReviewStats"></dl>
+                    <div class="tt-review-columns">
+                        <section aria-labelledby="ttCompletedTitle">
+                            <h3 id="ttCompletedTitle">Ready</h3>
+                            <ul class="tt-checklist" id="ttCompletedList"></ul>
+                        </section>
+                        <section aria-labelledby="ttPendingTitle">
+                            <h3 id="ttPendingTitle">Needs attention</h3>
+                            <ul class="tt-checklist" id="ttPendingList"></ul>
+                        </section>
+                    </div>
+                    <div class="tt-panel-actions no-print">
+                        <button class="tt-primary" type="button" id="ttProceedBtn">Continue to closure <i class="bi bi-arrow-right" aria-hidden="true"></i></button>
+                    </div>
+                </section>
 
-  <!-- ── DONE ───────────────────────────────────────────────────────────────── -->
-  <div id="ttDone" style="display:none;">
-    <div class="card border-0 shadow-sm text-center py-5">
-      <div class="card-body">
-        <i class="bi bi-check-circle-fill text-success fs-1 mb-3 d-block"></i>
-        <h4 class="fw-bold text-success" id="ttDoneTitle">Next Term is Now Active!</h4>
-        <p class="text-muted">All systems have been updated. Teachers can now start creating lesson plans and the timetable is live.</p>
-        <div class="d-flex justify-content-center gap-3 mt-3">
-          <a href="<?= $appBase ?>/home.php?route=manage_timetable" class="btn btn-primary">
-            <i class="bi bi-calendar3 me-1"></i> View Timetable
-          </a>
-          <a href="<?= $appBase ?>/home.php?route=manage_lesson_plans" class="btn btn-outline-primary">
-            <i class="bi bi-journal-plus me-1"></i> Start Lesson Plans
-          </a>
-          <a href="<?= $appBase ?>/home.php?route=exam_schedule" class="btn btn-outline-secondary">
-            <i class="bi bi-calendar-event me-1"></i> Plan Exams
-          </a>
-        </div>
-      </div>
-    </div>
-  </div>
+                <section class="tt-panel" id="ttStep2" aria-labelledby="ttStep2Title" hidden>
+                    <h2 id="ttStep2Title" tabindex="-1">Close <span id="ttCurrentTermName">the current term</span></h2>
+                    <p class="tt-panel-intro">This prepares the term for closure. The official status changes only during activation.</p>
+                    <label class="tt-check-row" for="ttConfirmClose">
+                        <input type="checkbox" id="ttConfirmClose" name="confirm_close" required data-error="ttConfirmCloseError" aria-invalid="false">
+                        <span>I confirm that results, attendance and lesson plans for <strong id="ttConfirmTermName">this term</strong> are finalised.</span>
+                    </label>
+                    <p class="tt-field-error" id="ttConfirmCloseError" hidden>Confirm the term is finalised before continuing.</p>
+                    <div class="tt-notice" id="ttResultsReadiness" hidden></div>
+                    <p class="tt-error" id="ttCloseError" role="alert" hidden></p>
+                    <div class="tt-panel-actions no-print">
+                        <button class="tt-quiet" type="button" id="ttBackStep1Btn"><i class="bi bi-arrow-left" aria-hidden="true"></i> Back</button>
+                        <button class="tt-danger" type="button" id="ttCloseTermBtn" data-year-write>Confirm and continue</button>
+                    </div>
+                </section>
 
+                <section class="tt-panel" id="ttStep3" aria-labelledby="ttStep3Title" hidden>
+                    <h2 id="ttStep3Title" tabindex="-1">Roll over the timetable</h2>
+                    <p class="tt-panel-intro">Copy the current class schedule into the incoming term. The copy runs with activation; individual slots stay editable afterwards.</p>
+                    <form id="ttRolloverForm" aria-labelledby="ttStep3Title">
+                        <fieldset class="tt-fieldset">
+                            <legend>Timetable source</legend>
+                            <dl class="tt-ledger tt-ledger-compact" id="ttTimetableStats">
+                                <div><dt>Slots</dt><dd id="ttSlotCount">—</dd></div>
+                                <div><dt>Classes</dt><dd id="ttClassCount">—</dd></div>
+                                <div><dt>Teachers</dt><dd id="ttTeacherCount">—</dd></div>
+                                <div><dt>Status</dt><dd id="ttRolloverStatus">Ready</dd></div>
+                            </dl>
+                        </fieldset>
+                        <fieldset class="tt-fieldset">
+                            <legend>Keep assignments</legend>
+                            <label class="tt-check-row" for="ttKeepTeachers">
+                                <input type="checkbox" id="ttKeepTeachers" name="keep_teachers" checked>
+                                <span>Keep the same teacher assignments</span>
+                            </label>
+                            <label class="tt-check-row" for="ttKeepRooms">
+                                <input type="checkbox" id="ttKeepRooms" name="keep_rooms" checked>
+                                <span>Keep the same room assignments</span>
+                            </label>
+                        </fieldset>
+                        <p class="tt-error" id="ttRolloverError" role="alert" hidden></p>
+                        <div class="tt-panel-actions no-print">
+                            <button class="tt-quiet" type="button" id="ttBackStep2Btn"><i class="bi bi-arrow-left" aria-hidden="true"></i> Back</button>
+                            <button class="tt-quiet" type="button" id="ttSkipRolloverBtn">Skip — no timetable yet</button>
+                            <button class="tt-primary" type="submit" id="ttRolloverBtn">Roll over timetable <i class="bi bi-arrow-right" aria-hidden="true"></i></button>
+                        </div>
+                    </form>
+                </section>
+
+                <section class="tt-panel" id="ttStep4" aria-labelledby="ttStep4Title" hidden>
+                    <h2 id="ttStep4Title" tabindex="-1">Set dates for <span id="ttNextTermHeader">the incoming term</span></h2>
+                    <p class="tt-panel-intro">Check the opening and closing dates carried from the academic calendar before activation.</p>
+                    <form id="ttSetupForm" aria-labelledby="ttStep4Title" novalidate>
+                        <fieldset class="tt-fieldset">
+                            <legend id="ttNextTermChecklistTitle">Incoming term dates</legend>
+                            <div class="tt-field-grid">
+                                <div class="tt-field">
+                                    <label for="ttTerm2Start"><span id="ttNextTermStartLabel">Opening date</span> <span aria-hidden="true">*</span></label>
+                                    <input type="date" id="ttTerm2Start" name="start_date" required data-error="ttTerm2StartError" aria-invalid="false">
+                                    <p class="tt-field-error" id="ttTerm2StartError" hidden>Enter the opening date.</p>
+                                </div>
+                                <div class="tt-field">
+                                    <label for="ttTerm2End"><span id="ttNextTermEndLabel">Closing date</span> <span aria-hidden="true">*</span></label>
+                                    <input type="date" id="ttTerm2End" name="end_date" required data-error="ttTerm2EndError" aria-invalid="false">
+                                    <p class="tt-field-error" id="ttTerm2EndError" hidden>Enter a closing date after the opening date.</p>
+                                </div>
+                                <div class="tt-field">
+                                    <label for="ttMidtermStart">Mid-term break opens</label>
+                                    <input type="date" id="ttMidtermStart" name="half_term_start">
+                                </div>
+                                <div class="tt-field">
+                                    <label for="ttMidtermEnd">Mid-term break closes</label>
+                                    <input type="date" id="ttMidtermEnd" name="half_term_end">
+                                </div>
+                            </div>
+                        </fieldset>
+                        <ul class="tt-checklist tt-checklist-inline" id="ttSetupChecklist"></ul>
+                        <p class="tt-error" id="ttSetupError" role="alert" hidden></p>
+                        <div class="tt-panel-actions no-print">
+                            <button class="tt-quiet" type="button" id="ttBackStep3Btn"><i class="bi bi-arrow-left" aria-hidden="true"></i> Back</button>
+                            <button class="tt-success" type="submit" id="ttSaveSetupBtn" data-year-write>Save dates and review activation</button>
+                        </div>
+                    </form>
+                </section>
+
+                <section class="tt-panel" id="ttStep5" aria-labelledby="ttStep5Title" hidden>
+                    <h2 id="ttStep5Title" tabindex="-1">Activate <span id="ttActivateHeader">the incoming term</span></h2>
+                    <p class="tt-panel-intro">This is the final atomic action. Review what will change, then confirm in the dialog.</p>
+                    <dl class="tt-ledger" id="ttActivateSummary"></dl>
+                    <div class="tt-notice">
+                        <strong>Activation will:</strong>
+                        <ul>
+                            <li>set the incoming term to current and mark the outgoing term completed;</li>
+                            <li>copy the timetable if one was selected;</li>
+                            <li>open lesson planning and live teacher timetables for the incoming term.</li>
+                        </ul>
+                    </div>
+                    <p class="tt-error" id="ttActivateError" role="alert" hidden></p>
+                    <div class="tt-panel-actions no-print">
+                        <button class="tt-quiet" type="button" id="ttBackStep4Btn"><i class="bi bi-arrow-left" aria-hidden="true"></i> Back</button>
+                        <button class="tt-success" type="button" id="ttActivateBtn" data-year-write>Close outgoing &amp; activate incoming</button>
+                    </div>
+                </section>
+
+                <section class="tt-panel tt-done" id="ttDone" aria-labelledby="ttDoneTitle" hidden>
+                    <h2 id="ttDoneTitle" tabindex="-1">The next term is active</h2>
+                    <p class="tt-panel-intro">The handover is complete. Teachers can now plan lessons and use the new timetable.</p>
+                    <div class="tt-done-links">
+                        <a class="tt-primary" href="<?= $ttBase ?>/home.php?route=manage_timetable">View timetable</a>
+                        <a class="tt-quiet" href="<?= $ttBase ?>/home.php?route=manage_lesson_plans">Start lesson plans</a>
+                        <a class="tt-quiet" href="<?= $ttBase ?>/home.php?route=exam_schedule">Plan exams</a>
+                    </div>
+                </section>
+            </div>
+
+            <aside class="tt-aside" aria-labelledby="ttAsideTitle">
+                <h2 id="ttAsideTitle">Handover notes</h2>
+                <p>Year creation and the end-of-year rollover stay in the year workflow. This page only moves an already configured term pair.</p>
+                <ul class="tt-related">
+                    <li><a href="<?= $ttBase ?>/home.php?route=manage_terms">Manage term dates</a></li>
+                    <li><a href="<?= $ttBase ?>/home.php?route=year_rollover">Year rollover checklist</a></li>
+                    <li><a href="<?= $ttBase ?>/home.php?route=academic_years">Academic years</a></li>
+                </ul>
+                <p class="tt-aside-foot">No status is written until the final activation is confirmed.</p>
+            </aside>
+        </div>
+    </div>
+
+    <dialog class="tt-dialog" id="ttConfirmDialog" aria-labelledby="ttConfirmTitle" aria-describedby="ttConfirmDetail">
+        <h1 id="ttConfirmTitle">Activate this handover?</h1>
+        <p id="ttConfirmDetail">The outgoing term will be closed and the incoming term will become current.</p>
+        <dl class="tt-ledger tt-ledger-compact" id="ttConfirmSummary"></dl>
+        <form method="dialog">
+            <div class="tt-dialog-actions">
+                <button class="tt-quiet" type="submit" value="cancel" autofocus>Cancel</button>
+                <button class="tt-success" type="submit" value="confirm" data-year-write>Activate handover</button>
+            </div>
+        </form>
+    </dialog>
 </div>
-
-<style>
-.tt-step { display:flex; flex-direction:column; align-items:center; gap:4px; min-width:80px; }
-.tt-num  { width:34px; height:34px; border-radius:50%; background:#dee2e6; color:#6c757d;
-           display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; transition:.2s; }
-.tt-lbl  { font-size:11px; color:#6c757d; text-align:center; }
-.tt-connector { flex:1; height:2px; background:#dee2e6; min-width:20px; margin-top:-20px; }
-.tt-step.active .tt-num { background:#0d6efd; color:#fff; }
-.tt-step.active .tt-lbl { color:#0d6efd; font-weight:600; }
-.tt-step.done .tt-num { background:#198754; color:#fff; }
-.tt-step.done .tt-lbl { color:#198754; }
-</style>
 
 <?php asset_script($appBase, 'js/pages/term_transition.js'); ?>

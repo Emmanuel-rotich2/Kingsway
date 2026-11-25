@@ -256,11 +256,7 @@ const BackupsController = {
   },
 
   async deleteBackup(id) {
-    const confirmFn = window.confirmAction || window.confirm;
-    const confirmed =
-      typeof window.confirmAction === "function"
-        ? await window.confirmAction("Delete backup", "Delete this backup? This action cannot be undone.", { confirmText: "Delete", danger: true })
-        : window.confirm("Delete this backup? This action cannot be undone.");
+    const confirmed = await window.confirmAction("Delete backup", "Delete this backup? This action cannot be undone.", { confirmText: "Delete", danger: true });
     if (!confirmed) return;
     try {
       await window.API.system.deleteBackup(id);

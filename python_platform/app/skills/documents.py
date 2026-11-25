@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import base64
 import io
-import json
 import os
 import re
 import shutil
@@ -144,7 +143,6 @@ def _pdf(
     from reportlab.lib.units import mm
     from reportlab.platypus import (
         Image,
-        PageBreak,
         Paragraph,
         SimpleDocTemplate,
         Spacer,
@@ -231,6 +229,15 @@ def _pdf(
 
     if chart_png:
         try:
+            # Generated artwork is a payload too. Re-encode the figure once so
+            # the PDF embeds the smallest lossless copy that still fits A4.
+            from ..image_optimization import optimise_bytes
+
+            optimised = optimise_bytes(
+                chart_png, max_edge=1600, output_format="PNG", min_bytes=0
+            )
+            if optimised is not None:
+                chart_png = optimised[0]
             image = Image(io.BytesIO(chart_png))
             max_width = A4[0] - 36 * mm
             ratio = min(1.0, max_width / float(image.imageWidth or 1))
@@ -483,7 +490,9 @@ def _video(
         axis.set_axis_off()
         axis.add_patch(Rectangle((0, 0), 1, 1, color="#ffffff"))
         axis.add_patch(Rectangle((0, 0.94), 1, 0.06, color=green))
-        axis.text(0.06, 0.84, SCHOOL_NAME.upper(), fontsize=13, color=green, weight="bold")
+        axis.text(
+            0.06, 0.84, SCHOOL_NAME.upper(), fontsize=13, color=green, weight="bold"
+        )
         y = 0.70
         for line in _lines(heading, 34, 3):
             axis.text(0.06, y, line, fontsize=28, color=ink, weight="bold")
@@ -495,7 +504,13 @@ def _video(
         for line in _lines(body, 82, 7):
             axis.text(0.06, y, line, fontsize=13.5, color=ink)
             y -= 0.062
-        axis.text(0.06, 0.07, "Prepared from records this account is authorized to read", fontsize=10, color="#8a94a6")
+        axis.text(
+            0.06,
+            0.07,
+            "Prepared from records this account is authorized to read",
+            fontsize=10,
+            color="#8a94a6",
+        )
         buffer = io.BytesIO()
         figure.savefig(buffer, format="png", dpi=100)
         plt.close(figure)
@@ -514,8 +529,7 @@ def _video(
             frames.append(path)
         listfile = os.path.join(workspace, "frames.txt")
         with open(listfile, "w", encoding="utf-8") as handle:
-            for frame in frames:
-                handle.write(f"file '{frame}'\nduration 2.4\n")
+            handle.writelines(f"file '{frame}'\nduration 2.4\n" for frame in frames)
             handle.write(f"file '{frames[-1]}'\n")
         output = os.path.join(workspace, "summary.mp4")
         command = [
@@ -683,14 +697,13 @@ def produce(
         for row in clean_rows[:8]
     )
 
-    if fmt in ("pdf", "docx") and not clean_rows:
-        # A document with no rows is still legitimate, but it needs a summary to
-        # say anything at all. Refusing is clearer than an empty page.
-        if not clean_summary:
-            return {
-                "status": "unavailable",
-                "message": "there is no authorized content to put in a document yet; run a report first",
-            }
+    # A document with no rows is still legitimate, but it needs a summary to
+    # say anything at all. Refusing is clearer than an empty page.
+    if fmt in ("pdf", "docx") and not clean_rows and not clean_summary:
+        return {
+            "status": "unavailable",
+            "message": "there is no authorized content to put in a document yet; run a report first",
+        }
 
     if fmt == "audio":
         narration = _clean(f"{clean_title}. {clean_summary or row_text}", 1200)

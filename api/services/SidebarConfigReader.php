@@ -303,7 +303,9 @@ class SidebarConfigReader
             if ($children || !empty($parent['url'])) $cleanMenu[] = $parent;
         }
 
-        $parentId = (count($roleIds) === 1 && (int)$roleIds[0] === 2) ? 29800 : 960000;
+        // Role 2 uses 29800/29900/29950 for catalogue, family and staff
+        // admission entries. Keep the reports parent clear of all three.
+        $parentId = (count($roleIds) === 1 && (int)$roleIds[0] === 2) ? 29980 : 960000;
         foreach (ReportRegistry::forRoles($roleIds) as $report) {
             $reportChildren[] = ['label'=>$report['title'],'url'=>$report['route']];
         }

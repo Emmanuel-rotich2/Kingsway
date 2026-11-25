@@ -271,7 +271,7 @@ var StudentClearanceController = {
     const l = this.state.current;
     if (!l || !l.can_complete_transfer) return;
     const released = this.el('clrNemisDate')?.value || null;
-    const ok = window.confirm(`Complete the transfer of ${l.name}? The learner's enrolment and status become transferred.`);
+    const ok = await window.confirmAction('Complete transfer', `Complete the transfer of ${l.name}? The learner's enrolment and status become transferred.`, { confirmText: 'Complete transfer' });
     if (!ok) return;
     try {
       const r = await this.api('/api/students/clearance-transfer-complete', 'POST', { student_id: l.student_id, academic_year_id: this.state.data.year.id, nemis_released_at: released });

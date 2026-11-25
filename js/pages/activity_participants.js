@@ -95,7 +95,7 @@ const activityParticipantsController = {
   },
 
   async withdraw(id) {
-    if (!confirm('Withdraw this participant?')) return;
+    if (!(await window.confirmAction('Withdraw participant', 'Withdraw this participant?', { confirmText: 'Withdraw', danger: true }))) return;
     try {
       const r = await this.API('POST', `/activities/participants/withdraw/${id}`, { reason: 'Withdrawn by coordinator' });
       this.notify(r?.message || 'Participant withdrawn.', 'success');

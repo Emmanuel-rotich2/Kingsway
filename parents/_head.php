@@ -69,12 +69,15 @@ $ppAdminGradeOptions = $ppGrades ?: ['PP1','PP2','Grade 1','Grade 2','Grade 3','
   <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <?php include __DIR__ . '/_theme_bootstrap.php'; ?>
   <title><?= htmlspecialchars($parentPageTitle, ENT_QUOTES, 'UTF-8') ?> — Kingsway Parent Portal</title>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link rel="stylesheet" href="<?= $appBase ?>/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>">
   <link rel="stylesheet" href="<?= $appBase ?>/css/app-common.css?v=<?= asset_version('css/app-common.css') ?>">
   <link rel="stylesheet" href="<?= $appBase ?>/css/parent-cpanel.css?v=<?= asset_version('css/parent-cpanel.css') ?>">
+  <link rel="stylesheet" href="<?= $appBase ?>/css/theme.css?v=<?= asset_version('css/theme.css') ?>">
+  <?php asset_script($appBase, 'js/core/theme_manager.js'); ?>
   <script nonce="<?= csp_nonce() ?>">
     window.APP_BASE = <?= json_encode($appBase) ?>;
     window.UPLOAD_URL = <?= json_encode(defined('UPLOAD_URL') ? rtrim((string) UPLOAD_URL, '/') : rtrim($appBase, '/') . '/uploads') ?>;
@@ -122,6 +125,18 @@ $ppAdminGradeOptions = $ppGrades ?: ['PP1','PP2','Grade 1','Grade 2','Grade 3','
   </nav>
   <div class="pp-topbar-actions">
     <button class="btn btn-outline-light btn-sm pp-nav-burger" type="button" data-bs-toggle="offcanvas" data-bs-target="#ppDrawer" aria-controls="ppDrawer" aria-label="Open menu"><i class="bi bi-list"></i></button>
+    <button
+      class="btn btn-outline-light btn-sm rounded-pill pp-theme-button"
+      id="header-theme-button"
+      type="button"
+      aria-label="Switch to dark theme"
+      aria-pressed="false"
+      title="Switch to dark theme"
+    >
+      <i class="bi bi-moon-stars" data-kw-theme-icon="dark" aria-hidden="true"></i>
+      <i class="bi bi-sun" data-kw-theme-icon="light" aria-hidden="true"></i>
+      <span class="visually-hidden" data-kw-theme-label>Switch to dark theme</span>
+    </button>
     <span class="pp-user-chip dropdown" title="Signed-in parent">
       <button class="pp-user-toggle dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Account menu">
         <i class="bi bi-person-circle"></i><span class="pp-user-name" id="parentName">Parent</span>

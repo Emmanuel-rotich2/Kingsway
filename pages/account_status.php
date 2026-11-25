@@ -6,56 +6,35 @@
 
 ?>
 <div class="container-fluid py-4" id="accountStatusPage">
-    <style>
-        #accountStatusPage .table-responsive { min-width: 0; overflow-x: auto; }
-        #accountStatusPage table.table { border-collapse: separate; border-spacing: 0; }
-        #accountStatusPage table.table thead th {
-            position: sticky;
-            top: 0;
-            z-index: 5;
-            background: #fff;
-            box-shadow: inset 0 -2px 0 #dee2e6;
-        }
-        #accountStatusPage table.table .col-actions {
-            position: sticky;
-            right: 0;
-            z-index: 4;
-            background: #fff;
-            box-shadow: -6px 0 8px -6px rgba(0, 0, 0, 0.12);
-            min-width: 220px;
-        }
-        #accountStatusPage table.table thead th.col-actions {
-            z-index: 6;
-            box-shadow: -6px -2px 8px -6px rgba(0, 0, 0, 0.12);
-        }
-        #accountStatusPage .accounts-pager .form-select { width: auto; min-width: 72px; }
-        @media print {
-            @page { size: A4 landscape; margin: 8mm; }
-            body { background: #fff !important; }
-            #accountStatusPage .no-print,
-            #pageTopbar, #pageFooter, .sidebar, .navbar, .toast-container { display: none !important; }
-            #accountStatusPage .card { border: none !important; box-shadow: none !important; }
-            #accountStatusPage .table-responsive { overflow: visible !important; }
-            #accountStatusPage table { width: 100%; }
-            #accountStatusPage table.table thead th { position: static; }
-            #accountStatusPage table.table .col-actions { position: static; box-shadow: none; }
-            #accountStatusPage thead { display: table-header-group; }
-            #accountStatusPage tr { break-inside: avoid; }
-            #accountStatusPage td, #accountStatusPage th { font-size: 8pt; padding: 2px 4px; }
-            #accountStatusPage .accounts-pager { display: none !important; }
-        }
-    </style>
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <link
+        rel="stylesheet"
+        href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/account-status.css?v=<?= asset_version('css/pages/account-status.css') ?>"
+    >
+    <header class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h3 mb-1">Account Status</h2>
+            <h2 class="h3 mb-1">Account status</h2>
             <p class="text-muted mb-0">
                 Activate, suspend or unlock accounts and control first-login password changes.
             </p>
         </div>
-        <button type="button" class="btn btn-outline-secondary" id="refreshAccountStatusBtn">
-            <i class="bi bi-arrow-clockwise me-1"></i> Refresh
-        </button>
-    </div>
+        <div class="d-flex flex-wrap gap-2 no-print">
+            <button
+                type="button"
+                class="btn btn-outline-secondary"
+                data-kw-sa-export
+                data-kw-sa-export-target="#accountStatusTable"
+                data-kw-sa-export-name="account_status"
+            >
+                <i class="bi bi-filetype-csv me-1" aria-hidden="true"></i> Export CSV
+            </button>
+            <button type="button" class="btn btn-outline-secondary" data-kw-sa-print>
+                <i class="bi bi-printer me-1" aria-hidden="true"></i> Print / PDF
+            </button>
+            <button type="button" class="btn btn-outline-secondary" id="refreshAccountStatusBtn">
+                <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i> Refresh
+            </button>
+        </div>
+    </header>
 
     <div class="row g-3 mb-4" id="accountStatusSummary"></div>
 
@@ -68,16 +47,17 @@
         Waiting for authentication...
     </div>
 
-    <div class="card border-0 shadow-sm">
-        <div class="card-header bg-white d-flex flex-wrap gap-2 justify-content-between align-items-center">
-            <strong>Account Status</strong>
+    <div class="card">
+        <div class="card-header d-flex flex-wrap gap-2 justify-content-between align-items-center">
+            <h3 class="h6 mb-0">Account status</h3>
             <div class="input-group" style="max-width: 360px">
-                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
                 <input
                     class="form-control"
                     id="searchAccountStatus"
                     type="search"
                     placeholder="Search name, username, email or status"
+                    aria-label="Search accounts"
                     autocomplete="off"
                 >
             </div>
@@ -86,16 +66,16 @@
             <div class="d-flex flex-wrap align-items-center gap-2">
                 <span class="fw-semibold small" id="accountStatusBulkCount">0 selected</span>
                 <button type="button" class="btn btn-sm btn-outline-success" id="bulkActivateAccountsBtn">
-                    <i class="bi bi-check2-circle me-1"></i> Activate
+                    <i class="bi bi-check2-circle me-1" aria-hidden="true"></i> Activate
                 </button>
                 <button type="button" class="btn btn-sm btn-outline-warning" id="bulkSuspendAccountsBtn">
-                    <i class="bi bi-pause-circle me-1"></i> Suspend
+                    <i class="bi bi-pause-circle me-1" aria-hidden="true"></i> Suspend
                 </button>
                 <button type="button" class="btn btn-sm btn-outline-info" id="bulkUnlockAccountsBtn">
-                    <i class="bi bi-unlock me-1"></i> Unlock
+                    <i class="bi bi-unlock me-1" aria-hidden="true"></i> Unlock
                 </button>
                 <button type="button" class="btn btn-sm btn-outline-primary" id="bulkForcePwAccountsBtn">
-                    <i class="bi bi-shield-lock me-1"></i> Require password change
+                    <i class="bi bi-shield-lock me-1" aria-hidden="true"></i> Require password change
                 </button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkClearAccountsBtn">
                     Clear selection
@@ -103,10 +83,11 @@
             </div>
         </div>
         <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
+            <table class="table table-hover align-middle mb-0" id="accountStatusTable">
+                <caption class="visually-hidden">Account status and access controls</caption>
                 <thead id="accountStatusTableHead">
                     <tr>
-                        <th class="text-center" style="width: 40px">
+                        <th class="text-center" scope="col" style="width: 40px">
                             <input
                                 class="form-check-input"
                                 type="checkbox"
@@ -130,7 +111,7 @@
                 </tbody>
             </table>
             <template id="accountStatusRowTemplate">
-                <tr id="accountStatusTableState">
+                <tr>
                     <td class="text-center">
                         <input
                             class="form-check-input"
@@ -165,11 +146,11 @@
                     <option value="0">All</option>
                 </select>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="accountsPrevBtn" aria-label="Previous page" disabled>
-                    <i class="bi bi-chevron-left"></i>
+                    <i class="bi bi-chevron-left" aria-hidden="true"></i>
                 </button>
                 <span class="small text-muted" id="accountsPageInfo"></span>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="accountsNextBtn" aria-label="Next page" disabled>
-                    <i class="bi bi-chevron-right"></i>
+                    <i class="bi bi-chevron-right" aria-hidden="true"></i>
                 </button>
             </div>
         </div>
@@ -181,7 +162,7 @@
         <div class="modal-content">
             <form id="accountStatusForm">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="accountStatusModalTitle">Manage Account Status</h5>
+                    <h5 class="modal-title" id="accountStatusModalTitle">Manage account status</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body" id="accountStatusFormFields"></div>

@@ -315,11 +315,7 @@ const RouteRegistryController = {
   },
 
   async deleteRoute(id) {
-    const confirmFn = window.confirmAction || window.confirm;
-    const confirmed =
-      typeof window.confirmAction === "function"
-        ? await window.confirmAction("Delete route", "Delete this route? This action cannot be undone.", { confirmText: "Delete", danger: true })
-        : window.confirm("Delete this route? This action cannot be undone.");
+    const confirmed = await window.confirmAction("Delete route", "Delete this route? This action cannot be undone.", { confirmText: "Delete", danger: true });
     if (!confirmed) return;
     try {
       await window.API.system.deleteRoute(id);

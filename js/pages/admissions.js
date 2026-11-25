@@ -1897,7 +1897,7 @@ const AdmissionsController = {
                        class="form-control"
                        name="${field.inputName}"
                        accept="${field.accept}">
-                <small class="text-muted d-block mt-1">Upload to add or replace this document.</small>
+                <small class="text-muted d-block mt-1">Upload to add or replace this document. Use Scan with camera for a physical copy.</small>
               </div>
             </div>
           `;
@@ -1955,7 +1955,9 @@ const AdmissionsController = {
 
     const uploadJobs = [];
     for (const [inputName, documentType] of Object.entries(fieldToType)) {
-      const file = formData.get(inputName);
+      const input = form.elements[inputName];
+      const file =
+        window.KingswayDocumentCamera?.fileFromInput(input) || formData.get(inputName);
       const isFileObject =
         typeof File === "undefined"
           ? Boolean(file && typeof file === "object")
@@ -2044,7 +2046,12 @@ const AdmissionsController = {
                         <div class="card-body py-2">
                             <div class="d-flex justify-content-between align-items-center">
                                 <div>
-                                    <strong>${doc.document_type}</strong>
+                                    <strong>${this.escapeHtml(doc.document_type || "Document")}</strong>
+                                    ${
+                                      doc.notes
+                                        ? `<p class="small text-muted mb-1">Document check: ${this.escapeHtml(String(doc.notes))}</p>`
+                                        : ""
+                                    }
                                     ${
                                       doc.is_mandatory
                                         ? '<span class="badge bg-danger ms-1">Required</span>'

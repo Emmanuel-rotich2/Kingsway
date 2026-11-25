@@ -52,12 +52,15 @@ require_once __DIR__ . '/public/layout/public_data.php';
   <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <?php include __DIR__ . '/parents/_theme_bootstrap.php'; ?>
   <title>Parent Sign In — Kingsway Parent Portal</title>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link rel="stylesheet" href="<?= $appBase ?>/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>">
   <link rel="stylesheet" href="<?= $appBase ?>/css/app-common.css?v=<?= asset_version('css/app-common.css') ?>">
   <link rel="stylesheet" href="<?= $appBase ?>/css/parent-cpanel.css?v=<?= asset_version('css/parent-cpanel.css') ?>">
+  <link rel="stylesheet" href="<?= $appBase ?>/css/theme.css?v=<?= asset_version('css/theme.css') ?>">
+  <?php asset_script($appBase, 'js/core/theme_manager.js'); ?>
   <script nonce="<?= csp_nonce() ?>">
     window.APP_BASE = <?= json_encode($appBase) ?>;
     window.KINGSWAY_PUBLIC_PAGE = true;

@@ -16,7 +16,7 @@
     --kc-muted: #667085;
     --kc-rule: #e3e6eb;
     --kc-wash: #f6f7f9;
-    --kc-paper: #ffffff;
+    --kc-paper: var(--kw-theme-surface);
     --kc-danger: #a23b2a;
     --kc-success: #2f7d5b;
     --kc-warning: #9a6a00;
@@ -140,7 +140,9 @@
 }
 .kw-clean .table > tbody > tr > td { border-color: var(--kc-rule); vertical-align: middle; }
 .kw-clean .table-hover > tbody > tr:hover > * { --bs-table-bg-state: var(--kc-wash); }
-.kw-clean .table-striped > tbody > tr:nth-of-type(odd) > * { --bs-table-bg-type: #fafbfc; }
+/* Keep striped rows on the themed wash. A literal here leaves odd rows light
+   while the rest of the table follows html[data-kw-theme="dark"]. */
+.kw-clean .table-striped > tbody > tr:nth-of-type(odd) > * { --bs-table-bg-type: var(--kc-wash); }
 .kw-clean .table-bordered > :not(caption) > * > * { border-left: 0; border-right: 0; }
 
 /* Status badges: text with meaning, not filled pills. */

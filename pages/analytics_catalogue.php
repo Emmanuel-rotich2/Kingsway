@@ -9,84 +9,28 @@
  * sidebar, and every role outside a hard-coded list landed on access denied.
  */
 ?>
-<style>
-    .analytics-hero {
-        background: linear-gradient(135deg, #123c2d, #1f7a55);
-        color: #fff;
-        border-radius: 14px;
-        padding: 1.5rem;
-        box-shadow: 0 8px 24px rgba(18, 60, 45, .18);
-    }
-    .analytics-toolbar, .analytics-card, .analytics-viewer {
-        background: #fff;
-        border: 1px solid #e2ebe6;
-        border-radius: 12px;
-        box-shadow: 0 2px 10px rgba(18, 60, 45, .06);
-    }
-    .analytics-card {
-        height: 100%;
-        transition: transform .15s ease, box-shadow .15s ease;
-    }
-    .analytics-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 7px 20px rgba(18, 60, 45, .12);
-    }
-    .analytics-domain-label {
-        color: #1f6a4d;
-        font-size: .72rem;
-        font-weight: 700;
-        letter-spacing: .04em;
-        text-transform: uppercase;
-    }
-    .analytics-meta { color: #63746b; font-size: .8rem; }
-    .analytics-purpose {
-        color: #3e4f47;
-        font-size: .88rem;
-        min-height: 3.8rem;
-    }
-    .analytics-empty {
-        border: 1px dashed #bdcec5;
-        border-radius: 12px;
-        color: #66766e;
-        padding: 3rem 1rem;
-        text-align: center;
-    }
-    .analytics-metric {
-        background: #f4faf7;
-        border-left: 3px solid #2e8b62;
-        border-radius: 8px;
-        padding: .75rem;
-    }
-    .analytics-summary-card {
-        background: #f7faf8;
-        border: 1px solid #e1ebe5;
-        border-radius: 9px;
-        padding: .75rem;
-    }
-    .analytics-result-table { font-size: .84rem; }
-    .analytics-result-table thead th {
-        background: #174f39;
-        color: #fff;
-        white-space: nowrap;
-    }
-    .analytics-sensitivity-restricted { color: #9c1c1c; }
-    .analytics-sensitivity-confidential { color: #8a5a00; }
-</style>
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/analytics-catalogue.css?v=<?= asset_version('css/pages/analytics-catalogue.css') ?>">
 
-<div class="container-fluid px-0" id="analyticsCataloguePage">
-    <section class="analytics-hero mb-3" aria-labelledby="analyticsPageTitle">
-        <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 align-items-lg-center">
-            <div>
-                <div class="small text-uppercase opacity-75 fw-semibold">Reports &amp; Analytics</div>
-                <h1 class="h3 mb-1" id="analyticsPageTitle">Governed report catalogue</h1>
-                <p class="mb-0 opacity-75">Decision-focused reports with documented metrics, scope, freshness and export controls.</p>
+<div class="container-fluid" id="analyticsCataloguePage">
+    <header class="mb-3">
+        <section class="analytics-hero" aria-labelledby="analyticsPageTitle">
+            <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 align-items-lg-center">
+                <div>
+                    <h1 class="h3 mb-1" id="analyticsPageTitle">Governed report catalogue</h1>
+                    <p class="mb-0 opacity-75">Decision-focused reports with documented metrics, scope, freshness and export controls.</p>
+                </div>
+                <div class="d-flex flex-column flex-lg-row align-items-lg-center gap-3">
+                    <div class="text-lg-end">
+                        <div class="h3 mb-0" id="analyticsReportCount">—</div>
+                        <div class="small opacity-75">reports available to your roles</div>
+                    </div>
+                    <button type="button" class="btn btn-outline-light btn-sm" data-kw-sa-print>
+                        <i class="bi bi-printer me-1" aria-hidden="true"></i>Print / PDF
+                    </button>
+                </div>
             </div>
-            <div class="text-lg-end">
-                <div class="h3 mb-0" id="analyticsReportCount">—</div>
-                <div class="small opacity-75">reports available to your roles</div>
-            </div>
-        </div>
-    </section>
+        </section>
+    </header>
 
     <section class="analytics-toolbar p-3 mb-3" aria-label="Report catalogue filters">
         <div class="row g-2 align-items-end">
@@ -154,6 +98,7 @@
                     <div class="alert alert-warning py-2" id="analyticsWarnings" hidden></div>
                     <div class="table-responsive border rounded">
                         <table class="table table-hover table-striped mb-0 analytics-result-table" id="analyticsResultTable">
+                            <caption class="visually-hidden">Report results</caption>
                             <thead></thead>
                             <tbody></tbody>
                         </table>

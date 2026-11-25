@@ -6,7 +6,7 @@
    ========================================================================= */
 :root{
   --parent-green:#0a4a30; --parent-green-2:#17865a; --parent-gold:#f2ba43;
-  --parent-ink:#20332a; --parent-muted:#718078; --parent-paper:#fff;
+  --parent-ink:#20332a; --parent-muted:#718078; --parent-paper:var(--kw-theme-surface);
   --parent-bg:#f3f5f2; --parent-line:#dfe7e1;
 }
 
@@ -91,7 +91,7 @@ a:hover{color:var(--parent-green)}
 .pp-shell{display:flex; flex-direction:column; flex:1 1 auto}
 .pp-main{flex:1 1 auto; width:100%}
 .pp-container{width:100%; max-width:1440px; margin:0 auto; padding:1.4rem clamp(1rem,3vw,2.2rem) 2.4rem}
-.pp-sidebar{position:sticky; top:82px; background:#fff; border:1px solid var(--parent-line); border-radius:13px; padding:1rem;}
+.pp-sidebar{position:sticky; top:82px; background:var(--kw-theme-surface); border:1px solid var(--parent-line); border-radius:13px; padding:1rem;}
 .pp-sidebar-title{
   font-size:.68rem; text-transform:uppercase; letter-spacing:.12em; color:var(--parent-muted);
   padding:0 .4rem .5rem; margin:0; border-bottom:1px solid var(--parent-line);
@@ -133,12 +133,12 @@ a:hover{color:var(--parent-green)}
 .pp-welcome p{margin:0; color:rgba(255,255,255,.8)}
 .pp-kpi-card{
   border:1px solid var(--parent-line); border-radius:12px; box-shadow:0 4px 16px rgba(25,70,48,.06);
-  height:100%; background:#fff; display:flex; align-items:center; gap:.85rem; padding:1rem;
+  height:100%; background:var(--kw-theme-surface); display:flex; align-items:center; gap:.85rem; padding:1rem;
 }
 .pp-kpi-card .kpi-icon,.pp-kpi-icon{
   flex:0 0 auto; width:42px;height:42px;border-radius:.8rem;display:grid;place-items:center;font-size:1.2rem;
 }
-.pp-card{background:#fff; border:1px solid var(--parent-line); border-radius:13px; box-shadow:0 5px 18px rgba(25,70,48,.07)}
+.pp-card{background:var(--kw-theme-surface); border:1px solid var(--parent-line); border-radius:13px; box-shadow:0 5px 18px rgba(25,70,48,.07)}
 .pp-card-header{display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1rem 1.25rem; border-bottom:1px solid var(--parent-line); flex-wrap:wrap}
 .pp-card-header h1,.pp-card-header h2,.pp-card-header h3{margin:0; font-family:"Playfair Display",serif; font-size:1.15rem}
 .pp-card-body{padding:1.25rem}
@@ -164,7 +164,7 @@ a:hover{color:var(--parent-green)}
 .pp-child-avatar-fallback{display:grid; place-items:center; width:100%; height:100%}
 .pp-pending-title{font-family:"Playfair Display",serif; font-size:1.05rem; margin:0}
 .pp-pending-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr)); gap:.8rem}
-.pp-pending-card{background:#fff; border:1px solid #f1d38b; border-left:4px solid var(--parent-gold); border-radius:12px; padding:1rem; box-shadow:0 4px 14px rgba(25,70,48,.06)}
+.pp-pending-card{background:var(--kw-theme-surface); border:1px solid #f1d38b; border-left:4px solid var(--parent-gold); border-radius:12px; padding:1rem; box-shadow:0 4px 14px rgba(25,70,48,.06)}
 .pp-pending-card h3{font-size:.95rem; margin:0; font-weight:700}
 .pp-pending-card small{color:var(--parent-muted); font-size:.72rem}
 .pp-pending-flow{display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:.65rem}
@@ -191,7 +191,7 @@ body.pp-phone-layout .pp-child-grid{
 .child-card{
   border:1px solid var(--parent-line); border-top:0; border-radius:13px;
   box-shadow:0 5px 18px rgba(25,70,48,.07); transition:transform .18s ease, box-shadow .18s ease;
-  background:#fff; height:100%; cursor:pointer;
+  background:var(--kw-theme-surface); height:100%; cursor:pointer;
 }
 .child-card::before{display:block;height:5px;border-radius:13px 13px 0 0;background:linear-gradient(90deg,var(--parent-green-2),var(--parent-gold));content:""}
 .child-card:hover{transform:translateY(-2px); box-shadow:0 10px 26px rgba(25,70,48,.14)}
@@ -200,7 +200,7 @@ body.pp-phone-layout .pp-child-grid{
 /* ── Bottom footer (shared across every parent page) ───────────────────── */
 .pp-footer{
   margin-top:auto; padding:1.1rem clamp(1rem,4vw,2.6rem); color:var(--parent-muted);
-  font-size:.78rem; border-top:1px solid var(--parent-line); background:#fff;
+  font-size:.78rem; border-top:1px solid var(--parent-line); background:var(--kw-theme-surface);
   display:flex; flex-wrap:wrap; justify-content:space-between; gap:.5rem;
 }
 .pp-footer a{color:var(--parent-green-2); text-decoration:none}
@@ -220,7 +220,7 @@ body.pp-phone-layout .pp-child-grid{
 .kw-auth-motto{color:rgba(255,255,255,.85); font-style:italic; font-size:.85rem}
 
 /* ── Tables (CSV/print friendly) ───────────────────────────────────────── */
-.pp-table{background:#fff}
+.pp-table{background:var(--kw-theme-surface)}
 .pp-table .table{margin-bottom:0}
 .pp-table .table thead th{background:#f0f5f1; color:var(--parent-ink); font-size:.78rem; text-transform:uppercase; letter-spacing:.05em}
 .pp-table .table td,.pp-table .table th{font-size:.84rem; vertical-align:middle}
@@ -236,7 +236,7 @@ body.pp-phone-layout .pp-child-grid{
 .nav-tabs .nav-link.active{color:var(--parent-green)!important; border-color:var(--parent-line) var(--parent-line) #fff; font-weight:700}
 
 /* ── Statement / report-card screenlike blocks ─────────────────────────── */
-.pp-statement-table{background:#fff; border:1px solid #dfe7e1; border-radius:8px}
+.pp-statement-table{background:var(--kw-theme-surface); border:1px solid #dfe7e1; border-radius:8px}
 
 /* ── Mobile navigation drawer ──────────────────────────────────────────── */
 .pp-drawer{width:min(320px,86vw); background:linear-gradient(180deg,#073e29,#0a5a3a); color:#fff}
@@ -290,7 +290,7 @@ body.pp-phone-layout .pp-child-grid{
 /* ── Uniform Store (catalogue + quick view + cart + checkout + orders) ── */
 #storeSearch{max-width:340px}
 #storeGrid .store-card{
-  background:#fff; border:1px solid var(--parent-line); border-radius:13px; overflow:hidden;
+  background:var(--kw-theme-surface); border:1px solid var(--parent-line); border-radius:13px; overflow:hidden;
   box-shadow:0 5px 18px rgba(25,70,48,.07); height:100%; display:flex; flex-direction:column;
   transition:transform .18s ease, box-shadow .18s ease;
 }
@@ -318,7 +318,7 @@ body.pp-phone-layout .pp-child-grid{
 .store-size input{position:absolute; opacity:0; pointer-events:none}
 .store-size span{
   display:flex; flex-direction:column; align-items:center; gap:.05rem; padding:.5rem .35rem;
-  border:1px solid var(--parent-line); border-radius:9px; background:#fff; color:var(--parent-ink);
+  border:1px solid var(--parent-line); border-radius:9px; background:var(--kw-theme-surface); color:var(--parent-ink);
   font-size:.76rem; font-weight:600; text-align:center; transition:border-color .15s ease, background .15s ease;
 }
 .store-size span small{color:var(--parent-muted); font-weight:500; font-size:.64rem}
@@ -328,7 +328,7 @@ body.pp-phone-layout .pp-child-grid{
 .store-size.selected span small{color:rgba(255,255,255,.8)}
 .store-variant{
   display:inline-flex; flex-direction:column; align-items:center; gap:.3rem; min-width:76px;
-  padding:.5rem .6rem; border:1px solid var(--parent-line); border-radius:10px; background:#fff;
+  padding:.5rem .6rem; border:1px solid var(--parent-line); border-radius:10px; background:var(--kw-theme-surface);
   color:var(--parent-ink); font-size:.7rem; font-weight:600; cursor:pointer;
 }
 .store-variant span{width:26px; height:26px; border-radius:50%; border:2px solid rgba(255,255,255,.7); box-shadow:0 0 0 1px var(--parent-line)}
@@ -337,7 +337,7 @@ body.pp-phone-layout .pp-child-grid{
 .store-variant.active{border-color:var(--parent-green); background:#eef6f0; color:var(--parent-green); box-shadow:inset 0 0 0 1px var(--parent-green)}
 
 /* cart offcanvas is re-themed light so prices and notes stay readable */
-#storeCartDrawer.pp-drawer{background:#fff; color:var(--parent-ink)}
+#storeCartDrawer.pp-drawer{background:var(--kw-theme-surface); color:var(--parent-ink)}
 #storeCartDrawer .offcanvas-header{border-bottom:1px solid var(--parent-line); color:var(--parent-ink)}
 #storeCartDrawer .offcanvas-title{font-family:"Playfair Display",serif; font-weight:700; color:var(--parent-green)}
 #storeCartDrawer .offcanvas-title i{color:var(--parent-green-2); font-size:1.2rem}
@@ -345,16 +345,16 @@ body.pp-phone-layout .pp-child-grid{
 #storeCartDrawer .pp-drawer-body{color:var(--parent-ink)}
 
 /* order cards */
-.store-order{background:#fff}
+.store-order{background:var(--kw-theme-surface)}
 .store-order .badge{font-weight:600; letter-spacing:.02em}
 
 /* ── Admission application stepper ────────────────────────────────────── */
 .pp-app-stepper{max-width:100%}
 .pp-app-stage{max-width:170px}
-.pp-app-dot{display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:var(--parent-muted,#e9ecef); color:#adb5bd; font-size:.8rem; flex-shrink:0}
+.pp-app-dot{display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:var(--parent-muted,var(--kw-theme-surface-3)); color:#adb5bd; font-size:.8rem; flex-shrink:0}
 .pp-app-dot.done{background:var(--parent-green,#198754); color:#fff}
 .pp-app-dot.current{background:var(--parent-green-2,#20c997); color:#fff; box-shadow:0 0 0 3px rgba(32,201,151,.25)}
-.pp-app-connector{width:18px; height:2px; background:#dee2e6; flex-shrink:0}
+.pp-app-connector{width:18px; height:2px; background:var(--kw-theme-surface-3); flex-shrink:0}
 .pp-app-stage.done .pp-app-connector, .pp-app-stage .pp-app-connector.done{background:var(--parent-green,#198754)}
 
 /* ── Print: hide chrome, landscape for wide matrices ───────────────────── */

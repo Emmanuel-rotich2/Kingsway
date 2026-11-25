@@ -11,6 +11,11 @@ import re
 from typing import Any
 
 TOOL_CATALOG = "assistant.catalog"
+# The agents' map of their own environment: every page, its components,
+# role access and real journal usage, scoped to the operator's roles. Every
+# agent gets both so no domain is blind to the rest of the system.
+TOOL_PAGE_CATALOG = "assistant.page_catalog"
+TOOL_PAGE_ACTIVITY = "assistant.page_activity"
 TOOL_NLQ = "reports.nlq"
 TOOL_INSIGHT_BRIEF = "reports.insight_brief"
 TOOL_AGGREGATE = "reports.aggregate"
@@ -65,6 +70,8 @@ TOOL_SYSTEM_FIX_SUGGEST = "system.fix_suggest"
 
 TOOL_SUMMARIES: dict[str, str] = {
     TOOL_CATALOG: "assistant.catalog - list the governed AI workflows available to this staff member in this workspace; takes no input",
+    TOOL_PAGE_CATALOG: "assistant.page_catalog - list the pages/screens this staff member's roles can open, each with its label, domain and components (tables, forms, modals, charts); input: none. Use it to answer 'what pages exist', 'where do I do X', or to orient yourself in the system",
+    TOOL_PAGE_ACTIVITY: "assistant.page_activity - real usage of the school's pages from the journals: page views, unique users and the actions users take. Input: route (string, optional — omit for the most-used pages ranking). Use for 'which pages do staff use most', 'who uses this page', 'what do users do on X'",
     TOOL_NLQ: "reports.nlq - answer a data question by routing it to an authorized governed report; input: question (string)",
     TOOL_INSIGHT_BRIEF: "reports.insight_brief - fetch the deterministic daily/weekly/term school intelligence briefing; input: cadence (daily|weekly|term)",
     TOOL_AGGREGATE: "reports.aggregate - compute a governed aggregation (count, sum, avg, min, max) over authorized data; input: question (string), agg_type (count|sum|avg|min|max)",
@@ -1354,6 +1361,76 @@ def advisory_agent_for(question: str) -> dict[str, Any] | None:
     return None
 
 
+# Page-help questions ask what a screen is for or how to use it ("what is
+# this page", "how do I filter records here", "review and understand Manage
+# Terms"). They carry no governed data question, so demanding row evidence
+# for them is what produced the "couldn't produce a reliable answer"
+# placeholder. The classifier is deliberately conservative: any strong
+# data/report verb keeps the question on the governed evidence path.
+_PAGE_HELP_PHRASES: tuple[str, ...] = (
+    "what is this page",
+    "what is this screen",
+    "what does this page do",
+    "what can i do here",
+    "what can i do on this page",
+    "how do i use this page",
+    "how do i use this screen",
+    "how do i use this",
+    "how do i get started",
+    "how do i navigate",
+    "explain this page",
+    "explain this screen",
+    "guide me",
+    "walk me through",
+    "help me with this page",
+    "help me understand",
+    "understand this page",
+    "review this page",
+    "review and understand",
+    "understand this screen",
+    "what am i looking at",
+    "what am i seeing",
+    "what is shown here",
+    "what does this screen show",
+    "purpose of this page",
+    "purpose of this screen",
+)
+
+_PAGE_HELP_DATA_TERMS: tuple[str, ...] = (
+    " how many ",
+    "count ",
+    "total ",
+    "average ",
+    "percentage",
+    "report",
+    "chart",
+    "graph",
+    "list all",
+    "show me all",
+    "export",
+    "download",
+    "generate report",
+)
+
+
+def is_page_help_question(question: str) -> bool:
+    """True for 'what is this page / how do I use it' guidance prompts.
+
+    Shared by routing, the grounding note and the deterministic renderer so
+    a page-guidance question is answered as guidance - from page_context and
+    the agent persona - instead of being treated as an unanswerable data
+    request.
+    """
+    if not isinstance(question, str):
+        return False
+    text = (
+        " " + re.sub(r"[^a-z0-9\- ]+", " ", re.sub(r"['’]", "", question.lower())) + " "
+    )
+    if not any(phrase in text for phrase in _PAGE_HELP_PHRASES):
+        return False
+    return not any(term in text for term in _PAGE_HELP_DATA_TERMS)
+
+
 def default_agent() -> dict[str, Any]:
     return AGENTS["reports.agent"]
 
@@ -1367,8 +1444,18 @@ def describe_for_triage() -> list[str]:
     return lines
 
 
+# Tools every agent carries regardless of domain: the map of the system
+# itself. _expanded_agent_tools grants them at execution time; this list
+# keeps the prompt description in step so the model knows they exist.
+UNIVERSAL_AGENT_TOOLS: tuple[str, ...] = (TOOL_PAGE_CATALOG, TOOL_PAGE_ACTIVITY)
+
+
 def tool_summaries(agent: dict[str, Any]) -> list[str]:
-    return [TOOL_SUMMARIES.get(t, f"{t} - governed tool") for t in agent["tools"]]
+    tools = list(agent["tools"])
+    for universal in UNIVERSAL_AGENT_TOOLS:
+        if universal not in tools:
+            tools.append(universal)
+    return [TOOL_SUMMARIES.get(t, f"{t} - governed tool") for t in tools]
 
 
 # One bounded paragraph, appended to every agent's system prompt. It is what

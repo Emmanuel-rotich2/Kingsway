@@ -1,0 +1,1193 @@
+/*
+ * Academic Years register.
+ *
+ * A school-ledger treatment: quiet paper surfaces, one confident year display,
+ * and a term-position line that answers "where are we now?" before the table
+ * asks the user to scan records. No new web fonts: the serif stack is local.
+ */
+
+.academic-years-page {
+  --ay-ink: #173a2e;
+  --ay-muted: #5d6d63;
+  --ay-rule: #d9e1d8;
+  --ay-rule-strong: #a9b8a9;
+  --ay-paper: #fffdf7;
+  --ay-wash: #f3f6f0;
+  --ay-gold: #8a6500;
+  --ay-gold-wash: #fbf4df;
+  --ay-success: #2f7d5b;
+
+  color: var(--ay-ink);
+}
+
+.academic-years-page :is(h1, h2, h3, .ay-year-name) {
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  text-wrap: balance;
+}
+
+.academic-years-page :is(button, input, a):focus-visible {
+  outline: 3px solid var(--ay-gold);
+  outline-offset: 3px;
+}
+
+/* Header ------------------------------------------------------------------ */
+.academic-years-page .ay-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem 1.5rem;
+  margin-block-end: 1.5rem;
+  padding-block-end: 1rem;
+  border-block-end: 2px solid var(--ay-ink);
+}
+
+.academic-years-page .ay-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: .55rem;
+  margin: 0 0 .35rem;
+  color: var(--ay-gold);
+  font-size: .8rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
+.academic-years-page .ay-eyebrow::before {
+  content: "";
+  inline-size: 1.5rem;
+  block-size: 2px;
+  background: var(--ay-gold);
+}
+
+.academic-years-page .ay-page-header h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.1rem);
+  font-weight: 650;
+  letter-spacing: -.025em;
+  line-height: 1.05;
+}
+
+.academic-years-page .ay-lede {
+  max-inline-size: 62ch;
+  margin: .5rem 0 0;
+  color: var(--ay-muted);
+  font-size: .95rem;
+}
+
+.academic-years-page .ay-inline-link {
+  color: var(--ay-ink);
+  font-weight: 650;
+  text-decoration-color: var(--ay-gold);
+  text-decoration-thickness: 2px;
+  text-underline-offset: .2em;
+}
+
+.academic-years-page .ay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.academic-years-page :is(.ay-quiet-button, .ay-filter-button, .ay-edit-button, thead th > button) {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.academic-years-page .ay-quiet-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  min-block-size: 2.5rem;
+  padding: .45rem .85rem;
+  border: 1px solid var(--ay-rule-strong);
+  border-radius: 4px;
+  background: var(--ay-paper);
+  color: var(--ay-ink);
+  font-size: .875rem;
+  font-weight: 600;
+}
+
+.academic-years-page .ay-quiet-button:hover:not(:disabled) {
+  border-color: var(--ay-ink);
+  background: var(--ay-wash);
+}
+
+.academic-years-page .ay-quiet-button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+/* Current position -------------------------------------------------------- */
+.academic-years-page .ay-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  margin-block-end: 1.5rem;
+  border: 1px solid var(--ay-rule);
+  background: var(--ay-paper);
+}
+
+.academic-years-page .ay-overview-panel {
+  position: relative;
+  min-inline-size: 0;
+  padding: 1.35rem 1.5rem 1.5rem;
+}
+
+.academic-years-page .ay-overview-panel + .ay-overview-panel {
+  border-inline-start: 1px solid var(--ay-rule);
+}
+
+.academic-years-page .ay-overview-panel::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: 3px;
+  background: var(--ay-ink);
+}
+
+.academic-years-page .ay-term-panel::before {
+  background: var(--ay-gold);
+}
+
+.academic-years-page .ay-panel-label {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin: 0 0 .85rem;
+  color: var(--ay-muted);
+  font-size: .78rem;
+  font-weight: 700;
+}
+
+.academic-years-page .ay-panel-label::before {
+  content: "";
+  inline-size: .45rem;
+  block-size: .45rem;
+  border-radius: 50%;
+  background: var(--ay-success);
+}
+
+.academic-years-page .ay-term-panel .ay-panel-label::before {
+  background: var(--ay-gold);
+}
+
+.academic-years-page .ay-year-name {
+  margin: 0;
+  font-size: clamp(2.15rem, 5vw, 3.6rem);
+  font-weight: 650;
+  letter-spacing: -.035em;
+  line-height: 1;
+}
+
+.academic-years-page .ay-date-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  margin-block-start: .7rem;
+  color: var(--ay-muted);
+  font-size: .9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.academic-years-page .ay-date-range time {
+  color: var(--ay-ink);
+  font-weight: 600;
+}
+
+.academic-years-page .ay-year-note {
+  margin: 1rem 0 0;
+  padding-block-start: .75rem;
+  border-block-start: 1px solid var(--ay-rule);
+  color: var(--ay-muted);
+  font-size: .82rem;
+}
+
+.academic-years-page .ay-term-state {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 650;
+}
+
+.academic-years-page .ay-timeline {
+  position: relative;
+  display: grid;
+  gap: .9rem;
+  margin: 1rem 0 0;
+  padding-inline-start: 1.35rem;
+  list-style: none;
+}
+
+.academic-years-page .ay-timeline::before {
+  content: "";
+  position: absolute;
+  inset-block: .35rem .65rem;
+  inset-inline-start: .3rem;
+  inline-size: 2px;
+  background: var(--ay-rule);
+}
+
+.academic-years-page .ay-timeline-item {
+  position: relative;
+  margin: 0;
+  color: var(--ay-muted);
+  font-size: .87rem;
+  line-height: 1.45;
+}
+
+.academic-years-page .ay-timeline-item::before {
+  content: "";
+  position: absolute;
+  inset-block-start: .35rem;
+  inset-inline-start: -1.35rem;
+  inline-size: .7rem;
+  block-size: .7rem;
+  border: 2px solid var(--ay-rule-strong);
+  border-radius: 50%;
+  background: var(--ay-paper);
+}
+
+.academic-years-page .ay-timeline-item--closed::before {
+  border-color: var(--ay-muted);
+  background: var(--ay-muted);
+}
+
+.academic-years-page .ay-timeline-item--next::before {
+  border-color: var(--ay-gold);
+  background: var(--ay-gold-wash);
+}
+
+.academic-years-page .ay-timeline-item strong {
+  display: block;
+  color: var(--ay-ink);
+  font-weight: 650;
+}
+
+.academic-years-page .ay-overview-message {
+  margin: .35rem 0 0;
+  color: var(--ay-muted);
+  font-size: .9rem;
+}
+
+.academic-years-page .ay-overview-error {
+  margin: .35rem 0 0;
+  color: #9b3b2e;
+  font-size: .9rem;
+}
+
+/* Register ---------------------------------------------------------------- */
+.academic-years-page .ay-register {
+  border: 1px solid var(--ay-rule);
+  background: var(--kw-theme-surface);
+}
+
+.academic-years-page .ay-register-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: .9rem 1.25rem;
+  padding: 1rem 1.25rem;
+  border-block-end: 1px solid var(--ay-rule);
+  background: var(--ay-wash);
+}
+
+.academic-years-page .ay-register-toolbar h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 650;
+}
+
+.academic-years-page .ay-register-toolbar p {
+  margin: .2rem 0 0;
+  color: var(--ay-muted);
+  font-size: .82rem;
+}
+
+.academic-years-page .ay-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .6rem;
+}
+
+.academic-years-page .ay-search {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  min-inline-size: min(16rem, 100%);
+  padding-inline: .65rem;
+  border: 1px solid var(--ay-rule-strong);
+  border-radius: 4px;
+  background: var(--kw-theme-surface);
+  color: var(--ay-muted);
+}
+
+.academic-years-page .ay-search:focus-within {
+  border-color: var(--ay-gold);
+}
+
+.academic-years-page .ay-search input {
+  min-block-size: 2.5rem;
+  border: 0;
+  background: transparent;
+  color: var(--ay-ink);
+  font-size: .875rem;
+}
+
+.academic-years-page .ay-search input:focus {
+  outline: 0;
+}
+
+.academic-years-page .ay-filter-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: .25rem;
+  padding: .2rem;
+  border: 1px solid var(--ay-rule-strong);
+  border-radius: 5px;
+  background: var(--kw-theme-surface);
+}
+
+.academic-years-page .ay-filter-button {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  min-block-size: 2.1rem;
+  padding: .35rem .65rem;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ay-muted);
+  font-size: .82rem;
+  font-weight: 650;
+}
+
+.academic-years-page .ay-filter-button:hover {
+  background: var(--ay-wash);
+  color: var(--ay-ink);
+}
+
+.academic-years-page .ay-filter-button[aria-pressed="true"] {
+  background: var(--ay-ink);
+  color: #fff;
+}
+
+.academic-years-page .ay-filter-count {
+  min-inline-size: 1.35rem;
+  padding: .05rem .3rem;
+  border-radius: 999px;
+  background: var(--ay-wash);
+  color: var(--ay-muted);
+  font-size: .7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.academic-years-page .ay-filter-button[aria-pressed="true"] .ay-filter-count {
+  background: rgb(255 255 255 / 18%);
+  color: #fff;
+}
+
+/* Table ------------------------------------------------------------------- */
+.academic-years-page .ay-table-scroll {
+  max-block-size: min(68vh, 44rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  container-type: inline-size;
+}
+
+.academic-years-page .ay-table-scroll:focus-visible {
+  outline: 2px solid var(--ay-gold);
+  outline-offset: -2px;
+}
+
+.academic-years-page table {
+  inline-size: 100%;
+  min-inline-size: 52rem;
+  margin: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.academic-years-page thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 3;
+}
+
+.academic-years-page thead th {
+  padding: 0;
+  background: var(--ay-paper);
+  box-shadow: inset 0 -2px 0 var(--ay-ink);
+  color: var(--ay-muted);
+  font-size: .75rem;
+  font-weight: 700;
+  text-align: start;
+  white-space: nowrap;
+}
+
+.academic-years-page thead th > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .35rem;
+  inline-size: 100%;
+  min-block-size: 2.9rem;
+  padding: .65rem 1rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+
+.academic-years-page thead th > button:hover {
+  background: var(--ay-wash);
+  color: var(--ay-ink);
+}
+
+.academic-years-page .ay-sort-icon {
+  color: var(--ay-rule-strong);
+  font-size: .85rem;
+}
+
+.academic-years-page thead th[aria-sort] .ay-sort-icon {
+  color: var(--ay-gold);
+}
+
+.academic-years-page thead th[aria-sort="ascending"] .ay-sort-icon::after {
+  content: "↑";
+}
+
+.academic-years-page thead th[aria-sort="descending"] .ay-sort-icon::after {
+  content: "↓";
+}
+
+.academic-years-page .ay-select-col {
+  inline-size: 2.75rem;
+  text-align: center;
+}
+
+.academic-years-page .ay-select-col .form-check-input {
+  inline-size: 1rem;
+  block-size: 1rem;
+  margin: 0;
+  accent-color: var(--ay-ink);
+  cursor: pointer;
+}
+
+.academic-years-page .ay-select-col .form-check-input:disabled {
+  cursor: not-allowed;
+}
+
+.academic-years-page tbody th,
+.academic-years-page tbody td {
+  padding: .85rem 1rem;
+  border-block-end: 1px solid var(--ay-rule);
+  font-size: .86rem;
+  vertical-align: middle;
+}
+
+.academic-years-page tbody th[scope="row"] {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  min-inline-size: 11rem;
+  background: var(--ay-paper);
+  box-shadow: inset -1px 0 0 var(--ay-rule);
+  color: var(--ay-ink);
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  font-size: 1.05rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.academic-years-page tbody tr:hover > :is(th, td) {
+  --bs-table-bg-state: var(--ay-wash);
+  background: var(--ay-wash);
+}
+
+.academic-years-page tbody tr:last-child > :is(th, td) {
+  border-block-end: 0;
+}
+
+.academic-years-page .ay-muted-cell {
+  color: var(--ay-muted);
+}
+
+.academic-years-page .ay-status {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .25rem .55rem;
+  border: 1px solid var(--ay-rule);
+  border-radius: 999px;
+  background: var(--ay-paper);
+  color: var(--ay-ink);
+  font-size: .78rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.academic-years-page .ay-status::before {
+  content: "";
+  inline-size: .45rem;
+  block-size: .45rem;
+  border-radius: 50%;
+  background: var(--ay-muted);
+}
+
+.academic-years-page .ay-status--current {
+  border-color: #b9d3c5;
+  background: #f1f8f4;
+}
+
+.academic-years-page .ay-status--current::before {
+  background: var(--ay-success);
+}
+
+.academic-years-page .ay-status--upcoming {
+  border-color: #e2cf9b;
+  background: var(--ay-gold-wash);
+}
+
+.academic-years-page .ay-status--upcoming::before {
+  background: var(--ay-gold);
+}
+
+.academic-years-page .ay-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+}
+
+.academic-years-page .ay-detail-button {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  min-block-size: 2rem;
+  padding: .3rem .55rem;
+  border: 1px solid var(--ay-rule-strong);
+  border-radius: 3px;
+  background: var(--kw-theme-surface);
+  color: var(--ay-ink);
+  font-size: .78rem;
+  font-weight: 650;
+}
+
+.academic-years-page .ay-detail-button:hover {
+  border-color: var(--ay-gold);
+  background: var(--ay-gold-wash);
+}
+
+.academic-years-page .ay-edit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  min-block-size: 2rem;
+  padding: .3rem .55rem;
+  border: 1px solid var(--ay-rule-strong);
+  border-radius: 3px;
+  background: var(--kw-theme-surface);
+  color: var(--ay-ink);
+  font-size: .78rem;
+  font-weight: 650;
+}
+
+.academic-years-page .ay-edit-button:hover {
+  border-color: var(--ay-ink);
+  background: var(--ay-wash);
+}
+
+.academic-years-page .ay-empty {
+  display: grid;
+  justify-items: center;
+  gap: .55rem;
+  max-inline-size: 38rem;
+  margin-inline: auto;
+  padding: 2.5rem 1rem;
+  text-align: center;
+}
+
+.academic-years-page .ay-empty-icon {
+  display: grid;
+  place-items: center;
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  border: 1px solid var(--ay-rule-strong);
+  border-radius: 50%;
+  color: var(--ay-gold);
+  font-size: 1.1rem;
+}
+
+.academic-years-page .ay-empty h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.academic-years-page .ay-empty p {
+  margin: 0;
+  color: var(--ay-muted);
+  font-size: .86rem;
+}
+
+.academic-years-page .ay-empty .ay-quiet-button {
+  margin-block-start: .35rem;
+}
+
+.academic-years-page .ay-print-context {
+  display: none;
+}
+
+@container (width < 720px) {
+  .academic-years-page table,
+  .academic-years-page tbody,
+  .academic-years-page tr,
+  .academic-years-page :is(th, td) {
+    display: block;
+    inline-size: 100%;
+    min-inline-size: 0;
+  }
+
+  .academic-years-page thead {
+    position: static;
+    display: none;
+  }
+
+  .academic-years-page tbody tr {
+    margin: .75rem;
+    border: 1px solid var(--ay-rule);
+    border-radius: 4px;
+    background: var(--kw-theme-surface);
+  }
+
+  .academic-years-page tbody th[scope="row"] {
+    position: static;
+    padding: .8rem .9rem;
+    border-block-end: 1px solid var(--ay-rule);
+    box-shadow: none;
+    background: var(--ay-wash);
+    font-size: 1.15rem;
+  }
+
+  .academic-years-page tbody td {
+    display: grid;
+    grid-template-columns: minmax(6.25rem, 36%) minmax(0, 1fr);
+    gap: .75rem;
+    padding: .55rem .9rem;
+    border-block-end: 1px solid var(--ay-rule);
+    text-align: start;
+  }
+
+  .academic-years-page tbody td::before {
+    content: attr(data-label);
+    color: var(--ay-muted);
+    font-family: inherit;
+    font-size: .74rem;
+    font-weight: 700;
+  }
+
+  .academic-years-page tbody td[data-label=""]::before {
+    content: none;
+  }
+
+  .academic-years-page tbody td.ay-select-col {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: .55rem .9rem;
+  }
+
+  .academic-years-page tbody td.ay-select-col::before {
+    content: none;
+  }
+
+  .academic-years-page tbody td:last-child {
+    border-block-end: 0;
+  }
+}
+
+@media (width < 760px) {
+  .academic-years-page .ay-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .academic-years-page .ay-overview-panel + .ay-overview-panel {
+    border-block-start: 1px solid var(--ay-rule);
+    border-inline-start: 0;
+  }
+}
+
+@media (pointer: coarse) {
+  .academic-years-page :is(.ay-quiet-button, .ay-filter-button, .ay-edit-button) {
+    min-block-size: 2.75rem;
+  }
+}
+
+/* Detail drawer ----------------------------------------------------------- */
+.ay-detail-drawer .offcanvas-header {
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.15rem 1.35rem;
+  border-block-end: 1px solid var(--ay-rule);
+  background: var(--ay-wash);
+}
+
+.ay-detail-drawer .offcanvas-title {
+  color: var(--ay-ink);
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  font-size: 1.35rem;
+}
+
+.ay-detail-drawer .offcanvas-body {
+  padding: 1.35rem;
+}
+
+.ay-detail-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .6rem;
+  padding: .7rem .8rem;
+  border: 1px solid var(--ay-rule);
+  border-radius: 4px;
+  background: var(--ay-paper);
+  color: var(--ay-muted);
+  font-size: .85rem;
+}
+
+.ay-detail-summary--attention {
+  border-color: #e2cf9b;
+  background: var(--ay-gold-wash);
+}
+
+.ay-readiness {
+  padding: .2rem .55rem;
+  border-radius: 999px;
+  background: var(--ay-ink);
+  color: #fff;
+  font-size: .74rem;
+  font-weight: 700;
+}
+
+.ay-readiness--attention {
+  background: var(--ay-gold);
+}
+
+.ay-detail-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .75rem;
+  margin: 1rem 0 0;
+}
+
+.ay-detail-facts > div {
+  padding: .65rem .75rem;
+  border-block-start: 2px solid var(--ay-rule-strong);
+  background: var(--ay-wash);
+}
+
+.ay-detail-facts dt {
+  margin: 0 0 .25rem;
+  color: var(--ay-muted);
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.ay-detail-facts dd {
+  margin: 0;
+  font-size: .9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ay-detail-section {
+  margin-block-start: 1.35rem;
+}
+
+.ay-detail-section h3 {
+  margin: 0 0 .65rem;
+  padding-block-end: .4rem;
+  border-block-end: 1px solid var(--ay-rule);
+  font-size: .95rem;
+}
+
+.ay-check-list {
+  display: grid;
+  gap: .45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ay-check {
+  display: flex;
+  align-items: flex-start;
+  gap: .5rem;
+  color: var(--ay-ink);
+  font-size: .84rem;
+  line-height: 1.45;
+}
+
+.ay-check i {
+  color: var(--ay-success);
+  margin-block-start: .1rem;
+}
+
+.ay-check--issue,
+.ay-check--issue i {
+  color: #8a3b2c;
+}
+
+.ay-note-list {
+  margin-block-start: .7rem;
+  padding-block-start: .6rem;
+  border-block-start: 1px dashed var(--ay-rule);
+}
+
+.ay-check--note,
+.ay-check--note i {
+  color: var(--ay-muted);
+}
+
+.ay-detail-clear {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  margin: 0;
+  color: var(--ay-success);
+  font-size: .84rem;
+}
+
+.ay-detail-note {
+  margin: .65rem 0 0;
+  color: var(--ay-muted);
+  font-size: .76rem;
+}
+
+.ay-term-list {
+  display: grid;
+  gap: .55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ay-term-card {
+  padding: .7rem .8rem;
+  border: 1px solid var(--ay-rule);
+  border-inline-start: 3px solid var(--ay-gold);
+  border-radius: 3px;
+  background: var(--kw-theme-surface);
+}
+
+.ay-term-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .4rem;
+  font-size: .9rem;
+}
+
+.ay-term-card-dates {
+  margin-block-start: .3rem;
+  color: var(--ay-muted);
+  font-size: .82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ay-term-half {
+  margin-block-start: .25rem;
+  color: var(--ay-muted);
+  font-size: .76rem;
+}
+
+.ay-drawer-actions {
+  display: grid;
+  gap: .5rem;
+}
+
+.ay-drawer-link {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .6rem .75rem;
+  border: 1px solid var(--ay-rule-strong);
+  border-radius: 4px;
+  color: var(--ay-ink);
+  font-size: .85rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.ay-drawer-link:hover {
+  border-color: var(--ay-gold);
+  background: var(--ay-gold-wash);
+}
+
+/* Bulk date edit ---------------------------------------------------------- */
+.ay-bulk-summary {
+  margin: 0 0 .85rem;
+  color: var(--ay-muted);
+  font-size: .85rem;
+}
+
+.ay-bulk-field .form-control {
+  max-inline-size: 12rem;
+}
+
+.ay-bulk-preview {
+  margin-block-start: 1rem;
+}
+
+.ay-bulk-scroll {
+  max-block-size: 18rem;
+  border: 1px solid var(--ay-rule);
+  background: var(--kw-theme-surface);
+}
+
+.ay-bulk-table {
+  inline-size: 100%;
+  min-inline-size: 0;
+  border-collapse: collapse;
+  font-size: .82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ay-bulk-table :is(th, td) {
+  padding: .55rem .7rem;
+  border-block-end: 1px solid var(--ay-rule);
+  text-align: start;
+  vertical-align: top;
+}
+
+.ay-bulk-table thead th {
+  background: var(--ay-wash);
+  color: var(--ay-muted);
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.ay-bulk-table tbody tr:last-child :is(th, td) {
+  border-block-end: 0;
+}
+
+.ay-bulk-ok,
+.ay-bulk-issue {
+  display: inline-block;
+  padding: .15rem .45rem;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.ay-bulk-ok {
+  background: #f1f8f4;
+  color: var(--ay-success);
+}
+
+.ay-bulk-issue {
+  background: #fdf0ed;
+  color: #9b3b2e;
+  white-space: normal;
+}
+
+.ay-bulk-result {
+  margin-block-start: .85rem;
+  padding: .7rem .8rem;
+  border-inline-start: 3px solid #9b3b2e;
+  background: #fdf0ed;
+  font-size: .82rem;
+}
+
+.ay-bulk-result ul {
+  margin: .4rem 0 0;
+  padding-inline-start: 1.1rem;
+}
+
+/* Edit dialog ------------------------------------------------------------- */
+.academic-years-page ~ .ay-modal .modal-content,
+.ay-modal .modal-content {
+  border-color: var(--ay-rule-strong);
+  border-radius: 6px;
+}
+
+.ay-modal .modal-header,
+.ay-modal .modal-footer {
+  border-color: var(--ay-rule);
+}
+
+.ay-modal .modal-title {
+  color: var(--ay-ink);
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  font-size: 1.3rem;
+}
+
+.ay-modal .modal-subtitle {
+  margin: .2rem 0 0;
+  color: var(--ay-muted);
+  font-size: .82rem;
+}
+
+.ay-modal .form-label {
+  color: var(--ay-ink);
+  font-weight: 650;
+}
+
+.ay-modal .form-control[readonly] {
+  background: var(--ay-wash);
+  color: var(--ay-muted);
+}
+
+.ay-modal .ay-form-hint {
+  display: flex;
+  gap: .5rem;
+  margin: 0;
+  padding: .65rem .75rem;
+  border-inline-start: 3px solid var(--ay-gold);
+  background: var(--ay-gold-wash);
+  color: var(--ay-ink);
+  font-size: .82rem;
+}
+
+/* Print ------------------------------------------------------------------- */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  html,
+  body,
+  #app-shell,
+  .app-shell,
+  .app-main-column,
+  .app-content,
+  #main-content-segment {
+    block-size: auto !important;
+    min-block-size: 0 !important;
+    overflow: visible !important;
+  }
+
+  #sidebar-container,
+  #sidebar-overlay,
+  #app-header,
+  .app-footer,
+  .modal,
+  .offcanvas,
+  .toast,
+  .dropdown-menu,
+  .popover,
+  .tooltip {
+    display: none !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .academic-years-page,
+  .academic-years-page * {
+    visibility: visible !important;
+  }
+
+  .academic-years-page {
+    position: static !important;
+    inset: auto !important;
+    inline-size: 100%;
+    max-inline-size: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    color: #000;
+    background: #fff;
+  }
+
+  .academic-years-page .no-print,
+  .academic-years-page [data-no-print],
+  .academic-years-page .ay-select-col,
+  .academic-years-page .ay-detail-button,
+  .academic-years-page .ay-sort-icon {
+    display: none !important;
+  }
+
+  .academic-years-page .ay-print-context {
+    display: block !important;
+    margin: 0 0 .4rem;
+    padding-block-end: .25rem;
+    border-block-end: 1px solid #aaa;
+    color: #333;
+    font-size: 9pt;
+  }
+
+  .academic-years-page .ay-page-header {
+    margin-block-end: .75rem;
+    padding-block-end: .5rem;
+  }
+
+  .academic-years-page .ay-page-header h1 {
+    font-size: 18pt;
+  }
+
+  .academic-years-page .ay-overview {
+    margin-block-end: .75rem;
+  }
+
+  .academic-years-page .ay-overview-panel {
+    padding: .65rem .75rem;
+  }
+
+  .academic-years-page .ay-register-toolbar {
+    padding: .5rem .75rem;
+  }
+
+  .academic-years-page .ay-tools,
+  .academic-years-page .ay-edit-button {
+    display: none !important;
+  }
+
+  .academic-years-page .ay-table-scroll {
+    max-block-size: none;
+    overflow: visible;
+  }
+
+  .academic-years-page table,
+  .academic-years-page tbody,
+  .academic-years-page tr,
+  .academic-years-page :is(th, td) {
+    display: table !important;
+    inline-size: auto !important;
+    min-inline-size: 0 !important;
+  }
+
+  .academic-years-page table {
+    inline-size: 100% !important;
+  }
+
+  .academic-years-page thead {
+    position: static;
+    display: table-header-group !important;
+  }
+
+  .academic-years-page thead th > button {
+    min-block-size: 0;
+    padding: .35rem .5rem;
+  }
+
+  .academic-years-page tbody th[scope="row"] {
+    position: static;
+    box-shadow: none;
+  }
+
+  .academic-years-page tbody td::before {
+    content: none !important;
+  }
+
+  .academic-years-page tbody tr {
+    break-inside: avoid;
+  }
+}

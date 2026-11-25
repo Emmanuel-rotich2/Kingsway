@@ -70,14 +70,63 @@ const inquiriesController = {
     } catch (e) { this.notify(e.message, 'danger'); }
   },
 
+  ensureReplyModal() {
+    if (document.getElementById('inquiryReplyModal')) return;
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal fade" id="inquiryReplyModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+          <div class="modal-header"><h5 class="modal-title">Reply to enquiry</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <div class="modal-body">
+            <input type="hidden" id="inquiryReplyId">
+            <div class="border rounded p-2 bg-light small text-muted mb-3" id="inquiryReplyContext"></div>
+            <label class="form-label" for="inquiryReplyText">Your reply</label>
+            <textarea class="form-control" id="inquiryReplyText" rows="7" placeholder="Write your reply to the family…"></textarea>
+            <div class="d-flex justify-content-between align-items-center mt-2">
+              <button type="button" class="btn btn-link btn-sm p-0" id="inquiryReplyAiBtn"><i class="bi bi-stars me-1"></i>Draft a reply with AI</button>
+              <span class="small text-muted">Queued for email delivery when you send.</span>
+            </div>
+            <div id="inquiryReplyAiHost"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary" id="inquiryReplySendBtn">Send reply</button>
+          </div>
+        </div></div>
+      </div>`);
+    document.getElementById('inquiryReplySendBtn').addEventListener('click', () => this.sendReply());
+    window.AiInlineDraft?.mount?.({
+      button: '#inquiryReplyAiBtn', host: '#inquiryReplyAiHost', route: window.REQUESTED_ROUTE || 'manage_inquiries', module: 'communications',
+      liveTarget: '#inquiryReplyText',
+      prompt: () => {
+        const ctx = document.getElementById('inquiryReplyContext')?.textContent || '';
+        return `Draft a polite reply email from the Kingsway Preparatory School office to this website enquiry. Sign off as "Kingsway Preparatory School". Keep it under 150 words, warm and professional.
+Enquiry: ${ctx}`;
+      },
+    });
+  },
+
   async reply(id) {
-    const reply = window.prompt('Reply to this inquiry:');
-    if (!reply || !reply.trim()) return;
+    this.ensureReplyModal();
+    const q = (this.state.items || []).find((x) => Number(x.id) === Number(id));
+    if (!q) { this.notify('That enquiry is no longer listed — refresh and try again.', 'warning'); return; }
+    document.getElementById('inquiryReplyId').value = id;
+    document.getElementById('inquiryReplyText').value = '';
+    document.getElementById('inquiryReplyContext').textContent = `${q.full_name} <${q.email || 'no email'}> — ${q.subject || 'no subject'}: ${(q.message || '').slice(0, 300)}`;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('inquiryReplyModal')).show();
+  },
+
+  async sendReply() {
+    const id = document.getElementById('inquiryReplyId').value;
+    const reply = document.getElementById('inquiryReplyText').value.trim();
+    if (!reply) return this.notify('Write or draft a reply first.', 'warning');
+    const btn = document.getElementById('inquiryReplySendBtn');
+    btn.disabled = true;
     try {
-      const r = await this.API('PUT', `website/inquiries/${id}`, { reply: reply.trim() });
-      if (r.status === 'success') { this.notify('Reply queued for email delivery'); this.loadData(); }
+      const r = await this.API('PUT', `website/inquiries/${id}`, { reply });
+      if (r.status === 'success') { this.notify('Reply queued for email delivery'); bootstrap.Modal.getInstance(document.getElementById('inquiryReplyModal'))?.hide(); this.loadData(); }
       else this.notify(r.message || 'Reply failed', 'warning');
     } catch (e) { this.notify(e.message || 'Reply failed', 'danger'); }
+    finally { btn.disabled = false; }
   },
 
   setupEventListeners() {

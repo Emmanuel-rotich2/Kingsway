@@ -10,13 +10,13 @@
         </div>
         <div class="d-flex flex-wrap gap-2">
             <button type="button" class="btn btn-outline-secondary" id="featureFlagsExportCsvBtn" title="Export to CSV">
-                <i class="bi bi-filetype-csv me-1"></i> Export CSV
+                <i aria-hidden="true" class="bi bi-filetype-csv me-1"></i> Export CSV
             </button>
             <button type="button" class="btn btn-outline-secondary" id="featureFlagsPrintBtn" title="Print / save as PDF">
-                <i class="bi bi-printer me-1"></i> Print / PDF
+                <i aria-hidden="true" class="bi bi-printer me-1"></i> Print / PDF
             </button>
             <button type="button" class="btn btn-primary" id="featureFlagsRefreshBtn">
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i aria-hidden="true" class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
     </div>
@@ -34,7 +34,7 @@
             <button type="button" class="btn btn-outline-secondary" data-state="disabled">Disabled</button>
         </div>
         <div class="input-group input-group-sm ms-auto" style="max-width: 300px">
-            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <span class="input-group-text"><i aria-hidden="true" class="bi bi-search"></i></span>
             <input class="form-control" id="featureFlagsSearch" type="search" maxlength="200" placeholder="Flag name or description" autocomplete="off">
         </div>
         <span class="text-muted small" id="featureFlagsCount">No flags loaded</span>

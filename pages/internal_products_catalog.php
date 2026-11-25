@@ -8,10 +8,9 @@
 <div class="staff-catalog-page">
   <section class="staff-catalog-cover">
     <div class="staff-catalog-cover-copy">
-      <span>Internal collection · Kingsway</span>
       <h1>Products<br><em>Catalogue</em></h1>
       <p>Uniforms and staff-only Kingsway merchandise, presented as one curated school collection.</p>
-      <a href="#staffCatalogueCollection">Explore collection <i class="bi bi-arrow-down"></i></a>
+      <a href="#staffCatalogueCollection">Explore the collection</a>
     </div>
     <div class="staff-catalog-cover-art" aria-hidden="true">
       <div class="staff-catalog-book book-back"><small>Kingsway Collection</small><strong>2026</strong></div>
@@ -21,8 +20,8 @@
 
   <section class="staff-catalog-collection" id="staffCatalogueCollection">
     <header class="staff-catalog-heading">
-      <div><span>Browse the edition</span><h2>The Kingsway Collection</h2><p>Public uniforms plus merchandise reserved for the internal school community.</p></div>
-      <div><a class="btn btn-outline-success mb-2" href="<?= htmlspecialchars($appBase) ?>/home.php?route=internal_catalog_account"><i class="bi bi-bag me-1"></i>My cart, wishlist &amp; orders</a><div class="catalog-search"><i class="bi bi-search"></i><input type="search" id="sicSearch" placeholder="Search the collection…"><span id="sicCount">0 items</span></div></div>
+      <div><h2>Kingsway collection</h2><p>Public uniforms plus merchandise reserved for the internal school community.</p></div>
+      <div><a class="btn btn-outline-success mb-2" href="<?= htmlspecialchars($appBase) ?>/home.php?route=internal_catalog_account"><i class="bi bi-bag me-1" aria-hidden="true"></i>My cart, wishlist &amp; orders</a><div class="catalog-search"><i class="bi bi-search" aria-hidden="true"></i><label class="visually-hidden" for="sicSearch">Search the collection</label><input type="search" id="sicSearch" placeholder="Search the collection…" autocomplete="off"><span id="sicCount">0 items</span></div></div>
     </header>
     <nav class="catalog-tabs" id="sicCategories" aria-label="Catalogue collections"></nav>
     <div id="sicError" class="alert alert-danger d-none"></div>

@@ -34,8 +34,8 @@ const StudentFeesController = {
   notify: function (message, type) {
     if (typeof showNotification === "function") {
       showNotification(message, type || "info");
-    } else {
-      window.alert(message);
+    } else if (typeof window.infoDialog === "function") {
+      window.infoDialog("Notice", message);
     }
   },
 
@@ -985,7 +985,7 @@ const StudentFeesController = {
       return `<tr><td>${award.year_code || award.academic_year_id}</td><td>${award.programme_name}</td><td>${coverage}</td><td>${period}</td><td>${award.status}</td><td>${action}</td></tr>`;
     }).join("") || '<tr><td colspan="5" class="text-muted">No annual awards recorded.</td></tr>';
     this.ui.assistanceAwardsBody.querySelectorAll("[data-revoke-award]").forEach((button) => button.addEventListener("click", async () => {
-      if (!window.confirm("Terminate this sponsorship prospectively? Approved fee waivers are not affected.")) return;
+      if (!(await window.confirmAction("Terminate sponsorship", "Terminate this sponsorship prospectively? Approved fee waivers are not affected.", { confirmText: "Terminate", danger: true }))) return;
       await window.API.finance.revokeStudentScholarship(button.dataset.revokeAward);
       await this.loadAssistanceAwards(studentId);
       await this.loadPaymentStatus();

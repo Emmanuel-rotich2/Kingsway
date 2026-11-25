@@ -803,6 +803,13 @@ def _expanded_agent_tools(agent: dict[str, Any], tools: Any) -> list[str]:
         if tool_id not in seen:
             seen.add(tool_id)
             ordered.append(tool_id)
+    # Every agent knows its own environment: the page catalogue and real
+    # usage activity are universal, so a finance question can still be
+    # answered with "which page does the bursar actually use" context.
+    for universal in ("assistant.page_catalog", "assistant.page_activity"):
+        if universal not in seen:
+            seen.add(universal)
+            ordered.append(universal)
     return ordered
 
 
@@ -1432,6 +1439,24 @@ class Orchestrator:
         started = time.monotonic()
         result = self._run_agent_loop(agent, context, question)
 
+        # Same page-guidance guarantee as the streamed surface: a "what is
+        # this page" prompt that ended in the neutral placeholder is answered
+        # deterministically from page_context instead.
+        if agents.is_page_help_question(question):
+            answer = result.get("answer")
+            body = str((answer or {}).get("body") or "")
+            failed = (
+                result.get("status") != "answered"
+                or not body.strip()
+                or "reliable answer" in body
+            )
+            if failed:
+                result = {
+                    **result,
+                    "status": "answered",
+                    "answer": self._page_help_answer(context, agent, question),
+                }
+
         # Record turn to session
         self._remember_session(
             session_id,
@@ -1876,9 +1901,9 @@ class Orchestrator:
                     "title": str(item.get("title") or "Finding")[:160],
                     "severity": severity,
                     "root_cause": cause[:240],
-                    "suggested_action": (
-                        action or "Review in the related workspace."
-                    )[:240],
+                    "suggested_action": (action or "Review in the related workspace.")[
+                        :240
+                    ],
                 }
             )
             if len(findings) >= 6:
@@ -2097,6 +2122,11 @@ class Orchestrator:
         else:
             question_clean, slash_instruction = guard.extract_slash(question_raw)
         question = bound_question(question_clean or question_raw)
+        # A "what is this page / how do I use it" prompt carries no governed
+        # data question. It is answered as guidance from page_context and the
+        # agent persona, so it must not be routed through the row-evidence
+        # contract that produced the "couldn't verify" placeholder.
+        page_help = agents.is_page_help_question(question)
 
         # Refuse before triage: triage calls the provider, so checking later
         # would still leak the attack. Same pre-flight as the buffered path.
@@ -2385,6 +2415,18 @@ class Orchestrator:
                 "these figures, never a certainty. Public-web results below are "
                 "current context - cite their source URLs. Never invent a value "
                 "that is not in the rows. Today's date in Africa/Nairobi is "
+                f"{datetime.now(ZoneInfo('Africa/Nairobi')).date().isoformat()}."
+            )
+        elif page_help:
+            grounding_note = (
+                "This is a page-guidance question, not a school-data request. "
+                "Answer helpfully from the page_context below (route, open "
+                "records, selections, filters) and your role knowledge: say "
+                "what this screen is for, what the operator can do here, and "
+                "how the visible filters/records work. Do NOT request data "
+                "tools and do NOT state school figures you cannot verify - "
+                "if a figure matters, tell the operator which report or "
+                "filter shows it. Today's date in Africa/Nairobi is "
                 f"{datetime.now(ZoneInfo('Africa/Nairobi')).date().isoformat()}."
             )
         else:
@@ -2807,6 +2849,17 @@ class Orchestrator:
                                     ),
                                     "instruction": (
                                         (
+                                            "That reply did not answer the "
+                                            "operator. This is a page-guidance "
+                                            "question: answer DIRECTLY now with "
+                                            "plain guidance - what this screen "
+                                            "is for and what the operator can "
+                                            "do here, using the page_context "
+                                            "labels. No data tools, no figures "
+                                            "you cannot verify, no refusal."
+                                        )
+                                        if page_help
+                                        else (
                                             "That reply was meta-commentary about "
                                             "what you intended to do, not an answer. "
                                             "Do NOT describe your plan, list steps, "
@@ -2934,7 +2987,15 @@ class Orchestrator:
                     if piece:
                         yield {"kind": "delta", "text": piece}
             else:
-                fallback = self._fallback_answer(tools_used, tool_results)
+                # A page-guidance question never needs the "couldn't verify"
+                # placeholder: answer it deterministically from the page
+                # context the browser sent (route, open record, filters) so
+                # the operator always gets a useful reply.
+                fallback = (
+                    self._page_help_answer(context, agent, question)
+                    if page_help
+                    else self._fallback_answer(tools_used, tool_results)
+                )
                 if provider_error is None:
                     answer = fallback
                     outcome = "answered"
@@ -3140,6 +3201,9 @@ class Orchestrator:
         authorise any real data — so this is context, not a second data path.
         """
         lines: list[str] = []
+        page_state = str(context.get("page_state") or "").strip()
+        if page_state:
+            lines.append(f"Live page state: {page_state[:60]}")
         entity = context.get("page_entity")
         if isinstance(entity, dict):
             parts: list[str] = []
@@ -3178,6 +3242,28 @@ class Orchestrator:
             ]
             if labels:
                 lines.append("Active filters: " + ", ".join(labels))
+        # Server-side catalog entry: what this screen IS (label, domain,
+        # components, role access) — resolved by PHP, not claimed by the
+        # browser, so page-guidance answers are grounded in the real page.
+        info = context.get("page_info")
+        if isinstance(info, dict):
+            parts: list[str] = []
+            label = str(info.get("label") or "").strip()
+            domain = str(info.get("domain") or "").strip()
+            if label:
+                parts.append(f"page={label[:80]}")
+            if domain and domain != "general":
+                parts.append(f"domain={domain[:40]}")
+            components = info.get("components")
+            if isinstance(components, list) and components:
+                parts.append(
+                    "components=" + ",".join(str(c)[:20] for c in components[:10])
+                )
+            roles = info.get("staff_roles_with_access")
+            if isinstance(roles, int) and roles > 0:
+                parts.append(f"staff_roles_with_access={roles}")
+            if parts:
+                lines.insert(0, "Page catalog: " + "; ".join(parts))
         return lines
 
     def _conversation_messages(
@@ -4665,7 +4751,7 @@ class Orchestrator:
                 action = str(response.get("action") or "final")
                 if action == "tool":
                     requests, _rejected = self._requested_tools(
-                        response, list(agent["tools"])
+                        response, _expanded_agent_tools(agent, self.tools)
                     )
                     if not requests:
                         break
@@ -5029,9 +5115,7 @@ class Orchestrator:
         if not isinstance(answer, dict):
             return answer
         rows = (
-            last_rows_result.get("rows")
-            if isinstance(last_rows_result, dict)
-            else None
+            last_rows_result.get("rows") if isinstance(last_rows_result, dict) else None
         )
         if not isinstance(rows, list) or not rows:
             return answer
@@ -5060,7 +5144,9 @@ class Orchestrator:
             "body": rendered,
         }
 
-    _DATA_TOOLS = frozenset({"data.query", "reports.nlq", "analytics.summary", "data.polars"})
+    _DATA_TOOLS = frozenset(
+        {"data.query", "reports.nlq", "analytics.summary", "data.polars"}
+    )
 
     def _guard_figures_without_evidence(
         self,
@@ -5082,9 +5168,7 @@ class Orchestrator:
         if not any(tool in self._DATA_TOOLS for tool in tools_used or []):
             return answer
         rows = (
-            last_rows_result.get("rows")
-            if isinstance(last_rows_result, dict)
-            else None
+            last_rows_result.get("rows") if isinstance(last_rows_result, dict) else None
         )
         if isinstance(rows, list) and rows:
             return answer
@@ -5255,6 +5339,79 @@ class Orchestrator:
             if rendered is not None:
                 return rendered
         return None
+
+    def _page_help_answer(
+        self, context: dict, agent: dict[str, Any], question: str
+    ) -> dict[str, Any]:
+        """Deterministic guidance answer for 'what is this page' prompts.
+
+        Used only when the wording model produced nothing usable for a
+        page-help question. It reuses the same page_context labels the
+        envelope carried - route, open record, selection, visible metrics,
+        active filters - so the reply reflects what the operator is actually
+        looking at, and it stays honest: it describes the screen, never
+        invents figures.
+        """
+        route = str(context.get("route") or "").strip()
+        info = (
+            context.get("page_info")
+            if isinstance(context.get("page_info"), dict)
+            else {}
+        )
+        catalog_label = str(info.get("label") or "").strip()
+        page_label = (
+            catalog_label or route.replace("_", " ").strip().title() or "this page"
+        )
+        components = (
+            info.get("components") if isinstance(info.get("components"), list) else []
+        )
+        context_lines = self._page_context_lines(context)
+        goal = str(agent.get("goal") or "").strip()
+        agent_name = str(agent.get("name") or "Kingsway Assistant").strip()
+
+        body_parts = [
+            f"**{page_label}** is part of the Kingsway school management system, "
+            f"and you are working with the {agent_name} - {goal}"
+            if goal
+            else f"**{page_label}** is part of the Kingsway school management "
+            "system, and you are working with the "
+            f"{agent_name} for this area."
+        ]
+        if context_lines:
+            body_parts.append(
+                "What you have open right now:\n"
+                + "\n".join(f"- {line}" for line in context_lines[:8])
+            )
+        if components:
+            body_parts.append(
+                "This screen contains: "
+                + ", ".join(str(c) for c in components[:10])
+                + "."
+            )
+        body_parts.append(
+            "To get the most out of this screen: use the filters to narrow the "
+            "records you need, open a row to inspect or update it, and use the "
+            "export/print controls where your role allows them. If you need a "
+            "figure - totals, trends, comparisons - ask me a specific question "
+            "and I will look it up in the authorized school records."
+        )
+        body = "\n\n".join(body_parts)
+        return {
+            "title": f"Using {page_label}",
+            "body": body,
+            "next_steps": [
+                "Use the page filters to narrow the records you need.",
+                "Ask a specific data question and I will query the authorized records.",
+            ],
+            "suggested_questions": [
+                "What can I do on this page?",
+                "Summarise the records currently shown.",
+                "Which reports cover this area?",
+            ],
+            "escalation_required": False,
+            "insufficient_data": False,
+            "citations": [],
+        }
 
     def _fallback_answer(
         self, tools_used: list[str], tool_results: list[str]

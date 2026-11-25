@@ -6,6 +6,7 @@ use App\Config\Config;
 Config::init();
 
 use App\API\Includes\WorkflowHandler;
+use App\API\Services\DocumentVerificationService;
 use App\API\Services\ExtraChargeService;
 use App\API\Services\payments\ReferenceNormalizer;
 use App\API\Services\ReadReplicaService;
@@ -28,16 +29,29 @@ use function App\API\Includes\formatResponse;
  * - Functions: calculate_total_fees
  */
 class StudentAdmissionWorkflow extends WorkflowHandler {
+    /** Document types whose requested label can be checked automatically. */
+    private const VERIFIABLE_DOCUMENT_TYPES = [
+        'birth_certificate', 'passport_photo', 'parent_id',
+        'previous_school_report', 'progress_report', 'medical_records',
+        'immunization_card', 'leaving_certificate', 'transfer_letter', 'other',
+    ];
+
     private AdmissionPolicy $policy;
     private AdmissionPaymentService $paymentService;
     private ExtraChargeService $extraChargeService;
+    private ?DocumentVerificationService $documentVerifier = null;
     private bool $parentPreExisting = false;
 
-    public function __construct() {
+    public function __construct(?DocumentVerificationService $documentVerifier = null) {
         parent::__construct('student_admission');
         $this->policy = new AdmissionPolicy();
         $this->paymentService = new AdmissionPaymentService($this->db);
         $this->extraChargeService = new ExtraChargeService($this->db);
+        $this->documentVerifier = $documentVerifier;
+    }
+
+    private function documentVerifier(): DocumentVerificationService {
+        return $this->documentVerifier ?? new DocumentVerificationService();
     }
 
     /**
@@ -80,6 +94,11 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $admissionCategory = $intake['default_admission_category'] ?: $admissionCategory;
             $requiresInterview = $this->policy->requiresInterview($normalizedGrade) ? 1 : 0;
             $interviewReason = $this->policy->describeInterviewPolicy($normalizedGrade);
+
+            // Verify before creating the application so a confidently wrong
+            // document is rejected without leaving an orphaned submission.
+            $documentVerifications = $this->verifySubmittedFiles($files);
+
             $relationship = strtolower(trim((string) ($data['parent_relationship'] ?? $data['relationship'] ?? '')));
             $validRelationships = ['parent', 'father', 'mother', 'guardian', 'step_father', 'step_mother', 'grandparent', 'uncle', 'aunt', 'sibling', 'other'];
             if (!in_array($relationship, $validRelationships, true)) $relationship = 'parent';
@@ -215,7 +234,12 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
 
             // Persist any documents uploaded with the submission (public path).
             if (!empty($files)) {
-                $this->storeSubmittedDocuments($application_id, $normalizedGrade, $files);
+                $this->storeSubmittedDocuments(
+                    $application_id,
+                    $normalizedGrade,
+                    $files,
+                    $documentVerifications
+                );
             }
 
             $initiatorId = (int) ($this->user_id ?? 1);
@@ -278,6 +302,11 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 'required_documents' => $this->getRequiredDocuments($normalizedGrade, $admissionCategory, $this->parentWasExisting($parentId))
             ], 'Application submitted successfully');
 
+        } catch (InvalidArgumentException $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            return formatResponse(false, null, $e->getMessage());
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
@@ -656,8 +685,49 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         return $window;
     }
 
-    private function storeSubmittedDocuments(int $applicationId, string $grade, array $files): void
+    /**
+     * Run the document-type gate before any application row is created.
+     *
+     * @param array<string,array<string,mixed>> $files
+     * @return array<string,array<string,mixed>>
+     */
+    private function verifySubmittedFiles(array $files): array
     {
+        $verifications = [];
+        $service = $this->documentVerifier();
+
+        foreach ($files as $key => $file) {
+            $type = strtolower(trim((string) $key));
+            $type = preg_replace('/^doc_/', '', $type) ?? $type;
+            if (!in_array($type, self::VERIFIABLE_DOCUMENT_TYPES, true)) {
+                continue;
+            }
+            if (!is_array($file) || empty($file['tmp_name'])) {
+                continue;
+            }
+
+            $verification = $service->verifyFile(
+                (string) $file['tmp_name'],
+                $type,
+                (string) ($file['name'] ?? '')
+            );
+            if ($service->shouldReject($verification)) {
+                throw new InvalidArgumentException(
+                    $service->rejectionMessage($verification)
+                );
+            }
+            $verifications[$type] = $verification;
+        }
+
+        return $verifications;
+    }
+
+    private function storeSubmittedDocuments(
+        int $applicationId,
+        string $grade,
+        array $files,
+        array $documentVerifications = []
+    ): void {
         $requiredConfig = $this->getRequiredDocuments($grade);
         $requiredTypes = [];
         foreach ($requiredConfig as $type => $config) {
@@ -680,10 +750,12 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         ];
 
         $mediaManager = $this->contract('App\API\Modules\system\MediaManager', $this->db);
+        $verifier = $this->documentVerifier();
         $docInsert = $this->db->prepare(
             "INSERT INTO admission_documents
-             (application_id, document_type, document_path, media_id, is_mandatory, verification_status, created_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', NOW())"
+             (application_id, document_type, document_path, media_id, is_mandatory,
+              verification_status, notes, created_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, NOW())"
         );
 
         foreach ($files as $docType => $file) {
@@ -694,12 +766,21 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 continue;
             }
             $mediaId = $mediaManager->upload(
-                $file, 'students/documents', $applicationId, null, null, 'admission document', '', $docType
+                $file, 'students/documents', $applicationId, null, null, 'admission document', '', $docType, $docType
             );
             $documentPath = $mediaManager->getStoredReference($mediaId)
                 ?: (string) $mediaId;
             $isMandatory = in_array($docType, $requiredTypes, true) ? 1 : 0;
-            $docInsert->execute([$applicationId, $docType, $documentPath, (int) $mediaId, $isMandatory]);
+            $verification = $documentVerifications[$docType] ?? null;
+            $note = is_array($verification) ? $verifier->note($verification) : null;
+            $docInsert->execute([
+                $applicationId,
+                $docType,
+                $documentPath,
+                (int) $mediaId,
+                $isMandatory,
+                $note,
+            ]);
         }
     }
 
@@ -757,6 +838,26 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
      * Upload and verify admission documents
      */
     public function uploadDocument($application_id, $document_type, $file) {
+        $documentType = strtolower(trim((string) $document_type));
+        if (!in_array($documentType, self::VERIFIABLE_DOCUMENT_TYPES, true)) {
+            return formatResponse(false, null, 'Unsupported admission document type.');
+        }
+
+        $verifier = new DocumentVerificationService();
+        $verification = $verifier->verifyFile(
+            (string) ($file['tmp_name'] ?? ''),
+            $documentType,
+            (string) ($file['name'] ?? '')
+        );
+        if ($verifier->shouldReject($verification)) {
+            return formatResponse(
+                false,
+                ['verification' => $verification],
+                $verifier->rejectionMessage($verification)
+            );
+        }
+        $verificationNote = $verifier->note($verification);
+
         try {
             $this->db->beginTransaction();
 
@@ -768,9 +869,9 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
 
             $grade = $this->getApplicationGrade($application_id);
             $requiredDocuments = $this->getRequiredDocuments($grade);
-            $isMandatory = !empty($requiredDocuments[$document_type]['mandatory']) ? 1 : 0;
+            $isMandatory = !empty($requiredDocuments[$documentType]['mandatory']) ? 1 : 0;
             $application = $this->getApplicationSummary($application_id);
-            $preferredBaseName = $this->buildAdmissionDocumentFilenameBase($application, $document_type);
+            $preferredBaseName = $this->buildAdmissionDocumentFilenameBase($application, $documentType);
 
             // Upload admission documents under uploads/students/documents/{application_id}
             $mediaManager = $this->contract('App\API\Modules\system\MediaManager', $this->db);
@@ -782,23 +883,25 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 $this->user_id,
                 'admission document',
                 '',
-                $preferredBaseName
+                $preferredBaseName,
+                $documentType
             );
             $documentPath = $mediaManager->getStoredReference($mediaId) ?: $mediaId;
 
             // Save document record
             $sql = "INSERT INTO admission_documents (
                 application_id, document_type, document_path, media_id,
-                is_mandatory, verification_status, created_at
-            ) VALUES (:app_id, :type, :path, :media_id, :mandatory, 'pending', NOW())";
+                is_mandatory, verification_status, notes, created_at
+            ) VALUES (:app_id, :type, :path, :media_id, :mandatory, 'pending', :notes, NOW())";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 'app_id' => $application_id,
-                'type' => $document_type,
+                'type' => $documentType,
                 'path' => $documentPath,
                 'media_id' => (int) $mediaId,
-                'mandatory' => $isMandatory
+                'mandatory' => $isMandatory,
+                'notes' => $verificationNote,
             ]);
             $documentId = $this->db->lastInsertId();
 
@@ -825,9 +928,11 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
 
             return formatResponse(true, [
                 'document_id' => $documentId,
-                'document_type' => $document_type,
+                'document_type' => $documentType,
                 'document_path' => $documentPath,
-                'all_mandatory_uploaded' => $all_uploaded
+                'all_mandatory_uploaded' => $all_uploaded,
+                'verification' => $verification,
+                'verification_note' => $verificationNote,
             ], 'Document uploaded successfully');
 
         } catch (Exception $e) {
@@ -936,6 +1041,61 @@ return formatResponse(false, null, 'An internal error occurred.');
             $this->logError('document_verify_failed', $e->getMessage());
             \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Keep an uncertain or visually complex document pending and make the
+     * referral explicit for the next school administrator who reviews it.
+     * This is intentionally not a verification decision: no workflow stage is
+     * advanced and no verified_by/verified_at timestamp is invented.
+     */
+    public function referDocument($document_id, $reason = '') {
+        try {
+            $this->db->beginTransaction();
+
+            $lookup = $this->db->prepare(
+                "SELECT notes FROM admission_documents WHERE id = :doc_id LIMIT 1"
+            );
+            $lookup->execute(['doc_id' => (int) $document_id]);
+            $existing = $lookup->fetchColumn();
+            if ($existing === false) {
+                throw new Exception('Admission document was not found.');
+            }
+
+            $reason = trim(preg_replace('/\s+/', ' ', (string) $reason) ?: '')
+                ?: 'Automatic document verification was uncertain; visual confirmation is required.';
+            $referral = substr('Referred to school administrator - ' . $reason, 0, 500);
+            $existing = trim((string) $existing);
+            $note = $existing !== ''
+                ? substr($existing . "\n\n" . $referral, 0, 1000)
+                : $referral;
+
+            $stmt = $this->db->prepare(
+                "UPDATE admission_documents
+                    SET verification_status = 'pending',
+                        verified_by = NULL,
+                        verified_at = NULL,
+                        notes = :notes
+                  WHERE id = :doc_id"
+            );
+            $stmt->execute([
+                'notes' => $note,
+                'doc_id' => (int) $document_id,
+            ]);
+
+            $this->db->commit();
+            return formatResponse(
+                true,
+                ['document_id' => (int) $document_id, 'notes' => $note],
+                'Document referred to a school administrator'
+            );
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            $this->logError('document_refer_failed', $e->getMessage());
+            return formatResponse(false, null, 'Unable to refer this document.');
         }
     }
 

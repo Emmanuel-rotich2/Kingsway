@@ -1,40 +1,41 @@
 <?php
 /** Kingsway System Administrator: Rate Limiting Status. */
 ?>
-<div class="container-fluid py-4" id="rateLimitingStatusPage">
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+<div class="container-fluid" id="rateLimitingStatusPage">
+    <header class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
         <div>
-            <h2 class="h3 mb-1">Rate Limiting Status</h2>
+            <h2 class="mb-1">Rate limiting status</h2>
             <p class="text-muted mb-0">Current rate-limit configuration and burst-aware bucket utilisation.</p>
         </div>
-        <div class="d-flex flex-wrap gap-2">
+        <div class="d-flex flex-wrap gap-2" role="group" aria-label="Rate limiting actions">
             <button type="button" class="btn btn-outline-secondary" id="rateLimitingStatusExportCsvBtn" title="Export to CSV">
-                <i class="bi bi-filetype-csv me-1"></i> Export CSV
+                <i class="bi bi-filetype-csv me-1" aria-hidden="true"></i>Export CSV
             </button>
             <button type="button" class="btn btn-outline-secondary" id="rateLimitingStatusPrintBtn" title="Print / save as PDF">
-                <i class="bi bi-printer me-1"></i> Print / PDF
+                <i class="bi bi-printer me-1" aria-hidden="true"></i>Print / PDF
             </button>
             <button type="button" class="btn btn-primary" id="rateLimitingStatusRefreshBtn">
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>Refresh
             </button>
         </div>
-    </div>
+    </header>
 
     <div class="alert alert-info" id="rateLimitingStatusState" role="status" aria-live="polite">
         Loading rate limiting status...
     </div>
 
-    <div class="row g-4">
+    <div class="row g-3">
         <div class="col-lg-8">
-            <div class="card border-0 shadow-sm">
-                <div class="card-header bg-white">
+            <div class="card">
+                <div class="card-header">
                     <h3 class="h6 mb-0">Buckets</h3>
                 </div>
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
+                        <caption class="visually-hidden">Rate-limit buckets and scopes</caption>
                         <thead>
                             <tr>
-                                <th scope="col">Bucket / Scope</th>
+                                <th scope="col">Bucket / scope</th>
                                 <th scope="col">Limit</th>
                                 <th scope="col">Window</th>
                                 <th scope="col">Status</th>
@@ -58,15 +59,15 @@
             </div>
         </div>
         <div class="col-lg-4">
-            <div class="card border-0 shadow-sm">
-                <div class="card-header bg-white">
+            <div class="card">
+                <div class="card-header">
                     <h3 class="h6 mb-0">Global policy</h3>
                 </div>
                 <div class="card-body">
                     <dl class="row small mb-0" id="rateLimitingStatusPolicy">
                         <dt class="col-6">Enabled</dt>
                         <dd class="col-6">—</dd>
-                        <dt class="col-6">Default per-user</dt>
+                        <dt class="col-6">Default per user</dt>
                         <dd class="col-6">—</dd>
                         <dt class="col-6">Burst allowance</dt>
                         <dd class="col-6">—</dd>

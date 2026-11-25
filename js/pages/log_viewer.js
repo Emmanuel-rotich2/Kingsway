@@ -390,7 +390,7 @@ const LogViewerController = {
   },
 
   async archiveJournal(category) {
-    if (!window.confirm(`Close the current ${category} journal and retain it as a compressed, integrity-sealed archive?`)) return;
+    if (!(await window.confirmAction('Archive journal', `Close the current ${category} journal and retain it as a compressed, integrity-sealed archive?`, { confirmText: 'Archive' }))) return;
     try {
       await window.API.system.archiveLogCategory(category); await this.loadCategories(); await this.loadLogs();
       this.showState(`${category} was safely archived. New events will open a fresh journal.`, "success");
