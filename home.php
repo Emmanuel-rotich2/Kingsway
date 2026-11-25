@@ -9,6 +9,26 @@ require_once __DIR__ . '/vendor/autoload.php';
 $appBase = app_base_path();
 
 $route = trim((string)($_GET['route'] ?? '')) ?: 'loading';
+
+// Defensive public-route handoff.
+//
+// Clean public URLs must be served by index.php (public CSP, public layout).
+// Some production rewrites still send /about, /events ... to home.php, which
+// produced a staff shell with `REQUESTED_ROUTE = "events"` and a soft 404 in
+// the website preview. Hand those routes to the public facade here as well, so
+// the preview works even when the host rewrite has not been refreshed.
+if (
+    !isset($_GET['fragment']) &&
+    function_exists('public_clean_route_keys') &&
+    (
+        in_array($route, public_clean_route_keys(), true) ||
+        $route === 'verify-report'
+    )
+) {
+    require __DIR__ . '/index.php';
+    exit;
+}
+
 // Browser-facing realtime origin: environment-agnostic resolver — public URL
 // first; the internal address is only usable when the client shares the host
 // with PHP (loopback development). Never handed to a remote browser.
@@ -48,7 +68,36 @@ if (!headers_sent()) {
         name="viewport"
         content="width=device-width, initial-scale=1"
     >
+    <!-- Declare both schemes before first paint so browser UI and the canvas
+         do not flash light while a stored dark preference is being restored. -->
+    <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#178a50">
+    <script nonce="<?= csp_nonce() ?>">
+      (function () {
+        var root = document.documentElement;
+        var preference = 'system';
+        try {
+          var uid = localStorage.getItem('kw_active_user_id') || '';
+          var key = uid ? 'kw_' + uid + '_theme' : 'kingsway_theme';
+          var stored = localStorage.getItem(key);
+          if (!stored && uid) stored = localStorage.getItem('kingsway_theme');
+          if (stored === 'light' || stored === 'dark') preference = stored;
+        } catch (_) {}
+        var dark = preference === 'dark' ||
+          (preference === 'system' && window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
+        var resolved = dark ? 'dark' : 'light';
+        root.dataset.kwTheme = resolved;
+        root.dataset.kwThemePreference = preference;
+        root.dataset.bsTheme = resolved;
+        root.classList.add('kw-theme-ready');
+        var meta = document.querySelector('meta[name="color-scheme"]');
+        if (meta) meta.content = preference === 'system' ? 'light dark' : resolved;
+        var themeColor = document.querySelector('meta[name="theme-color"]');
+        if (themeColor) themeColor.content = dark ? '#073523' : '#178a50';
+        window.__KW_THEME__ = { preference: preference, resolved: resolved };
+      })();
+    </script>
 
     <title>Kingsway Preparatory School</title>
 
@@ -96,6 +145,10 @@ if (!headers_sent()) {
     <link
         rel="stylesheet"
         href="<?= htmlspecialchars($appBase) ?>/css/kw-clean.css?v=<?= asset_version('css/kw-clean.css') ?>"
+    >
+    <link
+        rel="stylesheet"
+        href="<?= htmlspecialchars($appBase) ?>/css/theme.css?v=<?= asset_version('css/theme.css') ?>"
     >
     <link
         rel="stylesheet"
@@ -225,6 +278,7 @@ $files = [
     'js/config/ai_page_tasks.js',
     'js/components/agent_task_panel.js',
     'js/components/ai_inline_draft.js',
+    'js/components/ai_chat_panel.js',
     'js/core/frontend_logger.js',
     'js/core/grading_scale.js',
     'js/core/session_manager.js',
@@ -264,10 +318,12 @@ $files = [
     'js/core/year_scope.js',
     'js/core/kw_clean_routes.js',
     'js/utils/form-validation.js',
+    'js/utils/document_camera_capture.js',
     'js/core/recipient_picker.js',
     'js/core/markdown.js',
     'js/index.js',
     'js/sidebar.js',
+    'js/core/theme_manager.js',
     'js/app_shell_ui.js',
     'js/main.js',
     'js/core/app_bootstrap.js',

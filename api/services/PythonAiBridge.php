@@ -440,6 +440,20 @@ final class PythonAiBridge implements AgentEngineClient
         if (!empty($ctx['preferences']) && is_array($ctx['preferences'])) {
             $streamContext['preferences'] = $ctx['preferences'];
         }
+        // Page awareness must reach the streamed surface too: without it the
+        // model answered "what is this page" blind while the buffered path
+        // had the same context. page_info is the server-side catalog entry
+        // (label, components, role access); page_context is the browser's
+        // bounded labels (open record, selection, filters).
+        if (!empty($ctx['page_context']) && is_array($ctx['page_context'])) {
+            $streamContext['page_context'] = $ctx['page_context'];
+        }
+        if (!empty($ctx['page_info']) && is_array($ctx['page_info'])) {
+            $streamContext['page_info'] = $ctx['page_info'];
+        }
+        if (!empty($ctx['user_memory']) && is_array($ctx['user_memory'])) {
+            $streamContext['user_memory'] = $ctx['user_memory'];
+        }
         $body = json_encode(
             ['context' => $streamContext, 'question' => $question],
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES

@@ -640,7 +640,10 @@ function adUpdateSummary() {
     if (parentIdWrap) {
       parentIdWrap.style.display = 'none';
       var parentIdInput = parentIdWrap.querySelector('input');
-      if (parentIdInput) parentIdInput.removeAttribute('required');
+      if (parentIdInput) {
+        parentIdInput.removeAttribute('required');
+        window.KingswayDocumentCamera?.clear(parentIdInput);
+      }
     }
   } catch (e) { /* prefill is optional */ }
 })();
@@ -659,7 +662,10 @@ function adSyncDocumentRequirements() {
     var input = wrap.querySelector('input');
     if (input) {
       if (show) input.setAttribute('required', 'required');
-      else { input.removeAttribute('required'); input.value = ''; }
+      else {
+        input.removeAttribute('required');
+        window.KingswayDocumentCamera?.clear(input);
+      }
     }
   }
   setReq('adSchoolReportWrap', isUpper);
@@ -683,6 +689,7 @@ document.getElementById('admissionForm')?.addEventListener('submit', async funct
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting…';
   const fd = new FormData(this);
+  window.KingswayDocumentCamera?.syncFormData(fd, this);
   const windowSel = document.querySelector('[name="admission_window_id"]');
   if (windowSel) fd.set('admission_window_id', windowSel.value || '');
   try {

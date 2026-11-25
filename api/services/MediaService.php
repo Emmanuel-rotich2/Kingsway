@@ -32,14 +32,17 @@ final class MediaService
         int|string|null $uploaderId = null,
         string $description = '',
         string $tags = '',
-        ?string $preferredBaseName = null
+        ?string $preferredBaseName = null,
+        ?string $expectedDocumentType = null
     ): string|int {
         $stored = $this->uploads->storeMedia(
             $file,
             $context,
             $entityId,
             $albumId,
-            $preferredBaseName
+            $preferredBaseName,
+            $uploaderId !== null ? (int) $uploaderId : null,
+            $expectedDocumentType
         );
 
         $statement = $this->db->prepare(
@@ -79,13 +82,16 @@ final class MediaService
         ?string $originalName = null,
         int|string|null $uploaderId = null,
         string $description = '',
-        string $tags = ''
+        string $tags = '',
+        ?string $expectedDocumentType = null
     ): string|int {
         $stored = $this->uploads->importMedia(
             $sourcePath,
             $context,
             $entityId,
-            $originalName
+            $originalName,
+            $uploaderId !== null ? (int) $uploaderId : null,
+            $expectedDocumentType
         );
 
         $statement = $this->db->prepare(

@@ -205,6 +205,7 @@ $ppAdminGradeOptions = $ppAdminGradeOptions ?? ($ppGrades ?: ['PP1','PP2','Grade
 <?php asset_script($appBase, 'js/utils/file_lifecycle.js'); ?>
 <?php asset_script($appBase, 'js/utils/print_manager.js'); ?>
 <?php asset_script($appBase, 'js/utils/form-validation.js'); ?>
+<?php asset_script($appBase, 'js/utils/document_camera_capture.js'); ?>
 <?php asset_script($appBase, 'js/core/realtime_dispatch.js'); ?>
 <?php asset_script($appBase, 'js/core/realtime_sse.js'); ?>
 <?php

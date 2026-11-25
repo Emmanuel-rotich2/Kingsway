@@ -1759,7 +1759,10 @@ class FeeStructureAdminController {
         head, rows,
         foot: ["Total", "", ...typeTotals, num(learnersTotal), kes(total), learnersTotal ? kes(total / learnersTotal) : "—", "100%"],
         chart: { type: "bar", labels: (d.by_stream || []).map((r) => `${r.class_name}${r.stream_name ? " " + r.stream_name : ""}`), values: (d.by_stream || []).map((r) => r.billed) },
-        csv: { head, rows: (d.by_stream || []).map((r) => [r.class_name, r.stream_name, ...types.map((t) => (r.by_type?.[t.id]?.billed || 0)), r.learners, r.billed, r.average_per_learner]) },
+        csv: {
+          head: ["Grade", "Stream", ...types.flatMap((t) => [`${t.name} learners`, `${t.name} billed (KES)`]), "Learners", "Billed (KES)", "Average per learner (KES)"],
+          rows: (d.by_stream || []).map((r) => [r.class_name, r.stream_name, ...types.flatMap((t) => [r.by_type?.[t.id]?.learners || 0, r.by_type?.[t.id]?.billed || 0]), r.learners, r.billed, r.average_per_learner]),
+        },
       };
     }
     const source = { type: d.by_type, term: d.by_term, item: d.by_item }[this.rbView] || [];
@@ -1770,7 +1773,7 @@ class FeeStructureAdminController {
       head, rows,
       foot: ["Total", this.rbView === "type" ? num(learnersTotal) : "", kes(total), "", "100%"],
       chart: { type: this.rbView === "term" ? "bar" : "doughnut", labels: source.map((r) => r.name), values: source.map((r) => r.billed) },
-      csv: { head: [label, "Learners", "Billed"], rows: source.map((r) => [r.name, r.learners, r.billed]) },
+      csv: { head: [label, "Learners", "Billed (KES)"], rows: source.map((r) => [r.name, r.learners, r.billed]) },
     };
   }
 
@@ -1812,7 +1815,13 @@ class FeeStructureAdminController {
     if (window.AuthContext?.canExport && !window.AuthContext.canExport("finance")) return;
     const v = this.revenueBreakdownView();
     const q = (x) => `"${String(x ?? "").replace(/"/g, '""')}"`;
-    const lines = [v.csv.head, ...v.csv.rows, ["Total", "", this.rb.totals?.billed || 0]].map((r) => r.map(q).join(","));
+    const total = Array(v.csv.head.length).fill("");
+    total[0] = "Total";
+    const billedCol = v.csv.head.indexOf("Billed (KES)");
+    if (billedCol >= 0) total[billedCol] = this.rb.totals?.billed || 0;
+    const learnersCol = v.csv.head.indexOf("Learners");
+    if (learnersCol >= 0 && !["term", "item"].includes(this.rbView)) total[learnersCol] = this.rb.totals?.learners || 0;
+    const lines = [v.csv.head, ...v.csv.rows, total].map((r) => r.map(q).join(","));
     window.KingswayFileLifecycle?.exportText?.(lines.join("\r\n"), `expected-revenue-by-${this.rbView}.csv`, "text/csv;charset=utf-8");
   }
 

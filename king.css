@@ -761,35 +761,8 @@ body.sidebar-collapsed .app-sidebar-footer {
   justify-content: center;
 }
 
-body.app-dark {
-  --app-bg: #111827;
-  --app-surface: #182231;
-  --app-surface-muted: #202c3c;
-  --app-text: #eef2f7;
-  --app-muted: #aab4c2;
-  --app-border: #2c3949;
-  color-scheme: dark;
-}
-
-body.app-dark .app-header,
-body.app-dark .app-footer,
-body.app-dark .app-icon-button,
-body.app-dark .app-user-button,
-body.app-dark .app-header-menu,
-body.app-dark .app-user-menu,
-body.app-dark .app-search-result {
-  color: var(--app-text);
-  background: var(--app-surface);
-}
-
-body.app-dark .dropdown-menu {
-  --bs-dropdown-color: var(--app-text);
-  --bs-dropdown-bg: var(--app-surface);
-  --bs-dropdown-border-color: var(--app-border);
-  --bs-dropdown-link-color: var(--app-text);
-  --bs-dropdown-link-hover-color: var(--app-text);
-  --bs-dropdown-link-hover-bg: var(--app-surface-muted);
-}
+/* Dark presentation is owned by css/theme.css via html[data-kw-theme].
+   body.app-dark is only a compatibility hook and carries no styles here. */
 
 @media (max-width: 1199.98px) {
   :root {

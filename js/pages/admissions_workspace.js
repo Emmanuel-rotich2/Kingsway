@@ -2802,8 +2802,8 @@ const admissionsWorkspaceController = {
                     <input type="hidden" name="application_id" value="${Number(applicationId)}">
 
                     <div class="alert alert-info small mb-3">
-                        Select each document type, choose its file, then submit all selected documents once.
-                        Already uploaded documents are marked below.
+                        Select each document type, choose its file or use Scan with camera for a physical document,
+                        then submit all selected documents once. Already uploaded documents are marked below.
                     </div>
 
                     <div class="table-responsive border rounded">
@@ -2947,7 +2947,8 @@ const admissionsWorkspaceController = {
             if (!typeInput || !fileInput || typeInput.disabled || fileInput.disabled) return;
 
             const documentType = typeInput.value;
-            const file = fileInput.files?.[0];
+            const file = window.KingswayDocumentCamera?.fileFromInput(fileInput)
+                || fileInput.files?.[0];
 
             if (documentType && file) {
                 uploadRows.push({ documentType, file });
@@ -3164,6 +3165,7 @@ const admissionsWorkspaceController = {
                                     <div><img src="${this.escapeHtml(window.KingswayFileLifecycle?.resolveUrl?.(doc.file_url || doc.download_url || doc.document_path))}" alt="Passport photo" class="rounded border mt-2" style="width:72px;height:88px;object-fit:cover;" data-kw-onerror="this.onerror=null;this.src=KingswayFileLifecycle.avatarUrl()"></div>
                                 ` : ''}
                             ` : '<small class="text-muted">Path recorded</small>'}
+                            ${doc.notes ? `<p class="small text-muted mt-1 mb-0">Document check: ${this.escapeHtml(String(doc.notes))}</p>` : ""}
                         </div>
                         ${this.getStatusBadge(doc.verification_status || "pending")}
                     </div>
@@ -3203,6 +3205,7 @@ const admissionsWorkspaceController = {
                                     <div>
                                         <div class="fw-semibold">${this.escapeHtml(this.formatLabel(doc.document_type || "Document"))}</div>
                                         <small class="${doc.verification_status === "verified" ? "text-success" : doc.verification_status === "rejected" ? "text-danger" : "text-muted"}" id="document-verification-status-${Number(doc.id)}">Status: ${this.escapeHtml(this.formatLabel(doc.verification_status || "pending"))}</small>
+                                        ${doc.notes ? `<p class="small text-muted mt-1 mb-0">Document check: ${this.escapeHtml(String(doc.notes))}</p>` : ""}
                                         ${doc.file_url || doc.download_url || doc.document_path ? `
                                             <div class="small mt-1">
                                                 <button type="button" class="btn btn-link btn-sm p-0" data-kw-document-preview data-application-id="${Number(this.currentApplicationId || this.currentVerificationApplicationId || 0)}" data-document-id="${Number(doc.id || 0)}" data-url="${this.escapeHtml(String(doc.file_url || doc.download_url || doc.document_path).replace(/^https?:\/\/[^/]+/i, ""))}" data-label="${this.escapeHtml(this.formatLabel(doc.document_type || 'Document'))}">
@@ -3219,6 +3222,9 @@ const admissionsWorkspaceController = {
                                             </button>
                                             <button class="btn btn-outline-danger" data-kw-onclick="admissionsWorkspaceController.setDocumentVerification(${Number(doc.id)}, 'rejected', ${Number(applicationId)})">
                                                 Reject
+                                            </button>
+                                            <button class="btn btn-outline-secondary" data-kw-onclick="admissionsWorkspaceController.referDocument(${Number(doc.id)}, ${Number(applicationId)})">
+                                                Refer to school admin
                                             </button>
                                         `}
                                     </div>
@@ -3279,6 +3285,50 @@ const admissionsWorkspaceController = {
                 button.disabled = false;
             });
             this.notify("error", error.message || "Admission action failed");
+        }
+    },
+
+    referDocument: async function(documentId, applicationId = null) {
+        const numericDocumentId = Number(documentId);
+        const statusElement = document.getElementById(`document-verification-status-${numericDocumentId}`);
+        const actionsElement = document.getElementById(`document-verification-actions-${numericDocumentId}`);
+        const notesElement = document.getElementById(`document-verification-notes-${numericDocumentId}`);
+        const buttons = actionsElement ? Array.from(actionsElement.querySelectorAll("button")) : [];
+        const previousStatusText = statusElement?.textContent || "";
+        const previousNote = notesElement?.value || "";
+        const reason = previousNote.trim() || "Requires visual confirmation by a school administrator";
+
+        buttons.forEach((button) => { button.disabled = true; });
+        if (statusElement) {
+            statusElement.textContent = "Status: Referring to school admin...";
+        }
+
+        try {
+            await this.apiCall("/admission/refer-document", "POST", {
+                document_id: numericDocumentId,
+                application_id: applicationId ? Number(applicationId) : undefined,
+                reason
+            });
+            if (notesElement) {
+                notesElement.value = `Referred to school administrator - ${reason}`;
+            }
+            if (statusElement) {
+                statusElement.textContent = "Status: Pending - admin review";
+                statusElement.classList.remove("text-success", "text-danger");
+                statusElement.classList.add("text-muted");
+            }
+            this.notify("success", "Referred to a school administrator");
+            await this.loadQueueData();
+        } catch (error) {
+            console.error("Admission referral failed:", error);
+            if (statusElement) {
+                statusElement.textContent = previousStatusText;
+            }
+            if (notesElement) {
+                notesElement.value = previousNote;
+            }
+            buttons.forEach((button) => { button.disabled = false; });
+            this.notify("error", error.message || "Unable to refer this document");
         }
     },
 

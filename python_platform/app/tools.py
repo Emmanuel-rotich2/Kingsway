@@ -44,6 +44,10 @@ ALLOWED_TOOLS = (
     "reports.insight_brief",
     "assistant.catalog",
     "assistant.workspace_scan",
+    # The agents' map of their own environment: pages, components, role
+    # access and real journal usage, scoped to the operator's roles.
+    "assistant.page_catalog",
+    "assistant.page_activity",
     "charts.generate",
     "drafts.create",
     # web.* tools are outbound public-internet reads executed by the engine.
@@ -1326,6 +1330,10 @@ class ToolBridge:
         elif tool == "assistant.workspace_scan":
             route = str(tool_input.get("route") or "dashboard")[:120]
             bounded["route"] = route
+        elif tool == "assistant.page_activity":
+            route = str(tool_input.get("route") or "")[:160]
+            if route:
+                bounded["route"] = route
         elif tool == DATA_QUERY_TOOL:
             # A dataset NAME, or a structured source query. Never SQL or rows:
             # the query is compiled and column-checked in db_datasets.

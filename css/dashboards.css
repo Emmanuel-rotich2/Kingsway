@@ -967,23 +967,6 @@
 .dashboard-service .dash-stat-value { font-size: 1.65rem; }
 .dashboard-service .dash-card { border-radius: 8px; }
 
-/* System admin: high-density operations grid inspired by monitoring consoles. */
-.dashboard-system-grid {
-    --dash-accent: #334155;
-    --dash-accent-2: #0f7c87;
-    --dash-soft: #eef2f5;
-    --dash-radius: 0;
-}
-.dashboard-system-grid .dashboard-identity { border-radius: 0; background: linear-gradient(110deg,#111827,#0f6670); }
-.dashboard-system-grid #systemAdministratorMetricCards > div .card { position:relative; overflow:hidden; min-height:112px; border-radius:0; color:#fff; }
-.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(4n+1) .card { background:#c04478; }
-.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(4n+2) .card { background:#2d9d84; }
-.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(4n+3) .card { background:#7651a0; }
-.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(4n) .card { background:#dc724c; }
-.dashboard-system-grid #systemAdministratorMetricCards .text-muted { color:rgba(255,255,255,.78) !important; }
-.dashboard-system-grid #systemAdministratorMetricCards .fs-3 { font-size:2.15rem !important; }
-.dashboard-system-grid .card { border-radius:0; box-shadow:0 1px 2px rgba(15,23,42,.14); }
-
 @media (max-width: 767.98px) {
     .dashboard-identity { grid-template-columns: 1fr; min-height: 0; padding: 1.1rem; }
     .dashboard-identity-icon { width: 48px; height: 48px; border-radius: 14px; font-size: 1.35rem; }
@@ -1236,51 +1219,17 @@
 .dashboard-finance .finance-classic-primary .card-body { height: 210px !important; }
 .dashboard-finance .finance-classic-ledgers .table-responsive { max-height: 220px; }
 
-/* 5 — System Administrator: hard-edged operations grid. */
-.dashboard-system-grid { background: #e9eef2; }
-.dashboard-system-grid .dashboard-identity {
-    min-height: 72px;
-    border: 0;
-    background: #fff;
-    color: #35404a;
-    box-shadow: 0 1px 2px rgba(15,23,42,.12);
-}
-.dashboard-system-grid .dashboard-identity-icon { border: 0; border-radius: 0; background: #334155; color: #fff; }
-.dashboard-system-grid .dashboard-identity-orbit { display: none; }
-.dashboard-system-grid #systemAdministratorMetricCards > div { width: 25%; }
-.dashboard-system-grid #systemAdministratorMetricCards > div .card::after {
-    position: absolute;
-    right: .8rem;
-    bottom: -.7rem;
-    color: rgba(255,255,255,.18);
-    font-family: bootstrap-icons;
-    font-size: 4.8rem;
-    line-height: 1;
-    content: '\\f4da';
-}
-.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(2) .card::after { content: '\\f4d7'; }
-.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(3) .card::after { content: '\\f33e'; }
-.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(4) .card::after { content: '\\f67a'; }
-.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(5) .card::after { content: '\\f52a'; }
-.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(6) .card::after { content: '\\f338'; }
-.dashboard-system-grid > .row:last-of-type { display: grid; grid-template-columns: 2fr 1fr; }
-.dashboard-system-grid > .row:last-of-type > * { width: 100%; }
-.dashboard-system-grid > .row:last-of-type .card { border: 0; }
-
 @media (max-width: 1199.98px) {
     .dashboard-academic-command .registrar-kpi-rail > div,
-    .dashboard-safeguarding .executive-wave-kpis > div,
-    .dashboard-system-grid #systemAdministratorMetricCards > div { width: 50%; }
+    .dashboard-safeguarding .executive-wave-kpis > div { width: 50%; }
 }
 
 @media (max-width: 767.98px) {
     .dashboard-academic-command .registrar-kpi-stack { grid-template-columns: 1fr; }
     .dashboard-academic-command .registrar-kpi-rail > div,
     .dashboard-safeguarding .executive-wave-kpis > div,
-    .dashboard-finance .finance-classic-kpis > div,
-    .dashboard-system-grid #systemAdministratorMetricCards > div { width: 100%; }
-    .dashboard-safeguarding .executive-wave-mosaic,
-    .dashboard-system-grid > .row:last-of-type { display: flex; }
+    .dashboard-finance .finance-classic-kpis > div { width: 100%; }
+    .dashboard-safeguarding .executive-wave-mosaic { display: flex; }
 }
 /* API-bound variants of the five redesigned role dashboards. */
 [data-dashboard-layout="edu-center-command"] .dash-kpi-card {

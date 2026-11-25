@@ -1,0 +1,83 @@
+/*
+ * Governed report catalogue.
+ *
+ * The shared console stylesheet supplies the hero frame and card surfaces;
+ * this file only carries the catalogue's reading aids: domain labels, purpose
+ * copy, definition/results treatments and sensitivity states.
+ */
+#analyticsCataloguePage .analytics-hero {
+  color: #fff;
+  padding: 1.25rem;
+}
+
+#analyticsCataloguePage .analytics-hero .btn-outline-light {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.65);
+}
+
+#analyticsCataloguePage .analytics-toolbar {
+  background: var(--kw-sa-sheet);
+}
+
+#analyticsCataloguePage .analytics-domain-label {
+  color: var(--kw-sa-green-deep);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+#analyticsCataloguePage .analytics-meta {
+  color: var(--kw-sa-muted);
+  font-size: 0.8rem;
+}
+
+#analyticsCataloguePage .analytics-purpose {
+  color: var(--kw-sa-ink);
+  font-size: 0.875rem;
+  min-height: 3.8rem;
+}
+
+#analyticsCataloguePage .analytics-empty {
+  border: 1px dashed var(--kw-sa-line);
+  border-radius: 0.7rem;
+  color: var(--kw-sa-muted);
+  padding: 3rem 1rem;
+  text-align: center;
+}
+
+#analyticsCataloguePage .analytics-metric {
+  background: var(--kw-sa-green-soft);
+  border-left: 3px solid var(--kw-sa-green);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+#analyticsCataloguePage .analytics-summary-card {
+  background: #f8faf9;
+  border: 1px solid var(--kw-sa-line);
+  border-radius: 0.55rem;
+  padding: 0.75rem;
+}
+
+#analyticsReportModal .analytics-result-table thead th {
+  background: var(--kw-sa-green-deep);
+  color: #fff;
+  white-space: nowrap;
+}
+
+#analyticsCataloguePage .analytics-sensitivity-restricted,
+#analyticsReportModal .analytics-sensitivity-restricted {
+  color: var(--kw-sa-red);
+}
+
+#analyticsCataloguePage .analytics-sensitivity-confidential,
+#analyticsReportModal .analytics-sensitivity-confidential {
+  color: var(--kw-sa-amber);
+}
+
+@media print {
+  #analyticsCataloguePage .analytics-hero {
+    background: #fff !important;
+    color: var(--kw-sa-ink);
+    padding: 0;
+  }
+}

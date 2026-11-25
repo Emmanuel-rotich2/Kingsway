@@ -1,0 +1,526 @@
+/*
+ * System Administrator console shell.
+ *
+ * One quiet, deliberate visual language for every role-2 destination:
+ * an operations ledger rather than a wall of identical SaaS cards.
+ * Scoped to .kw-sysadmin-console so it cannot leak into school-role pages.
+ */
+.kw-sysadmin-console {
+  --kw-sa-ink: #15241f;
+  --kw-sa-muted: #66756e;
+  --kw-sa-green: #17684a;
+  --kw-sa-green-deep: #0f4b35;
+  --kw-sa-green-soft: #eaf4ef;
+  --kw-sa-amber: #a86f16;
+  --kw-sa-amber-soft: #fff5df;
+  --kw-sa-red: #9f3434;
+  --kw-sa-red-soft: #fdecec;
+  --kw-sa-line: #d7e2dc;
+  --kw-sa-line-soft: #e9efec;
+  --kw-sa-sheet: #ffffff;
+  --kw-sa-canvas: #f4f7f5;
+  --kw-sa-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  color: var(--kw-sa-ink);
+  padding-block: 0.25rem 2rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.kw-sysadmin-console *,
+.kw-sysadmin-console *::before,
+.kw-sysadmin-console *::after {
+  box-sizing: border-box;
+}
+
+.kw-sysadmin-console > :is(section, div):first-of-type {
+  position: relative;
+  background: var(--kw-sa-sheet);
+  border: 1px solid var(--kw-sa-line);
+  border-block-start: 3px solid var(--kw-sa-green);
+  border-radius: 0.8rem;
+  padding: clamp(1rem, 1.5rem + 0.5vw, 1.75rem);
+  box-shadow: 0 1.25rem 2.75rem rgba(15, 75, 53, 0.07);
+}
+
+/* A small amber notch makes the administrative sheet recognizable without
+   becoming decoration for its own sake. */
+.kw-sysadmin-console > :is(section, div):first-of-type::before {
+  content: "";
+  position: absolute;
+  inset-block-start: -3px;
+  inset-inline-start: 1.5rem;
+  inline-size: 3.25rem;
+  block-size: 3px;
+  background: var(--kw-sa-amber);
+}
+
+.kw-sysadmin-console h1,
+.kw-sysadmin-console h2,
+.kw-sysadmin-console h3,
+.kw-sysadmin-console h4,
+.kw-sysadmin-console h5,
+.kw-sysadmin-console h6 {
+  color: var(--kw-sa-ink);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.kw-sysadmin-console h1,
+.kw-sysadmin-console h2 {
+  font-size: clamp(1.35rem, 1.1rem + 1vw, 1.75rem);
+  line-height: 1.2;
+}
+
+.kw-sysadmin-console p {
+  color: var(--kw-sa-muted);
+}
+
+.kw-sysadmin-console a:not(.btn) {
+  color: var(--kw-sa-green);
+  text-underline-offset: 0.2em;
+}
+
+.kw-sysadmin-console :is(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--kw-sa-amber);
+  outline-offset: 2px;
+}
+
+/* Page header -------------------------------------------------------------- */
+.kw-sysadmin-console > :is(section, div):first-of-type > :is(
+    .d-flex,
+    header,
+    .analytics-hero,
+    .kw-msg-header
+  ) {
+  margin-block-end: 1.25rem;
+  padding-block-end: 1rem;
+  border-block-end: 1px solid var(--kw-sa-line);
+}
+
+.kw-sysadmin-console > :is(section, div):first-of-type > .d-flex h1,
+.kw-sysadmin-console > :is(section, div):first-of-type > .d-flex h2,
+.kw-sysadmin-console > :is(section, div):first-of-type > .d-flex h3,
+.kw-sysadmin-console > :is(section, div):first-of-type > header h1,
+.kw-sysadmin-console > :is(section, div):first-of-type > header h2 {
+  margin: 0;
+}
+
+.kw-sysadmin-console > :is(section, div):first-of-type > .d-flex p,
+.kw-sysadmin-console > :is(section, div):first-of-type > header p {
+  margin-block-end: 0;
+  max-inline-size: 68ch;
+}
+
+/* Buttons ------------------------------------------------------------------ */
+.kw-sysadmin-console .btn {
+  min-block-size: 2.25rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.kw-sysadmin-console .btn-primary {
+  background: var(--kw-sa-green);
+  border-color: var(--kw-sa-green);
+}
+
+.kw-sysadmin-console .btn-primary:hover,
+.kw-sysadmin-console .btn-primary:focus-visible {
+  background: var(--kw-sa-green-deep);
+  border-color: var(--kw-sa-green-deep);
+}
+
+.kw-sysadmin-console .btn-outline-success {
+  color: var(--kw-sa-green);
+  border-color: var(--kw-sa-green);
+}
+
+.kw-sysadmin-console .btn-outline-success:hover,
+.kw-sysadmin-console .btn-outline-success:focus-visible {
+  background: var(--kw-sa-green-soft);
+  color: var(--kw-sa-green-deep);
+}
+
+.kw-sysadmin-console .btn-outline-secondary,
+.kw-sysadmin-console .btn-light {
+  color: var(--kw-sa-ink);
+  border-color: var(--kw-sa-line);
+}
+
+.kw-sysadmin-console .btn-link {
+  color: var(--kw-sa-green);
+}
+
+/* Status and state --------------------------------------------------------- */
+.kw-sysadmin-console .alert {
+  border-radius: 0.55rem;
+  border-width: 1px;
+  font-size: 0.875rem;
+  margin-block-end: 1rem;
+}
+
+.kw-sysadmin-console .alert-info {
+  background: var(--kw-sa-green-soft);
+  border-color: #c9e1d5;
+  color: var(--kw-sa-green-deep);
+}
+
+.kw-sysadmin-console .alert-warning {
+  background: var(--kw-sa-amber-soft);
+  border-color: #ecd7a8;
+  color: #6d4a10;
+}
+
+.kw-sysadmin-console .alert-danger {
+  background: var(--kw-sa-red-soft);
+  border-color: #efc8c8;
+  color: var(--kw-sa-red);
+}
+
+.kw-sysadmin-console .badge {
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+/* Panels and metric strips ------------------------------------------------- */
+.kw-sysadmin-console .card {
+  background: var(--kw-sa-sheet);
+  border: 1px solid var(--kw-sa-line);
+  border-radius: 0.7rem;
+  box-shadow: none;
+}
+
+.kw-sysadmin-console .card-header {
+  background: #f8faf9;
+  border-block-end: 1px solid var(--kw-sa-line-soft);
+  padding: 0.75rem 1rem;
+}
+
+.kw-sysadmin-console .card-header:not(.bg-dark):not(.bg-warning):not(.bg-primary):not(.bg-danger) {
+  background: #f8faf9;
+}
+
+.kw-sysadmin-console .card-footer {
+  background: #fbfcfb;
+  border-block-start: 1px solid var(--kw-sa-line-soft);
+}
+
+.kw-sysadmin-console .card-body {
+  padding: 1rem;
+}
+
+.kw-sysadmin-console .list-group-item {
+  border-color: var(--kw-sa-line-soft);
+  padding-inline: 1rem;
+}
+
+/* Metrics read as instrument values, not promotional tiles. */
+.kw-sysadmin-console .row.g-3 > [class*="col-"] > .card .fs-3,
+.kw-sysadmin-console .row.g-3 > [class*="col-"] > .card .h3,
+.kw-sysadmin-console .row.g-3 > [class*="col-"] > .card .h4 {
+  color: var(--kw-sa-ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.kw-sysadmin-console .row.g-3 > [class*="col-"] > .card .text-muted,
+.kw-sysadmin-console .row.g-3 > [class*="col-"] > .card small {
+  color: var(--kw-sa-muted);
+}
+
+.kw-sysadmin-console code,
+.kw-sysadmin-console .text-break code {
+  font-family: var(--kw-sa-code);
+  font-size: 0.86em;
+}
+
+/* Tables ------------------------------------------------------------------- */
+.kw-sysadmin-console .table-responsive {
+  container: kw-table / inline-size;
+  margin: 0;
+  overflow: auto;
+  max-inline-size: 100%;
+  max-block-size: min(70dvh, 46rem);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  border-radius: 0.6rem;
+}
+
+.kw-sysadmin-console .table {
+  --bs-table-bg: transparent;
+  --bs-table-hover-bg: rgba(23, 104, 74, 0.045);
+  font-size: 0.875rem;
+  margin-block-end: 0;
+}
+
+.kw-sysadmin-console .table > :not(caption) > * > * {
+  padding: 0.65rem 0.75rem;
+  border-block-end-color: var(--kw-sa-line-soft);
+}
+
+.kw-sysadmin-console .table thead th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 3;
+  background: #f1f6f3;
+  border-block-end: 2px solid var(--kw-sa-line);
+  color: var(--kw-sa-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.kw-sysadmin-console .table tbody th {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 2;
+  background: var(--kw-sa-sheet);
+}
+
+.kw-sysadmin-console .table tbody tr:last-child > * {
+  border-block-end: 0;
+}
+
+.kw-sysadmin-console .table .col-actions {
+  inset-inline-end: 0;
+}
+
+.kw-sysadmin-console .pagination {
+  --bs-pagination-color: var(--kw-sa-green);
+  --bs-pagination-active-bg: var(--kw-sa-green);
+  --bs-pagination-active-border-color: var(--kw-sa-green);
+  --bs-pagination-border-color: var(--kw-sa-line);
+}
+
+/* Narrow containers: keep cells legible and let the wrapper scroll rather
+   than compressing columns into unreadable slivers. */
+@container kw-table (inline-size < 560px) {
+  .kw-sysadmin-console .table {
+    font-size: 0.8125rem;
+  }
+
+  .kw-sysadmin-console .table > :not(caption) > * > * {
+    padding: 0.5rem 0.6rem;
+    white-space: nowrap;
+  }
+}
+
+/* Forms -------------------------------------------------------------------- */
+.kw-sysadmin-console .form-label {
+  color: var(--kw-sa-ink);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  margin-block-end: 0.35rem;
+}
+
+.kw-sysadmin-console .form-control,
+.kw-sysadmin-console .form-select {
+  border-color: var(--kw-sa-line);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  min-block-size: 2.25rem;
+}
+
+.kw-sysadmin-console .form-control:focus,
+.kw-sysadmin-console .form-select:focus {
+  border-color: var(--kw-sa-green);
+  box-shadow: 0 0 0 0.2rem rgba(23, 104, 74, 0.12);
+}
+
+.kw-sysadmin-console .input-group-text {
+  background: #f8faf9;
+  border-color: var(--kw-sa-line);
+  color: var(--kw-sa-muted);
+}
+
+.kw-sysadmin-console .form-check-input:checked {
+  background-color: var(--kw-sa-green);
+  border-color: var(--kw-sa-green);
+}
+
+.kw-sysadmin-console .form-text,
+.kw-sysadmin-console .invalid-feedback {
+  font-size: 0.78rem;
+}
+
+/* Wizard / navigation rails ------------------------------------------------ */
+.kw-sysadmin-console .nav-pills,
+.kw-sysadmin-console .nav-tabs {
+  gap: 0.25rem;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  scrollbar-width: none;
+}
+
+.kw-sysadmin-console .nav-pills::-webkit-scrollbar,
+.kw-sysadmin-console .nav-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.kw-sysadmin-console .nav-link {
+  border-radius: 0.45rem;
+  color: var(--kw-sa-muted);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  padding: 0.5rem 0.75rem;
+  white-space: nowrap;
+}
+
+.kw-sysadmin-console .nav-pills .nav-link.active,
+.kw-sysadmin-console .nav-tabs .nav-link.active {
+  background: var(--kw-sa-green-soft);
+  color: var(--kw-sa-green-deep);
+}
+
+.kw-sysadmin-console .nav-tabs .nav-link.active {
+  border-color: var(--kw-sa-line) var(--kw-sa-line) transparent;
+}
+
+.kw-sysadmin-console .nav-link:disabled {
+  color: #9aa8a1;
+}
+
+/* Modals ------------------------------------------------------------------- */
+.kw-sysadmin-console .modal-content {
+  border: 1px solid var(--kw-sa-line);
+  border-radius: 0.8rem;
+  box-shadow: 0 1.5rem 3.5rem rgba(12, 39, 29, 0.22);
+  overflow: clip;
+}
+
+.kw-sysadmin-console .modal-header {
+  background: #f8faf9;
+  border-block-end: 1px solid var(--kw-sa-line);
+}
+
+.kw-sysadmin-console .modal-footer {
+  border-block-start: 1px solid var(--kw-sa-line);
+}
+
+/* Specialized workspaces keep their own identity but inherit the frame. */
+.kw-sysadmin-console .analytics-hero {
+  background: linear-gradient(120deg, var(--kw-sa-green-deep), var(--kw-sa-green));
+  border-radius: 0.7rem;
+}
+
+.kw-sysadmin-console .analytics-toolbar,
+.kw-sysadmin-console .analytics-card,
+.kw-sysadmin-console .analytics-viewer {
+  border-color: var(--kw-sa-line);
+  border-radius: 0.7rem;
+  box-shadow: none;
+}
+
+.kw-sysadmin-console .analytics-card:hover {
+  transform: none;
+  box-shadow: 0 0.5rem 1.25rem rgba(15, 75, 53, 0.1);
+}
+
+.kw-sysadmin-console .console-body,
+.kw-sysadmin-console .log-workbench,
+.kw-sysadmin-console .kw-msg {
+  border-radius: 0.7rem;
+}
+
+.kw-sysadmin-console .kw-msg-header {
+  background: #f8faf9;
+  border-radius: 0.55rem;
+  padding: 0.75rem 1rem;
+}
+
+.note:not(.kw-sysadmin-console) {
+  /* Intentionally empty: keeps the scoped block easy to find in devtools. */
+}
+
+/* Responsive shell --------------------------------------------------------- */
+@media (max-width: 767.98px) {
+  .kw-sysadmin-console > :is(section, div):first-of-type {
+    border-radius: 0.6rem;
+    padding: 0.9rem;
+  }
+
+  .kw-sysadmin-console > :is(section, div):first-of-type > .d-flex,
+  .kw-sysadmin-console > :is(section, div):first-of-type > header {
+    align-items: flex-start !important;
+  }
+
+  .kw-sysadmin-console .d-flex.flex-wrap.gap-2 > .btn {
+    flex: 1 1 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kw-sysadmin-console *,
+  .kw-sysadmin-console *::before,
+  .kw-sysadmin-console *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* Print / PDF -------------------------------------------------------------- */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  .kw-sysadmin-console {
+    background: #fff !important;
+    padding: 0 !important;
+  }
+
+  .kw-sysadmin-console .no-print,
+  .kw-sysadmin-console .btn,
+  .kw-sysadmin-console .modal,
+  .kw-sysadmin-console .modal-backdrop,
+  .kw-sysadmin-console .pagination,
+  .kw-sysadmin-console .toast-container,
+  #pageTopbar,
+  #pageFooter,
+  .sidebar,
+  .navbar {
+    display: none !important;
+  }
+
+  .kw-sysadmin-console > :is(section, div):first-of-type {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  .kw-sysadmin-console > :is(section, div):first-of-type::before {
+    display: none;
+  }
+
+  .kw-sysadmin-console .card {
+    border: 1px solid #d5ddd8 !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+
+  .kw-sysadmin-console .table-responsive {
+    max-block-size: none !important;
+    overflow: visible !important;
+  }
+
+  .kw-sysadmin-console .table thead {
+    display: table-header-group;
+  }
+
+  .kw-sysadmin-console .table tr {
+    break-inside: avoid;
+  }
+
+  .kw-sysadmin-console .table thead th,
+  .kw-sysadmin-console .table tbody th {
+    position: static !important;
+  }
+}

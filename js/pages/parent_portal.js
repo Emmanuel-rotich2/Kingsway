@@ -1131,6 +1131,7 @@ const parentPortalController = {
         }
 
         var fd = new FormData(form);
+        window.KingswayDocumentCamera?.syncFormData(fd, form);
         var windowSel = document.getElementById('ppAdmissionWindow');
         if (windowSel && windowSel.value) fd.set('admission_window_id', windowSel.value);
 

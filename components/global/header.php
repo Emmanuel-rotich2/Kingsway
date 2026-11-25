@@ -21,16 +21,6 @@
 
     <div class="app-header-actions">
         <button
-            class="app-icon-button position-relative"
-            id="header-ai-assistant-button"
-            type="button"
-            aria-label="Open AI assistant"
-            title="AI assistant"
-            data-kw-ai-toggle="1"
-        >
-            <i class="bi bi-stars" aria-hidden="true"></i>
-        </button>
-        <button
             class="app-icon-button"
             id="header-search-button"
             type="button"
@@ -144,10 +134,13 @@
             class="app-icon-button"
             id="header-theme-button"
             type="button"
-            aria-label="Toggle theme"
-            title="Toggle theme"
+            aria-label="Switch to dark theme"
+            aria-pressed="false"
+            title="Switch to dark theme"
         >
-            <i class="bi bi-moon-stars" aria-hidden="true"></i>
+            <i class="bi bi-moon-stars" data-kw-theme-icon="dark" aria-hidden="true"></i>
+            <i class="bi bi-sun" data-kw-theme-icon="light" aria-hidden="true"></i>
+            <span class="visually-hidden" data-kw-theme-label>Switch to dark theme</span>
         </button>
 
         <div class="dropdown">

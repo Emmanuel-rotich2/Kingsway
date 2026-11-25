@@ -40,7 +40,7 @@ final class Logger
     ];
 
     /** Lazily-built request context for the current PHP execution. */
-    private static ?array $context = null;
+    private static ?array $context = null; // legacy; requestContext() no longer caches
 
     /**
      * Optional explicit scope override, used by background jobs/queues so their
@@ -63,43 +63,73 @@ final class Logger
 
     private static function requestContext(): array
     {
-        if (self::$context === null) {
-            $ctx = [
-                'request_id' => $_SERVER['REQUEST_ID'] ?? null,
-                'session_id' => $_SERVER['auth_session_id'] ?? null,
-                'user_id' => $_SERVER['auth_user']['user_id'] ?? $_SERVER['auth_user']['id'] ?? null,
-                'browser_session_id' => $_SERVER['browser_session_id'] ?? null,
-                'ip' => self::clientIp(),
-                'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
-                'method' => $_SERVER['REQUEST_METHOD'] ?? null,
-                'route' => $_SERVER['REQUEST_URI'] ?? null,
-            ];
+        // Built fresh on every call: auth middleware populates
+        // $_SERVER['auth_user']/auth_session_id AFTER early middleware may
+        // already have logged, so a cached context would freeze identity
+        // fields as null for the whole request. These are plain $_SERVER
+        // reads - cheap enough to repeat per entry.
+        $ctx = [
+            'request_id' => $_SERVER['REQUEST_ID'] ?? null,
+            'session_id' => $_SERVER['auth_session_id'] ?? null,
+            'user_id' => $_SERVER['auth_user']['user_id'] ?? $_SERVER['auth_user']['id'] ?? null,
+            'browser_session_id' => $_SERVER['browser_session_id'] ?? null,
+            'device_id' => $_SERVER['device_id'] ?? $_SERVER['HTTP_X_DEVICE_ID'] ?? null,
+            'signal_fp' => self::signalFingerprint(),
+            'ip' => self::clientIp(),
+            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
+            'method' => $_SERVER['REQUEST_METHOD'] ?? null,
+            'route' => $_SERVER['REQUEST_URI'] ?? null,
+        ];
 
-            // Redact obvious secrets from anything that might be echoed into a
-            // request/route string (tokens, passwords, keys).
-            foreach ($ctx as $k => $v) {
-                if (is_string($v)) {
-                    $v = preg_replace('/[?&](password|token|key|secret|auth)=[^&]*/i', '$1=***', $v);
-                    $ctx[$k] = $v;
-                }
+        // Redact obvious secrets from anything that might be echoed into a
+        // request/route string (tokens, passwords, keys).
+        foreach ($ctx as $k => $v) {
+            if (is_string($v)) {
+                $v = preg_replace('/[?&](password|token|key|secret|auth)=[^&]*/i', '$1=***', $v);
+                $ctx[$k] = $v;
             }
-
-            // Never log full tokens/passwords that may ride in query strings.
-            $ctx['route'] = self::redact($ctx['route']);
-            self::$context = array_filter($ctx, static fn ($v) => $v !== null && $v !== '');
         }
+
+        // Never log full tokens/passwords that may ride in query strings.
+        $ctx['route'] = self::redact($ctx['route']);
+        $context = array_filter($ctx, static fn ($v) => $v !== null && $v !== '');
 
         // Merge any explicit scope overrides (async jobs) on top of the
-        // ambient request context without mutating the cached context.
+        // ambient request context.
         if (self::$scope !== []) {
-            return array_merge(self::$context, self::$scope);
+            return array_merge($context, self::$scope);
         }
-        return self::$context;
+        return $context;
+    }
+
+    /**
+     * Server-computed fingerprint of the request's browser characteristics
+     * (User-Agent, Accept-Language, client-hint headers). Unlike the
+     * client-asserted X-Device-Id this cannot be rotated by changing a
+     * header alone - an attacker rotating device_id still presents the same
+     * browser signature, which analytics correlate to expose the rotation.
+     * No IP is included: addresses rotate legitimately.
+     */
+    private static function signalFingerprint(): ?string
+    {
+        $ua = (string) ($_SERVER['HTTP_USER_AGENT'] ?? '');
+        if ($ua === '') {
+            return null;
+        }
+        $parts = [
+            $ua,
+            (string) ($_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? ''),
+            (string) ($_SERVER['HTTP_ACCEPT'] ?? ''),
+            (string) ($_SERVER['HTTP_SEC_CH_UA'] ?? ''),
+            (string) ($_SERVER['HTTP_SEC_CH_UA_PLATFORM'] ?? ''),
+            (string) ($_SERVER['HTTP_SEC_CH_UA_MOBILE'] ?? ''),
+        ];
+        return 'sig_' . substr(hash('sha256', implode('|', $parts)), 0, 16);
     }
 
     public static function resetContext(): void
     {
-        self::$context = null;
+        // Kept for callers; requestContext() is computed fresh per entry.
     }
 
     private static function clientIp(): ?string

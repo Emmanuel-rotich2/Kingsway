@@ -62,9 +62,9 @@ final class ExportHelper
         fputcsv($stream, [], ',', '"', '\\');
 
         if ($rows !== []) {
-            fputcsv($stream, array_keys($rows[0]), ',', '"', '\\');
+            fputcsv($stream, CsvSafety::row(array_keys($rows[0])), ',', '"', '\\');
             foreach ($rows as $row) {
-                fputcsv($stream, $row, ',', '"', '\\');
+                fputcsv($stream, CsvSafety::row($row), ',', '"', '\\');
             }
         }
 

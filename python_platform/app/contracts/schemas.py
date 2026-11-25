@@ -462,7 +462,6 @@ CONTRACT_REGISTRY: Dict[str, type[BaseJobPayload]] = {
     "import.validate": ImportValidatePayload,
     "import.preview": ImportPreviewPayload,
     # Admission
-    "admission.document_extract": AdmissionDocumentExtractPayload,
     "admission.import_preview": AdmissionImportPreviewPayload,
     # Activities
     "activities.participant_import": ActivitiesParticipantImportPayload,
@@ -472,7 +471,6 @@ CONTRACT_REGISTRY: Dict[str, type[BaseJobPayload]] = {
     "boarding.occupancy_summary": BoardingOccupancySummaryPayload,
     "boarding.rollcall_export": BoardingRollcallExportPayload,
     # Health
-    "health.document_extract": HealthDocumentExtractPayload,
     "health.summarize": HealthSummarizePayload,
     # Library
     "library.catalogue_import": LibraryCatalogueImportPayload,
@@ -527,7 +525,6 @@ CONTRACT_REGISTRY: Dict[str, type[BaseJobPayload]] = {
     "students.import_preview": StudentsImportPreviewPayload,
     "students.bulk_artifact": StudentsBulkArtifactPayload,
     # Admission
-    "admission.document_extract": AdmissionDocumentExtractPayload,
     "admission.import_preview": AdmissionImportPreviewPayload,
     # Activities
     "activities.participant_import": ActivitiesParticipantImportPayload,
@@ -537,7 +534,6 @@ CONTRACT_REGISTRY: Dict[str, type[BaseJobPayload]] = {
     "boarding.occupancy_summary": BoardingOccupancySummaryPayload,
     "boarding.rollcall_export": BoardingRollcallExportPayload,
     # Health
-    "health.document_extract": HealthDocumentExtractPayload,
     "health.summarize": HealthSummarizePayload,
     # Library
     "library.catalogue_import": LibraryCatalogueImportPayload,
@@ -577,7 +573,6 @@ CONTRACT_REGISTRY: Dict[str, type[BaseJobPayload]] = {
     "students.import_preview": StudentsImportPreviewPayload,
     "students.bulk_artifact": StudentsBulkArtifactPayload,
     # Admission
-    "admission.document_extract": AdmissionDocumentExtractPayload,
     "admission.import_preview": AdmissionImportPreviewPayload,
     # Activities
     "activities.participant_import": ActivitiesParticipantImportPayload,
@@ -587,7 +582,6 @@ CONTRACT_REGISTRY: Dict[str, type[BaseJobPayload]] = {
     "boarding.occupancy_summary": BoardingOccupancySummaryPayload,
     "boarding.rollcall_export": BoardingRollcallExportPayload,
     # Health
-    "health.document_extract": HealthDocumentExtractPayload,
     "health.summarize": HealthSummarizePayload,
     # Library
     "library.catalogue_import": LibraryCatalogueImportPayload,
@@ -606,7 +600,6 @@ CONTRACT_REGISTRY: Dict[str, type[BaseJobPayload]] = {
     "import.validate": ImportValidatePayload,
     "import.preview": ImportPreviewPayload,
     # Admission
-    "admission.document_extract": AdmissionDocumentExtractPayload,
     "admission.import_preview": AdmissionImportPreviewPayload,
     # Activities
     "activities.participant_import": ActivitiesParticipantImportPayload,
@@ -616,7 +609,6 @@ CONTRACT_REGISTRY: Dict[str, type[BaseJobPayload]] = {
     "boarding.occupancy_summary": BoardingOccupancySummaryPayload,
     "boarding.rollcall_export": BoardingRollcallExportPayload,
     # Health
-    "health.document_extract": HealthDocumentExtractPayload,
     "health.summarize": HealthSummarizePayload,
     # Library
     "library.catalogue_import": LibraryCatalogueImportPayload,

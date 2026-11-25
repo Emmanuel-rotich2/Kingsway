@@ -2325,6 +2325,10 @@ const ENDPOINT_PERMISSIONS = {
   "/dashboard/workspace-briefing": null,
   "/dashboard/assistant-today": null,
   "/system/ai-security-review-queue": "system_view",
+  "/system/usage-summary": { GET: "system_view" },
+  "/system/ai-usage-review-queue": { POST: "system_view" },
+  "/system/ai-usage-reviews": { GET: "system_view" },
+  "/system/ai-usage-review-approve": { POST: ["system_view", "system_manage"] },
   "/attendance/ai-exception-summary-queue": { POST: "attendance_view" },
   "/attendance/ai-exception-summaries": { GET: "attendance_view" },
   "/attendance/ai-exception-summary-approve": { POST: ["attendance_manage", "attendance_approve", "attendance_update"] },
@@ -2382,6 +2386,9 @@ const ENDPOINT_PERMISSIONS = {
   "/finance/ai-reconciliation-review-queue": { POST: "finance_view" },
   "/finance/ai-reconciliation-drafts": { GET: "finance_view" },
   "/finance/ai-reconciliation-draft-approve": { POST: ["finance_reconcile", "finance_manage"] },
+  "/finance/ai-arrears-review-queue": { POST: "finance_view" },
+  "/finance/ai-arrears-drafts": { GET: "finance_view" },
+  "/finance/ai-arrears-draft-approve": { POST: ["finance_reconcile", "finance_manage"] },
   "/finance/kcb-disbursements": {
     GET: "finance_view",
     POST: ["finance_reconcile", "finance_approve", "finance_manage"],
@@ -2589,6 +2596,9 @@ const ENDPOINT_PERMISSIONS = {
   "/admission/ai-followup-draft-approve": "admission_manage",
   "/admission/ai-interview-preparation-approve": "admission_manage",
   "/admission/ai-placement-review-approve": "admission_manage",
+  "/admission/ai-pipeline-review-queue": "admission_view",
+  "/admission/ai-pipeline-drafts": "admission_view",
+  "/admission/ai-pipeline-draft-approve": "admission_manage",
 
   // Communications
   "/communications/index": "communications_view",
@@ -2699,6 +2709,9 @@ const ENDPOINT_PERMISSIONS = {
   "/schedules/timetable-drafts": "schedules_view",
   "/schedules/ai-timetable-planning-queue": "schedules_view",
   "/schedules/ai-timetable-planning-session": "schedules_view",
+  "/schedules/ai-timetable-review-queue": { POST: "schedules_view" },
+  "/schedules/ai-timetable-review-drafts": { GET: "schedules_view" },
+  "/schedules/ai-timetable-review-draft-approve": { POST: ["schedules_approve", "schedules_manage", "schedules_update"] },
   "/schedules/timetable-streams": "schedules_view",
   // The controller applies scope-aware authorization: class teachers may
   // save lower-primary drafts while leadership may save upper/whole-school
@@ -3175,6 +3188,7 @@ function getCsrfToken() {
 // observability stacks.
 let _currentRequestId = null;
 let _browserSessionId = null;
+let _deviceId = null;
 
 function _hexSegment(length) {
   const bytes = new Uint8Array(length);
@@ -3218,6 +3232,33 @@ function getBrowserSessionId() {
     }
   }
   _browserSessionId = stored;
+  return stored;
+}
+
+/**
+ * Persistent per-browser-profile identifier (localStorage, survives tab and
+ * session restarts). Unlike browser_session_id this does NOT rotate when a
+ * tab closes, so the backend can correlate one physical device across IP
+ * changes - IP rotation cannot reset rate-limit buckets or hide a device
+ * behind a new address.
+ */
+function getDeviceId() {
+  if (_deviceId) return _deviceId;
+  let stored = null;
+  try {
+    stored = localStorage.getItem("kingsway_device_id");
+  } catch (_) {
+    /* storage unavailable */
+  }
+  if (!stored) {
+    stored = generateRequestId();
+    try {
+      localStorage.setItem("kingsway_device_id", stored);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  _deviceId = stored;
   return stored;
 }
 
@@ -3872,6 +3913,7 @@ async function apiCallDirect(
       headers: {
         "X-Request-ID": requestId,
         "X-Browser-Session-Id": getBrowserSessionId(),
+        "X-Device-Id": getDeviceId(),
         ...(upperMethod !== "GET" &&
           upperMethod !== "HEAD" &&
           !options.headers?.["Idempotency-Key"] && {
@@ -5849,6 +5891,9 @@ window.API = {
     approveAiFollowupDraft: async (id) => apiCall(`/admission/ai-followup-draft-approve/${Number(id)}`, "POST", {}),
     approveAiInterviewPreparation: async (id) => apiCall(`/admission/ai-interview-preparation-approve/${Number(id)}`, "POST", {}),
     approveAiPlacementReview: async (id) => apiCall(`/admission/ai-placement-review-approve/${Number(id)}`, "POST", {}),
+    queueAiPipelineReview: async () => apiCall("/admission/ai-pipeline-review-queue", "POST", {}),
+    getAiPipelineDrafts: async (scope = "own") => apiCall(`/admission/ai-pipeline-drafts?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiPipelineDraft: async (id) => apiCall(`/admission/ai-pipeline-draft-approve/${Number(id)}`, "POST", {}),
     // Get classes for placement offer assignment
     getPlacementClasses: async () =>
       apiCall("/admission/placement-classes", "GET"),
@@ -6349,6 +6394,12 @@ window.API = {
       apiCall(`/finance/ai-reconciliation-drafts?scope=${encodeURIComponent(scope)}`, "GET"),
     approveAiReconciliationDraft: async (id) =>
       apiCall(`/finance/ai-reconciliation-draft-approve/${Number(id)}`, "POST", {}),
+    queueAiArrearsReview: async () =>
+      apiCall("/finance/ai-arrears-review-queue", "POST", {}),
+    getAiArrearsDrafts: async (scope = "own") =>
+      apiCall(`/finance/ai-arrears-drafts?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiArrearsDraft: async (id) =>
+      apiCall(`/finance/ai-arrears-draft-approve/${Number(id)}`, "POST", {}),
     savePaymentCollectionRoute: async (data) =>
       apiCall("/finance/payment-collection-routes", "POST", data),
     updatePaymentCollectionRoute: async (id, data) =>
@@ -7834,6 +7885,12 @@ window.API = {
       apiCall("/schedules/ai-timetable-planning-queue", "POST", data),
     getAiTimetablePlanningSession: async (sessionId) =>
       apiCall(`/schedules/ai-timetable-planning-session/${encodeURIComponent(sessionId)}`, "GET"),
+    queueAiTimetableReview: async (data = {}) =>
+      apiCall("/schedules/ai-timetable-review-queue", "POST", data),
+    getAiTimetableReviewDrafts: async (scope = "own") =>
+      apiCall(`/schedules/ai-timetable-review-drafts?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiTimetableReviewDraft: async (id) =>
+      apiCall(`/schedules/ai-timetable-review-draft-approve/${Number(id)}`, "POST", {}),
 
     // Legacy support
     getClassSchedule: async (classId) =>
@@ -8433,6 +8490,16 @@ window.API = {
       apiCall(`/system/ai-operations-reviews?scope=${encodeURIComponent(scope)}`, "GET"),
     approveAiOperationsReview: async (id) =>
       apiCall(`/system/ai-operations-review-approve/${Number(id)}`, "POST", {}),
+
+    // Staff usage & adoption (deterministic summary + system.usage_brief reviews)
+    getUsageSummary: async (params = {}) =>
+      apiCall("/system/usage-summary", "GET", null, params),
+    queueAiUsageReview: async () =>
+      apiCall("/system/ai-usage-review-queue", "POST", {}),
+    getAiUsageReviews: async (scope = "own") =>
+      apiCall(`/system/ai-usage-reviews?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiUsageReview: async (id) =>
+      apiCall(`/system/ai-usage-review-approve/${Number(id)}`, "POST", {}),
     getSecurityIncidents: async (params = {}) => apiCall("/system/security-incidents", "GET", null, params),
     getPermissionChanges: async (params = {}) => apiCall("/system/permission-changes", "GET", null, params),
     getPolicyViolations: async (params = {}) => apiCall("/system/policy-violations", "GET", null, params),
@@ -8651,6 +8718,8 @@ window.API = {
         module,
         ...pageContext,
       }),
+    clearAgentContext: async () =>
+      apiCall("/dashboard/agent-context-clear", "POST", {}, {}, { checkPermission: false }),
 
     /**
      * Streamed assistant answer. Returns an object exposing `promise`,
@@ -8674,8 +8743,8 @@ window.API = {
         onError: handlers.onError || (() => {}),
       };
 
-      const {session_id, ...options} = handlers;
-      const requestOptions = session_id ? {session_id, ...options} : options;
+      const {session_id, onDelta, onStatus, onFinal, onError, ...options} = handlers || {};
+      const requestOptions = { ...(session_id ? {session_id} : {}), ...options };
       const getBufferedFallback = async () => {
         const fallbackController = new AbortController();
         state.onStatus("I’m checking that again…");
@@ -8924,8 +8993,12 @@ window.API = {
         : { session_id: sessionId, title };
       return apiCall("/dashboard/assistant-session", "PATCH", payload);
     },
-    clearAssistantSessionMessages: async (sessionId) =>
-      apiCall("/dashboard/assistant-session-clear", "POST", { session_id: sessionId }),
+    clearAssistantSessionMessages: async (sessionId) => {
+      const payload = sessionId && typeof sessionId === "object"
+        ? sessionId
+        : { session_id: sessionId };
+      return apiCall("/dashboard/assistant-session-clear", "POST", payload);
+    },
     postAssistantSessionsClear: async () =>
       apiCall("/dashboard/assistant-sessions/clear", "POST"),
     getAssistantPreferences: async () =>

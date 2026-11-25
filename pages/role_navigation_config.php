@@ -5,18 +5,18 @@
 <div class="container-fluid py-4" id="roleNavigationConfigPage">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h2 fw-bold mb-1"><i class="bi bi-list-ul text-dark me-2"></i>Role Navigation</h2>
+            <h2 class="h2 fw-bold mb-1"><i aria-hidden="true" class="bi bi-list-ul text-dark me-2"></i>Role Navigation</h2>
             <p class="text-muted mb-0">Effective menus generated from <code>config/role_sidebars.php</code> — exactly what users receive at login.</p>
         </div>
         <div class="d-flex flex-wrap gap-2">
             <button type="button" class="btn btn-outline-secondary" id="roleNavigationConfigExportCsvBtn" title="Export to CSV">
-                <i class="bi bi-filetype-csv me-1"></i> Export CSV
+                <i aria-hidden="true" class="bi bi-filetype-csv me-1"></i> Export CSV
             </button>
             <button type="button" class="btn btn-outline-secondary" id="roleNavigationConfigPrintBtn" title="Print / save as PDF">
-                <i class="bi bi-printer me-1"></i> Print / PDF
+                <i aria-hidden="true" class="bi bi-printer me-1"></i> Print / PDF
             </button>
             <button type="button" class="btn btn-outline-secondary" id="roleNavigationConfigRefreshBtn">
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i aria-hidden="true" class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
     </div>
@@ -30,7 +30,7 @@
             <div class="row g-2 align-items-center">
                 <div class="col-lg-6">
                     <div class="input-group input-group-sm">
-                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <span class="input-group-text"><i aria-hidden="true" class="bi bi-search"></i></span>
                         <input class="form-control" id="roleNavigationConfigSearch" type="search" maxlength="200" placeholder="Role, menu item or route" autocomplete="off">
                     </div>
                 </div>
@@ -42,6 +42,7 @@
 
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
+                <caption class="visually-hidden">Role navigation by role</caption>
                 <thead class="table-light">
                     <tr>
                         <th scope="col">Role</th>
@@ -73,11 +74,11 @@
             <nav aria-label="Role navigation pages">
                 <div class="btn-group btn-group-sm">
                     <button type="button" class="btn btn-outline-secondary" id="roleNavigationConfigPreviousPage">
-                        <i class="bi bi-chevron-left me-1"></i> Previous
+                        <i aria-hidden="true" class="bi bi-chevron-left me-1"></i> Previous
                     </button>
                     <span class="btn btn-outline-secondary disabled" id="roleNavigationConfigPageIndicator">Page 1 of 1</span>
                     <button type="button" class="btn btn-outline-secondary" id="roleNavigationConfigNextPage">
-                        Next <i class="bi bi-chevron-right ms-1"></i>
+                        Next <i aria-hidden="true" class="bi bi-chevron-right ms-1"></i>
                     </button>
                 </div>
             </nav>

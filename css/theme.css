@@ -1,0 +1,886 @@
+/**
+ * Kingsway authenticated theme system.
+ *
+ * Light is the documented default across the application. This file adds the
+ * matching dark surface for every shared authenticated surface: app shell,
+ * Bootstrap components, role dashboards, tables, forms, dialogs, page-specific
+ * inline styles, print previews and the System Administrator console.
+ *
+ * Root state is owned by html[data-kw-theme] so scrollbars, form controls and
+ * the initial canvas theme correctly. body.app-dark is kept only as a
+ * compatibility hook for older controllers.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  accent-color: #0f6b3d;
+  --kw-scrollbar-thumb: #6b7280;
+  --kw-scrollbar-track: #eef2f6;
+  scrollbar-color: var(--kw-scrollbar-thumb) var(--kw-scrollbar-track);
+
+  --kw-theme-bg: #f4f6f8;
+  --kw-theme-surface: #ffffff;
+  --kw-theme-surface-2: #f8fafc;
+  --kw-theme-surface-3: #eef2f6;
+  --kw-theme-text: #172033;
+  --kw-theme-muted: #697386;
+  --kw-theme-border: #e4e8ed;
+  --kw-theme-border-strong: #cbd5e1;
+  --kw-theme-link: #0f6b3d;
+  --kw-theme-link-hover: #0a4f2f;
+  --kw-theme-focus: #f3bd18;
+  --kw-theme-shadow: 0 10px 30px rgb(23 32 51 / 0.08);
+  --kw-theme-shadow-strong: 0 18px 46px rgb(4 20 12 / 0.22);
+  --kw-theme-overlay: rgb(255 255 255 / 0.12);
+  --kw-theme-glass: rgb(255 255 255 / 0.86);
+  --kw-theme-good: #178a50;
+  --kw-theme-good-soft: #e7f6ed;
+  --kw-theme-warn: #a86f16;
+  --kw-theme-warn-soft: #fff5df;
+  --kw-theme-bad: #b53747;
+  --kw-theme-bad-soft: #fdecec;
+  --kw-theme-info: #0e7490;
+  --kw-theme-info-soft: #e6f6fa;
+}
+
+:root[data-kw-theme="light"] {
+  color-scheme: light;
+}
+
+/* Keep CSS in step with the pre-paint meta hint and JS-free fallback. */
+:root:has(> head > meta[name="color-scheme"][content="dark"]) {
+  color-scheme: dark;
+}
+
+:root:has(> head > meta[name="color-scheme"][content="light"]) {
+  color-scheme: light;
+}
+
+:root[data-kw-theme="dark"] {
+  color-scheme: dark;
+
+  accent-color: #5fcf96;
+  --kw-scrollbar-thumb: #6d829b;
+  --kw-scrollbar-track: #0b121b;
+  scrollbar-color: var(--kw-scrollbar-thumb) var(--kw-scrollbar-track);
+
+  --kw-theme-bg: #0b121b;
+  --kw-theme-surface: #131d2a;
+  --kw-theme-surface-2: #1a2736;
+  --kw-theme-surface-3: #223247;
+  --kw-theme-text: #e9eef6;
+  --kw-theme-muted: #a6b3c4;
+  --kw-theme-border: #2b3949;
+  --kw-theme-border-strong: #41546b;
+  --kw-theme-link: #78d7a6;
+  --kw-theme-link-hover: #a6e9c6;
+  --kw-theme-focus: #f3bd18;
+  --kw-theme-shadow: 0 12px 34px rgb(0 0 0 / 0.38);
+  --kw-theme-shadow-strong: 0 20px 52px rgb(0 0 0 / 0.52);
+  --kw-theme-overlay: rgb(255 255 255 / 0.06);
+  --kw-theme-glass: rgb(19 29 42 / 0.9);
+  --kw-theme-good: #5fcf96;
+  --kw-theme-good-soft: #153d2a;
+  --kw-theme-warn: #f2cf78;
+  --kw-theme-warn-soft: #443411;
+  --kw-theme-bad: #ff8e9d;
+  --kw-theme-bad-soft: #4a202a;
+  --kw-theme-info: #7dd3e8;
+  --kw-theme-info-soft: #123948;
+}
+
+/* scrollbar-color is newer than color-scheme. Keep the legacy WebKit hooks as
+   a fallback, but only where the standard property is unsupported so the two
+   mechanisms cannot both paint the same scrollbar. */
+@supports not (scrollbar-color: auto) {
+  html::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+
+  html::-webkit-scrollbar-thumb {
+    background: var(--kw-scrollbar-thumb);
+  }
+
+  html::-webkit-scrollbar-track {
+    background: var(--kw-scrollbar-track);
+  }
+}
+
+/* Bridge the shared palette into the tokens already consumed by the app. */
+html[data-kw-theme="dark"] {
+  --app-bg: var(--kw-theme-bg);
+  --app-surface: var(--kw-theme-surface);
+  --app-surface-muted: var(--kw-theme-surface-2);
+  --app-text: var(--kw-theme-text);
+  --app-muted: var(--kw-theme-muted);
+  --app-border: var(--kw-theme-border);
+  --app-shadow: var(--kw-theme-shadow);
+  --app-green: #0f6b43;
+  --app-green-dark: #0b4f31;
+  --app-green-deep: #073523;
+  --app-green-soft: #173526;
+
+  --bg-primary: var(--kw-theme-bg);
+  --bg-secondary: var(--kw-theme-surface-2);
+  --bg-card: var(--kw-theme-surface);
+  --bg-header: var(--kw-theme-surface);
+  --bg-sidebar: #073523;
+  --text-primary: var(--kw-theme-text);
+  --text-secondary: var(--kw-theme-muted);
+  --text-muted: var(--kw-theme-muted);
+  --border-light: var(--kw-theme-border);
+  --border-medium: var(--kw-theme-border-strong);
+
+  --bs-body-bg: var(--kw-theme-bg);
+  --bs-body-color: var(--kw-theme-text);
+  --bs-emphasis-color: var(--kw-theme-text);
+  --bs-secondary-color: var(--kw-theme-muted);
+  --bs-tertiary-color: var(--kw-theme-muted);
+  --bs-border-color: var(--kw-theme-border);
+  --bs-secondary-bg: var(--kw-theme-surface-2);
+  --bs-tertiary-bg: var(--kw-theme-surface-3);
+  --bs-link-color: var(--kw-theme-link);
+  --bs-link-hover-color: var(--kw-theme-link-hover);
+
+  /* Parent portal maps its own palette into the shared theme. */
+  --parent-paper: var(--kw-theme-surface);
+  --parent-bg: var(--kw-theme-bg);
+  --parent-ink: var(--kw-theme-text);
+  --parent-muted: var(--kw-theme-muted);
+  --parent-line: var(--kw-theme-border);
+}
+
+/* Fixed utility classes are used by hundreds of page partials. They must not
+   punch light holes through the dark canvas. */
+html[data-kw-theme="dark"] :is(
+  .bg-white,
+  .bg-light,
+  .bg-body,
+  .bg-body-tertiary
+) {
+  background-color: var(--kw-theme-surface) !important;
+}
+
+html[data-kw-theme="dark"] :is(.text-dark, .text-black) {
+  color: var(--kw-theme-text) !important;
+}
+
+html[data-kw-theme="dark"] :is(.text-muted, .text-black-50) {
+  color: var(--kw-theme-muted) !important;
+}
+
+/* Standalone parent-portal shell. Its own stylesheet uses hard-coded paper
+   colours; these overrides keep every page of that shell on the same theme. */
+html[data-kw-theme="dark"] :is(
+  .pp-sidebar,
+  .pp-card,
+  .pp-card-header,
+  .pp-card-body,
+  .pp-pending-card,
+  .pp-kpi-card,
+  .child-card,
+  .pp-table,
+  .pp-statement-table,
+  .store-card,
+  .store-order,
+  .store-size span,
+  .store-variant,
+  #storeCartDrawer.pp-drawer,
+  .pp-auth-page .card,
+  .pp-auth-page .pp-login-card .card
+) {
+  color: var(--kw-theme-text) !important;
+  background-color: var(--kw-theme-surface) !important;
+  border-color: var(--kw-theme-border) !important;
+  box-shadow: var(--kw-theme-shadow) !important;
+}
+
+html[data-kw-theme="dark"] :is(
+  .pp-topbar,
+  .pp-drawer,
+  .pp-nav .dropdown-menu,
+  .pp-user-menu
+) {
+  border-bottom-color: var(--kw-theme-border) !important;
+}
+
+html[data-kw-theme="dark"] :is(
+  .pp-child-item,
+  .pp-page-nav .nav-link,
+  .pp-app-dot,
+  .store-variant,
+  .store-size span,
+  .store-title,
+  .nav-tabs .nav-link
+) {
+  color: var(--kw-theme-text) !important;
+}
+
+html[data-kw-theme="dark"] :is(
+  .pp-child-item:hover,
+  .pp-page-nav .nav-link:hover,
+  .store-variant:hover,
+  .store-size:hover span
+) {
+  color: var(--kw-theme-text) !important;
+  background-color: var(--kw-theme-surface-2) !important;
+}
+
+html[data-kw-theme="dark"] :is(
+  .pp-table .table thead th,
+  .store-media,
+  .pp-footer
+) {
+  color: var(--kw-theme-muted) !important;
+  background-color: var(--kw-theme-surface-2) !important;
+}
+
+html[data-kw-theme="dark"] .pp-child-photo-wrap {
+  color: var(--kw-theme-link) !important;
+  background: var(--kw-theme-surface-3) !important;
+}
+
+html[data-kw-theme="dark"] :is(
+  .pp-nav .dropdown-menu .dropdown-item,
+  .pp-user-menu .dropdown-item,
+  .pp-drawer-item
+) {
+  color: var(--kw-theme-text) !important;
+}
+
+html[data-kw-theme="dark"] :is(
+  .pp-nav .dropdown-menu .dropdown-item:hover,
+  .pp-user-menu .dropdown-item:hover,
+  .pp-drawer-item:hover
+) {
+  color: var(--kw-theme-text) !important;
+  background: var(--kw-theme-surface-3) !important;
+}
+
+@supports not (scrollbar-color: auto) {
+  :root::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+
+  :root::-webkit-scrollbar-thumb {
+    background: #9aa7b8;
+  }
+
+  :root::-webkit-scrollbar-track {
+    background: #eef2f6;
+  }
+
+  :root[data-kw-theme="dark"]::-webkit-scrollbar-thumb {
+    background: #41546b;
+  }
+
+  :root[data-kw-theme="dark"]::-webkit-scrollbar-track {
+    background: #0b121b;
+  }
+}
+
+/* App shell ---------------------------------------------------------------- */
+html[data-kw-theme="dark"] body,
+html[data-kw-theme="dark"] .app-main-column,
+html[data-kw-theme="dark"] .app-content {
+  color: var(--kw-theme-text);
+  background: var(--kw-theme-bg);
+}
+
+html[data-kw-theme="dark"] .app-header {
+  border-bottom-color: #1d6b47;
+  color: #f4fbf7;
+  background: linear-gradient(180deg, #0b4f31 0%, #073523 100%);
+  box-shadow: 0 6px 22px rgb(0 0 0 / 0.28);
+}
+
+html[data-kw-theme="dark"] .app-header-kicker {
+  color: #bfe7cf;
+}
+
+html[data-kw-theme="dark"] .app-header-copy strong {
+  color: #ffffff;
+}
+
+html[data-kw-theme="dark"] .app-sidebar {
+  background: linear-gradient(180deg, #0b4f31 0%, #062718 100%);
+  box-shadow: 8px 0 30px rgb(0 0 0 / 0.35);
+}
+
+html[data-kw-theme="dark"] :is(
+  .app-icon-button,
+  .app-user-button,
+  .app-search-result,
+  .app-footer
+) {
+  border-color: #31445a;
+  color: var(--kw-theme-text);
+  background: var(--kw-theme-surface);
+  box-shadow: var(--kw-theme-shadow);
+}
+
+html[data-kw-theme="dark"] :is(
+  .app-icon-button:hover,
+  .app-icon-button:focus-visible,
+  .app-user-button:hover,
+  .app-search-result:hover
+) {
+  border-color: #4b6a83;
+  background: var(--kw-theme-surface-3);
+  color: #ffffff;
+}
+
+html[data-kw-theme="dark"] .app-notification-badge {
+  border-color: #0b4f31;
+}
+
+html[data-kw-theme="dark"] :is(
+  .app-header-menu,
+  .app-user-menu,
+  .app-search-panel,
+  .dropdown-menu,
+  .modal-content,
+  .offcanvas,
+  .list-group-item,
+  .card,
+  .dash-card,
+  .academic-card,
+  .ws-stat-card,
+  .sa-card,
+  .kw-msg,
+  .id-cards-panel,
+  .school-contact-grid
+) {
+  border-color: var(--kw-theme-border) !important;
+  color: var(--kw-theme-text) !important;
+  background: var(--kw-theme-surface) !important;
+  box-shadow: var(--kw-theme-shadow) !important;
+}
+
+html[data-kw-theme="dark"] :is(
+  .app-notification-item,
+  .app-notification-item--unread,
+  .app-notification-empty,
+  .app-user-menu-summary
+) {
+  color: var(--kw-theme-text);
+  background: var(--kw-theme-surface-2);
+}
+
+html[data-kw-theme="dark"] .app-notification-item--read {
+  opacity: 0.72;
+}
+
+/* Header theme control: both icon states live in the markup; CSS selects one. */
+#header-theme-button [data-kw-theme-icon="light"] {
+  display: none;
+}
+
+html[data-kw-theme="dark"] #header-theme-button [data-kw-theme-icon="dark"] {
+  display: none;
+}
+
+html[data-kw-theme="dark"] #header-theme-button [data-kw-theme-icon="light"] {
+  display: inline-block;
+}
+
+/* Bootstrap surfaces -------------------------------------------------------- */
+html[data-kw-theme="dark"] :is(
+  .table,
+  table.table,
+  .table-academic,
+  .ws-table,
+  .table-sa
+) {
+  --bs-table-bg: var(--kw-theme-surface);
+  --bs-table-color: var(--kw-theme-text);
+  --bs-table-striped-bg: var(--kw-theme-surface-2);
+  --bs-table-hover-bg: var(--kw-theme-surface-3);
+  --bs-table-border-color: var(--kw-theme-border);
+  color: var(--kw-theme-text);
+  background: var(--kw-theme-surface);
+}
+
+html[data-kw-theme="dark"] :is(
+  .table thead,
+  .table thead th,
+  .table-academic thead,
+  .ws-table th,
+  .table-sa thead,
+  .table thead th[scope="col"]
+) {
+  border-color: var(--kw-theme-border);
+  color: var(--kw-theme-text);
+  background: var(--kw-theme-surface-2);
+}
+
+html[data-kw-theme="dark"] :is(.table td, .table th, .ws-table td, .ws-table th) {
+  border-color: var(--kw-theme-border);
+}
+
+html[data-kw-theme="dark"] :is(
+  .form-control,
+  .form-select,
+  .form-control-plaintext,
+  .input-group-text,
+  .ws-form-group input,
+  .ws-form-group select,
+  .ws-form-group textarea
+) {
+  border-color: var(--kw-theme-border-strong);
+  color: var(--kw-theme-text);
+  background-color: var(--kw-theme-surface-2);
+}
+
+html[data-kw-theme="dark"] :is(
+  .form-control::placeholder,
+  .form-select::placeholder,
+  .ws-form-group input::placeholder,
+  .ws-form-group textarea::placeholder
+) {
+  color: var(--kw-theme-muted);
+  opacity: 0.85;
+}
+
+html[data-kw-theme="dark"] :is(
+  .form-control:focus,
+  .form-select:focus,
+  .ws-form-group input:focus,
+  .ws-form-group select:focus,
+  .ws-form-group textarea:focus
+) {
+  border-color: #4fbf85;
+  box-shadow: 0 0 0 0.2rem rgb(23 138 80 / 0.22);
+}
+
+html[data-kw-theme="dark"] .btn-primary {
+  --bs-btn-bg: #279b62;
+  --bs-btn-border-color: #279b62;
+  --bs-btn-hover-bg: #31b070;
+  --bs-btn-hover-border-color: #31b070;
+  --bs-btn-active-bg: #1f7d4e;
+  --bs-btn-active-border-color: #1f7d4e;
+  --bs-btn-disabled-bg: #279b62;
+  --bs-btn-disabled-border-color: #279b62;
+}
+
+html[data-kw-theme="dark"] :is(.btn-academic, .btn-sa) {
+  border-color: #3d5b73;
+  color: var(--kw-theme-text);
+  background: var(--kw-theme-surface-2);
+}
+
+html[data-kw-theme="dark"] :is(.btn-academic:hover, .btn-sa:hover) {
+  border-color: #4b6a83;
+  color: #ffffff;
+  background: var(--kw-theme-surface-3);
+}
+
+html[data-kw-theme="dark"] a:not(:where(.btn, .nav-link, .dropdown-item, .list-group-item)) {
+  color: var(--kw-theme-link);
+}
+
+html[data-kw-theme="dark"] a:not(:where(.btn, .nav-link, .dropdown-item, .list-group-item)):hover {
+  color: var(--kw-theme-link-hover);
+}
+
+html[data-kw-theme="dark"] :is(
+  .nav-tabs,
+  .nav-pills,
+  .breadcrumb,
+  .pagination
+) {
+  --bs-nav-link-color: var(--kw-theme-muted);
+  --bs-nav-link-hover-color: var(--kw-theme-text);
+  --bs-pagination-bg: var(--kw-theme-surface);
+  --bs-pagination-color: var(--kw-theme-text);
+  --bs-pagination-border-color: var(--kw-theme-border);
+  --bs-pagination-disabled-bg: var(--kw-theme-surface-2);
+  --bs-pagination-disabled-color: var(--kw-theme-muted);
+}
+
+html[data-kw-theme="dark"] :is(
+  .alert,
+  .toast,
+  .kw-toast,
+  .progress,
+  .modal-header,
+  .modal-footer,
+  .offcanvas-header,
+  .offcanvas-footer
+) {
+  border-color: var(--kw-theme-border);
+  color: var(--kw-theme-text);
+  background: var(--kw-theme-surface);
+}
+
+html[data-kw-theme="dark"] :is(
+  .status-present,
+  .status-approved,
+  .status-active,
+  .status-success
+) {
+  color: #a7e9c4;
+  background: #153d2a;
+}
+
+html[data-kw-theme="dark"] :is(
+  .status-pending,
+  .status-draft,
+  .status-late,
+  .status-warning
+) {
+  color: #f7d77a;
+  background: #443411;
+}
+
+html[data-kw-theme="dark"] :is(
+  .status-absent,
+  .status-declined,
+  .status-rejected,
+  .status-danger
+) {
+  color: #ffb4bf;
+  background: #4a202a;
+}
+
+/* Dashboards and repeated page components ---------------------------------- */
+html[data-kw-theme="dark"] :is(
+  .dash-quick-link,
+  .academic-header,
+  .payroll-hero,
+  .payslip-header-main,
+  .id-cards-hero,
+  .scanner-hero,
+  .app-notification-broadcast,
+  .kw-web .web-rail
+) {
+  border-color: var(--kw-theme-border);
+  color: var(--kw-theme-text);
+  background: var(--kw-theme-surface-2);
+}
+
+html[data-kw-theme="dark"] .dash-quick-link:hover {
+  color: #ffffff;
+  background: var(--kw-theme-surface-3);
+}
+
+html[data-kw-theme="dark"] .dash-quick-link .ql-arrow {
+  color: var(--kw-theme-muted);
+}
+
+/* The QR scanner page is the one legacy full-document page still injected into
+   the shell. Its inline sheet is light-only, so bridge its own components too. */
+html[data-kw-theme="dark"] :is(
+  .ctx-tab,
+  .scanner-controls,
+  .hid-panel,
+  .manual-panel,
+  .result-card,
+  .scan-entry
+) {
+  border-color: var(--kw-theme-border);
+  color: var(--kw-theme-text);
+  background: var(--kw-theme-surface);
+}
+
+html[data-kw-theme="dark"] :is(
+  .ctx-tab:hover,
+  .ctx-tab.active
+) {
+  border-color: #4fbf85;
+  color: #ffffff;
+  background: #0f6b43;
+}
+
+html[data-kw-theme="dark"] :is(
+  .hid-status,
+  .result-subtitle,
+  .scanner-hero .subtitle
+) {
+  color: var(--kw-theme-muted);
+}
+
+html[data-kw-theme="dark"] :is(
+  .result-header.eligible,
+  .result-header.not-eligible,
+  .result-header.info,
+  .result-header.warning
+) {
+  border-color: var(--kw-theme-border);
+  color: var(--kw-theme-text);
+  background: var(--kw-theme-surface-2);
+}
+
+/* Page-local style blocks from the per-file audit. The shared theme sheet is
+   appended after these blocks at runtime; these selectors cover the repeated
+   class families with hard-coded paper colours. */
+html[data-kw-theme="dark"] :is(
+  .stat-card,
+  .academic-card,
+  .ws-stat-card,
+  .info-card,
+  .error-card,
+  .reset-card,
+  .empty-card,
+  .attendance-box,
+  .comment-block,
+  .value-item,
+  .subject-table,
+  .competency-table,
+  .stmt-table,
+  .attendance-table,
+  .grade-badge,
+  .section-title,
+  .payroll-stat,
+  .academic-header,
+  .payroll-hero,
+  .payslip-header,
+  .payslip-title-card,
+  .ar-hero,
+  .pr-hero,
+  .rc-hero,
+  .gr-hero,
+  .pf-hero,
+  .tr-hero,
+  .admissions-page-hero,
+  .enrollment-reports-hero,
+  .academic-applications-hero,
+  .admission-decisions-hero,
+  .class-placement-hero,
+  .ht-applications-hero,
+  .id-cards-hero,
+  .pending-approvals-hero
+) {
+  border-color: var(--kw-theme-border) !important;
+  color: var(--kw-theme-text) !important;
+  background: var(--kw-theme-surface) !important;
+  box-shadow: var(--kw-theme-shadow) !important;
+}
+
+html[data-kw-theme="dark"] :is(
+  .subject-table th,
+  .competency-table th,
+  .stmt-table th,
+  .table-academic thead,
+  .table-academic thead th,
+  .info-table td:first-child,
+  .attendance-box .label,
+  .comment-block strong,
+  .comment-block p,
+  .ws-form-group label
+) {
+  border-color: var(--kw-theme-border) !important;
+  color: var(--kw-theme-text) !important;
+  background: var(--kw-theme-surface-2) !important;
+}
+
+html[data-kw-theme="dark"] :is(
+  .stat-card:hover,
+  .subject-table tr:nth-child(even)
+) {
+  background: var(--kw-theme-surface-2) !important;
+}
+
+html[data-kw-theme="dark"] :is(
+  .btn-academic,
+  .btn-sa
+) {
+  border-color: var(--kw-theme-border-strong) !important;
+  color: var(--kw-theme-text) !important;
+  background: var(--kw-theme-surface-2) !important;
+}
+
+html[data-kw-theme="dark"] :is(
+  .btn-academic:hover,
+  .btn-sa:hover
+) {
+  border-color: #4b6a83 !important;
+  color: #ffffff !important;
+  background: var(--kw-theme-surface-3) !important;
+}
+
+html[data-kw-theme="dark"] .dash-greeting-bar {
+  border-color: #1d6b47;
+  color: #f4fbf7;
+  background: linear-gradient(135deg, #0b4f31 0%, #073523 100%);
+  box-shadow: 0 8px 26px rgb(0 0 0 / 0.32);
+}
+
+html[data-kw-theme="dark"] :is(
+  .dash-greeting-bar .dash-badge,
+  .dash-refresh-btn
+) {
+  border-color: rgb(255 255 255 / 0.22);
+  color: #f4fbf7;
+  background: rgb(255 255 255 / 0.1);
+}
+
+/* Colour-stat cards keep their identity but sit deeper in dark mode. The
+   inset shadow darkens the fill without dimming the text painted over it. */
+html[data-kw-theme="dark"] :is(
+  .dash-stat,
+  .stat-card,
+  .ws-stat-card,
+  .stat-mini
+) {
+  box-shadow:
+    inset 0 0 0 100vmax rgb(3 10 18 / 0.24),
+    var(--kw-theme-shadow);
+}
+
+html[data-kw-theme="dark"] :is(
+  .dash-card .card-header,
+  .dash-card .card-footer,
+  .card-header,
+  .card-footer
+) {
+  border-color: var(--kw-theme-border);
+  color: var(--kw-theme-text);
+  background: var(--kw-theme-surface-2);
+}
+
+html[data-kw-theme="dark"] :is(
+  .text-muted,
+  .text-secondary,
+  .small.text-muted,
+  .kw-msg-subtitle
+) {
+  color: var(--kw-theme-muted) !important;
+}
+
+/* Components that display light-origin documents or previews intentionally
+   stay in light mode even inside the dark application shell. */
+html[data-kw-theme="dark"] :is(
+  .payslip-document,
+  .id-card-preview-front,
+  .id-card-preview-back,
+  .certificate,
+  .certificate-watermark,
+  .official-seal,
+  .print-preview-stage,
+  .web-preview-stage,
+  .web-canvas,
+  .web-preview-stage iframe
+) {
+  color-scheme: light;
+  color: #172033 !important;
+  background: #ffffff !important;
+}
+
+html[data-kw-theme="dark"] :is(
+  .payslip-document *,
+  .id-card-preview-front *,
+  .id-card-preview-back *,
+  .certificate *,
+  .certificate-watermark *,
+  .official-seal *,
+  .print-preview-stage *,
+  .web-preview-stage *,
+  .web-canvas *
+) {
+  color-scheme: light;
+}
+
+/* System Administrator console --------------------------------------------- */
+html[data-kw-theme="dark"] .kw-sysadmin-console {
+  --kw-sa-ink: var(--kw-theme-text);
+  --kw-sa-muted: var(--kw-theme-muted);
+  --kw-sa-green: #72d3a3;
+  --kw-sa-green-deep: #0f4b35;
+  --kw-sa-green-soft: #173526;
+  --kw-sa-amber: #f2cf78;
+  --kw-sa-amber-soft: #443411;
+  --kw-sa-red: #ff9aa8;
+  --kw-sa-red-soft: #4a202a;
+  --kw-sa-line: var(--kw-theme-border);
+  --kw-sa-line-soft: var(--kw-theme-surface-3);
+  --kw-sa-sheet: var(--kw-theme-surface);
+  --kw-sa-canvas: var(--kw-theme-bg);
+
+  color: var(--kw-sa-ink);
+}
+
+html[data-kw-theme="dark"] .kw-sysadmin-console :is(
+  .card,
+  .table,
+  .modal-content,
+  .list-group-item,
+  [class*="panel"]
+) {
+  border-color: var(--kw-sa-line);
+  color: var(--kw-sa-ink);
+  background: var(--kw-sa-sheet);
+}
+
+/* Transitions ---------------------------------------------------------------
+   Only while switching, so ordinary hover/transform transitions are untouched.
+   scrollbar-color is deliberately excluded (WebKit flickers when animated). */
+@media (prefers-reduced-motion: no-preference) {
+  html.kw-theme-switching *,
+  html.kw-theme-switching *::before,
+  html.kw-theme-switching *::after {
+    transition:
+      background-color 160ms ease,
+      border-color 160ms ease,
+      color 160ms ease,
+      box-shadow 160ms ease !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.kw-theme-switching *,
+  html.kw-theme-switching *::before,
+  html.kw-theme-switching *::after {
+    transition: none !important;
+  }
+}
+
+/* Forced Colors Mode: keep surfaces distinguishable with system colors. */
+@media (forced-colors: active) {
+  html[data-kw-theme] :is(
+    .app-header,
+    .app-sidebar,
+    .card,
+    .dash-card,
+    .modal-content,
+    .dropdown-menu,
+    .table
+  ) {
+    border: 1px solid ButtonText;
+    forced-color-adjust: auto;
+  }
+}
+
+/* Printing is always a light, paper-like surface, regardless of UI theme. */
+@media print {
+  :root[data-kw-theme] {
+    color-scheme: light !important;
+
+    --kw-theme-bg: #ffffff;
+    --kw-theme-surface: #ffffff;
+    --kw-theme-surface-2: #ffffff;
+    --kw-theme-surface-3: #ffffff;
+    --kw-theme-text: #172033;
+    --kw-theme-muted: #4b5563;
+    --kw-theme-border: #d1d5db;
+    --kw-theme-shadow: none;
+  }
+
+  html[data-kw-theme] :is(
+    body,
+    .app-main-column,
+    .app-content,
+    .card,
+    .dash-card,
+    .table,
+    .modal-content
+  ) {
+    color: #172033 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+}

@@ -5,18 +5,18 @@
 <div class="container-fluid py-4" id="timeBoundAccessPage">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h2 fw-bold mb-1"><i class="bi bi-hourglass-split text-warning me-2"></i>Time-Bound Access</h2>
+            <h2 class="h3 mb-1">Time-Bound Access</h2>
             <p class="text-muted mb-0">Temporary access grants that expire, with extension and revocation controls.</p>
         </div>
         <div class="d-flex flex-wrap gap-2">
             <button type="button" class="btn btn-outline-secondary" id="timeBoundAccessExportCsvBtn" title="Export to CSV">
-                <i class="bi bi-filetype-csv me-1"></i> Export CSV
+                <i aria-hidden="true" class="bi bi-filetype-csv me-1"></i> Export CSV
             </button>
             <button type="button" class="btn btn-outline-secondary" id="timeBoundAccessPrintBtn" title="Print / save as PDF">
-                <i class="bi bi-printer me-1"></i> Print / PDF
+                <i aria-hidden="true" class="bi bi-printer me-1"></i> Print / PDF
             </button>
             <button type="button" class="btn btn-outline-secondary" id="timeBoundAccessRefreshBtn">
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i aria-hidden="true" class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
     </div>
@@ -25,12 +25,13 @@
         Loading access grants...
     </div>
 
-    <div class="card border-0 shadow-sm" style="border-top: 4px solid var(--bs-warning)">
+    <div class="card border-0 shadow-sm">
         <div class="card-header bg-light">
             <div class="row g-2 align-items-center">
                 <div class="col-lg-6">
+                    <label class="visually-hidden" for="timeBoundAccessSearch">Search access grants</label>
                     <div class="input-group input-group-sm">
-                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <span class="input-group-text"><i aria-hidden="true" class="bi bi-search"></i></span>
                         <input class="form-control" id="timeBoundAccessSearch" type="search" maxlength="200" placeholder="User, role or reason" autocomplete="off">
                     </div>
                 </div>
@@ -42,6 +43,7 @@
 
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
+                <caption class="visually-hidden">Time-bound access grants</caption>
                 <thead>
                     <tr>
                         <th scope="col">#</th>
@@ -68,7 +70,7 @@
                         <td><span class="badge" data-fill="status"></span></td>
                         <td class="text-end">
                             <button type="button" class="btn btn-sm btn-outline-primary" data-action="edit" title="Extend or manage">
-                                <i class="bi bi-hourglass-split"></i>
+                                <i aria-hidden="true" class="bi bi-hourglass-split"></i>
                             </button>
                         </td>
                     </tr>

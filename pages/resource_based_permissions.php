@@ -5,37 +5,40 @@
  */
 ?>
 <div class="container-fluid py-4" id="resourceBasedPermissionsPage">
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <header class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h3 mb-1">Resource-Based Permissions</h2>
+            <h2 class="h3 mb-1">Resource-based permissions</h2>
             <p class="text-muted mb-0">
                 Maintain the canonical permission definitions used by roles,
                 routes, workflows and user-level access rules.
             </p>
         </div>
-        <div class="d-flex flex-wrap gap-2">
+        <div class="d-flex flex-wrap gap-2 no-print">
             <a
                 class="btn btn-outline-primary"
                 href="<?= htmlspecialchars($appBase) ?>/home.php?route=role_permission_matrix"
             >
-                <i class="bi bi-key me-1"></i> Role matrix
+                <i class="bi bi-key me-1" aria-hidden="true"></i> Role matrix
             </a>
+            <button type="button" class="btn btn-outline-secondary" data-kw-sa-print>
+                <i class="bi bi-printer me-1" aria-hidden="true"></i> Print / PDF
+            </button>
             <button
                 type="button"
                 class="btn btn-outline-secondary"
                 id="refreshResourcePermissionsBtn"
             >
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i> Refresh
             </button>
             <button
                 type="button"
                 class="btn btn-primary"
                 id="createResourcePermissionBtn"
             >
-                <i class="bi bi-plus-lg me-1"></i> Create permission
+                <i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Create permission
             </button>
         </div>
-    </div>
+    </header>
 
     <div class="row g-3 mb-4" id="resourcePermissionsSummary"></div>
 
@@ -48,8 +51,9 @@
         Waiting for authentication...
     </div>
 
-    <div class="card border-0 shadow-sm">
-        <div class="card-header bg-white">
+    <div class="card">
+        <div class="card-header">
+            <h3 class="h6 mb-3">Filters</h3>
             <div class="row g-2 align-items-end">
                 <div class="col-lg-4">
                     <label
@@ -60,7 +64,7 @@
                     </label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="bi bi-search"></i>
+                            <i class="bi bi-search" aria-hidden="true"></i>
                         </span>
                         <input
                             class="form-control"
@@ -124,7 +128,7 @@
             <div class="d-flex flex-wrap align-items-center gap-2">
                 <span class="fw-semibold small" id="bulkSelectedCount">0 selected</span>
                 <button type="button" class="btn btn-sm btn-outline-danger" id="bulkDeleteBtn">
-                    <i class="bi bi-trash me-1"></i> Delete selected
+                    <i aria-hidden="true" class="bi bi-trash me-1"></i> Delete selected
                 </button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkClearBtn">
                     Clear selection
@@ -133,6 +137,7 @@
         </div>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
+                <caption class="visually-hidden">Canonical permission definitions</caption>
                 <thead id="resourcePermissionsTableHead">
                     <tr>
                         <th class="text-center" style="width: 40px">
@@ -176,7 +181,7 @@
                         class="btn btn-outline-secondary"
                         id="resourcePermissionsPreviousPage"
                     >
-                        <i class="bi bi-chevron-left me-1"></i> Previous
+                        <i aria-hidden="true" class="bi bi-chevron-left me-1"></i> Previous
                     </button>
                     <span
                         class="btn btn-outline-secondary disabled"
@@ -189,7 +194,7 @@
                         class="btn btn-outline-secondary"
                         id="resourcePermissionsNextPage"
                     >
-                        Next <i class="bi bi-chevron-right ms-1"></i>
+                        Next <i aria-hidden="true" class="bi bi-chevron-right ms-1"></i>
                     </button>
                 </div>
             </nav>

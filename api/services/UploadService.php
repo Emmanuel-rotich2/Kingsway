@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\API\Services;
 
 use RuntimeException;
+use Throwable;
 
 /**
  * Canonical filesystem upload service.
@@ -17,6 +18,25 @@ final class UploadService
     private const MAX_DEFAULT_BYTES = 15728640; // 15 MB
 
     /**
+     * Longest edge kept for uploaded photographs. Only photo categories are
+     * normalised: scanned documents (birth certificates, ID, exam papers) must
+     * retain their original pixels so small print stays legible.
+     *
+     * @var array<string,int>
+     */
+    private const PHOTO_MAX_EDGE = [
+        'website_image' => 1920,
+        'student_photo' => 1200,
+        'staff_photo' => 1200,
+        'uniform_catalog_image' => 1600,
+        // MediaService uploads (student/staff photos, admissions, gallery).
+        'media' => 1600,
+    ];
+
+    /** Images at or below this size are already light enough to leave alone. */
+    private const PHOTO_MIN_OPTIMISE_BYTES = 262144; // 256 KB
+
+    /**
      * @var array<string,array{
      *   root:string,
      *   public_segment:?string,
@@ -26,6 +46,10 @@ final class UploadService
      * }>
      */
     private array $categories;
+
+    private ?DocumentExtractionService $extractionService = null;
+
+    private ?PythonDocumentBridge $imageBridge = null;
 
     public function __construct()
     {
@@ -224,7 +248,10 @@ final class UploadService
      *   subdirectory?:string,
      *   prefix?:string,
      *   preferred_name?:string,
-     *   replace_path?:string|null
+     *   replace_path?:string|null,
+     *   extraction_context?:string,
+     *   uploaded_by?:int|null,
+     *   expected_document_type?:string|null
      * } $options
      *
      * @return array<string,mixed>
@@ -287,6 +314,22 @@ final class UploadService
 
         @chmod($destinationPath, 0664);
 
+        // Downscale and recompress photographs in place, so the stored path and
+        // the URL returned to callers stay exactly the same. Failure is never
+        // fatal: the original file remains available.
+        $this->normalisePhoto($destinationPath, $category);
+
+        $extraction = $this->queueExtraction(
+            $destinationPath,
+            $category,
+            (string) ($options['extraction_context'] ?? $options['context'] ?? $category),
+            $originalName,
+            isset($options['uploaded_by']) ? (int) $options['uploaded_by'] : null,
+            isset($options['expected_document_type'])
+                ? (string) $options['expected_document_type']
+                : null
+        );
+
         $replacePath = trim((string) ($options['replace_path'] ?? ''));
         if ($replacePath !== '') {
             $this->deleteAbsolutePath($replacePath, $policy['root']);
@@ -312,6 +355,7 @@ final class UploadService
                 $ownerId,
                 $storageName
             ),
+            'extraction' => $extraction,
             // The portable reference to store: relative to UPLOAD_URL, so a
             // moved uploads folder only needs UPLOAD_PATH/UPLOAD_URL changed.
             'path' => $policy['public_segment'] === null ? null : implode('/', array_filter([
@@ -607,6 +651,8 @@ final class UploadService
                 )
             );
         }
+
+        $this->assertContentAllowed($tmpName, $extension);
     }
 
     private function ensureDirectory(string $directory): void
@@ -688,6 +734,39 @@ final class UploadService
         'webp' => 'image/webp',
         'gif' => 'image/gif',
         'zip' => 'application/zip',
+        'bmp' => 'image/bmp',
+        'svg' => 'image/svg+xml',
+        'mp3' => 'audio/mpeg',
+        'mp4' => 'video/mp4',
+        'm4v' => 'video/x-m4v',
+        'webm' => 'video/webm',
+        'avi' => 'video/x-msvideo',
+        'mov' => 'video/quicktime',
+    ];
+
+    /**
+     * Content types that can never be a legitimate upload, whatever
+     * extension the file wears. A renamed executable, script or HTML
+     * document is rejected on its bytes, not its name.
+     */
+    private const DANGEROUS_MIME_TYPES = [
+        'application/x-dosexec',
+        'application/x-msdownload',
+        'application/x-msdos-program',
+        'application/x-executable',
+        'application/x-sharedlib',
+        'application/x-sh',
+        'application/x-bsh',
+        'application/x-csh',
+        'application/x-php',
+        'text/html',
+        'application/xhtml+xml',
+        'text/javascript',
+        'application/javascript',
+        'application/x-javascript',
+        'application/ecmascript',
+        'application/x-msdownload',
+        'application/vnd.microsoft.portable-executable',
     ];
 
     private function detectMimeType(string $path): string
@@ -752,6 +831,207 @@ final class UploadService
         return number_format($value, 1) . ' GB';
     }
 
+    /** Injectable for tests; production uses the canonical governed service. */
+    public function setExtractionService(?DocumentExtractionService $service): void
+    {
+        $this->extractionService = $service;
+    }
+
+    /** Injectable for tests; production uses the pinned Pillow-backed bridge. */
+    public function setImageBridge(?PythonDocumentBridge $bridge): void
+    {
+        $this->imageBridge = $bridge;
+    }
+
+    /**
+     * Every successful upload is offered to the extraction boundary. Photos,
+     * video and unsupported files are declined inside the service; an
+     * extraction failure never rolls back a valid upload.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function queueExtraction(
+        string $absolutePath,
+        string $category,
+        string $context,
+        string $originalName,
+        ?int $uploaderId,
+        ?string $expectedDocumentType = null
+    ): ?array {
+        try {
+            $service = $this->extractionService ??= new DocumentExtractionService();
+            return $service->enqueue(
+                $absolutePath,
+                $category,
+                $context,
+                $originalName,
+                $uploaderId,
+                $this->currentPermissions(),
+                (string) ($_SERVER['REQUEST_ID'] ?? ''),
+                $expectedDocumentType
+            );
+        } catch (Throwable $error) {
+            \App\API\Includes\FileLogger::write('document_extraction', [
+                'type' => 'document_extract_upload_hook_failed',
+                'category' => $category,
+                'filename' => basename($originalName),
+                'error_class' => $error::class,
+            ]);
+            return [
+                'extraction_status' => 'needs_manual_entry',
+                'extraction_state' => 'failed',
+                'requires_staff_confirmation' => true,
+                'preview_only' => true,
+            ];
+        }
+    }
+
+    /** @return array<int,string> */
+    private function currentPermissions(): array
+    {
+        $permissions = $_SERVER['auth_user']['effective_permissions'] ?? [];
+        if (!is_array($permissions)) {
+            return [];
+        }
+        return array_values(array_filter(array_map('strval', $permissions)));
+    }
+
+    /**
+     * Keep uploaded photographs lightweight without changing their filename,
+     * extension or URL. Animated GIFs are left untouched, and a rewrite is
+     * discarded whenever it does not actually reduce the byte size.
+     */
+    private function normalisePhoto(string $path, string $category): void
+    {
+        $maxEdge = self::PHOTO_MAX_EDGE[$category] ?? null;
+        if ($maxEdge === null) {
+            return;
+        }
+        $originalSize = filesize($path);
+        if ($originalSize === false || $originalSize <= self::PHOTO_MIN_OPTIMISE_BYTES) {
+            return;
+        }
+
+        // Prefer the pinned Pillow stack. GD remains the dependency-free
+        // fallback for shared hosts where the Python service is unavailable.
+        $this->normalisePhotoWithPillow($path, $maxEdge);
+        $this->normalisePhotoWithGd($path, $maxEdge, (int) $originalSize);
+    }
+
+    private function normalisePhotoWithPillow(string $path, int $maxEdge): void
+    {
+        try {
+            $bridge = $this->imageBridge ??= new PythonDocumentBridge();
+            if (!$bridge->available()) {
+                return;
+            }
+            $optimized = $bridge->optimizeImage($path, $maxEdge);
+            if (!is_array($optimized)) {
+                return;
+            }
+            $content = (string) ($optimized['content'] ?? '');
+            $currentSize = (int) (filesize($path) ?: 0);
+            if ($content === '' || $currentSize === 0 || strlen($content) >= $currentSize) {
+                return;
+            }
+
+            $temporary = $path . '.pillow-' . bin2hex(random_bytes(4));
+            if (@file_put_contents($temporary, $content, LOCK_EX) === false) {
+                @unlink($temporary);
+                return;
+            }
+            @chmod($temporary, (int) (fileperms($path) & 0777));
+            if (!@rename($temporary, $path)) {
+                @unlink($temporary);
+            }
+        } catch (Throwable $error) {
+            \App\API\Includes\FileLogger::write('media', [
+                'type' => 'image_optimize_fallback',
+                'filename' => basename($path),
+                'error_class' => $error::class,
+            ]);
+        }
+    }
+
+    private function normalisePhotoWithGd(string $path, int $maxEdge, int $originalSize): void
+    {
+        if (!function_exists('imagecreatetruecolor')) {
+            return;
+        }
+
+        $info = @getimagesize($path);
+        if (!is_array($info)) {
+            return;
+        }
+
+        $type = (int) ($info[2] ?? 0);
+        if (!in_array($type, [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true)) {
+            return;
+        }
+
+        $source = match ($type) {
+            IMAGETYPE_JPEG => @imagecreatefromjpeg($path),
+            IMAGETYPE_PNG => @imagecreatefrompng($path),
+            IMAGETYPE_WEBP => function_exists('imagecreatefromwebp')
+                ? @imagecreatefromwebp($path) : false,
+            default => false,
+        };
+        if ($source === false) {
+            return;
+        }
+
+        $width = imagesx($source);
+        $height = imagesy($source);
+        $scale = min(1.0, $maxEdge / max(1, max($width, $height)));
+        $newWidth = max(1, (int) round($width * $scale));
+        $newHeight = max(1, (int) round($height * $scale));
+
+        $target = imagecreatetruecolor($newWidth, $newHeight);
+        if ($type !== IMAGETYPE_JPEG) {
+            imagealphablending($target, false);
+            imagesavealpha($target, true);
+            $transparent = imagecolorallocatealpha($target, 0, 0, 0, 127);
+            imagefilledrectangle($target, 0, 0, $newWidth, $newHeight, $transparent);
+        }
+        imagecopyresampled(
+            $target,
+            $source,
+            0,
+            0,
+            0,
+            0,
+            $newWidth,
+            $newHeight,
+            $width,
+            $height
+        );
+
+        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        $tempPath = $path . '.opt-' . bin2hex(random_bytes(4));
+        $written = match ($extension) {
+            'jpg', 'jpeg' => imagejpeg($target, $tempPath, 82),
+            'png' => imagepng($target, $tempPath, 6),
+            'webp' => function_exists('imagewebp') && imagewebp($target, $tempPath, 82),
+            default => false,
+        };
+        // PHP >= 8.0 releases GD images when they leave scope; imagedestroy()
+        // is a deprecated no-op as of PHP 8.5.
+
+        $optimisedSize = is_file($tempPath) ? (int) filesize($tempPath) : 0;
+        if (
+            !$written
+            || $optimisedSize === 0
+            || $optimisedSize >= $originalSize
+            || !rename($tempPath, $path)
+        ) {
+            if (is_file($tempPath)) {
+                @unlink($tempPath);
+            }
+            return;
+        }
+        @chmod($path, 0664);
+    }
+
     private function uploadErrorMessage(int $error): string
     {
         return match ($error) {
@@ -788,6 +1068,7 @@ final class UploadService
         if (!in_array($extension, $allowedTypes, true)) {
             throw new RuntimeException('File type not allowed.');
         }
+        $this->assertContentAllowed($tmp, $extension);
         $this->ensureDirectory($destination);
         $filename = bin2hex(random_bytes(12)) . '_' . date('Ymd_His') . '.' . $extension;
         $target = rtrim($destination, '/\\') . DIRECTORY_SEPARATOR . $filename;
@@ -795,6 +1076,13 @@ final class UploadService
             throw new RuntimeException('Failed to store uploaded file.');
         }
         @chmod($target, 0664);
+        $this->queueExtraction(
+            $target,
+            'system_storage',
+            'legacy_upload',
+            (string) ($file['name'] ?? $filename),
+            isset($_SERVER['auth_user']['user_id']) ? (int) $_SERVER['auth_user']['user_id'] : null
+        );
         return $filename;
     }
 
@@ -891,7 +1179,9 @@ final class UploadService
         string $context,
         int|string|null $entityId = null,
         int|string|null $albumId = null,
-        ?string $preferredBaseName = null
+        ?string $preferredBaseName = null,
+        ?int $uploaderId = null,
+        ?string $expectedDocumentType = null
     ): array {
         $allowed = [
             'jpg','jpeg','png','gif','bmp','svg','pdf','doc','docx','xls','xlsx',
@@ -914,9 +1204,19 @@ final class UploadService
             throw new RuntimeException('Failed to store uploaded media.');
         }
         @chmod($target, 0664);
+        $this->normalisePhoto($target, 'media');
+        $extraction = $this->queueExtraction(
+            $target,
+            'media',
+            $context,
+            (string) ($file['name'] ?? $filename),
+            $uploaderId,
+            $expectedDocumentType
+        );
 
         return [
             'absolute_path' => $target,
+            'extraction' => $extraction,
             'storage_filename' => $filename,
             'original_filename' => basename((string) $file['name']),
             'file_type' => $extension,
@@ -933,7 +1233,9 @@ final class UploadService
         string $sourcePath,
         string $context,
         int|string|null $entityId = null,
-        ?string $originalName = null
+        ?string $originalName = null,
+        ?int $uploaderId = null,
+        ?string $expectedDocumentType = null
     ): array {
         $resolved = realpath($sourcePath);
         if ($resolved === false || !is_file($resolved) || !is_readable($resolved)) {
@@ -947,6 +1249,7 @@ final class UploadService
         if (!in_array($extension, $allowed, true)) {
             throw new RuntimeException('File type not allowed for import.');
         }
+        $this->assertContentAllowed($resolved, $extension);
         $segments = $this->mediaSegments($context, $entityId, null);
         $directory = $this->uploadsRootPath(...$segments);
         $this->ensureDirectory($directory);
@@ -959,8 +1262,18 @@ final class UploadService
             throw new RuntimeException('Failed to import file into managed uploads.');
         }
         @chmod($target, 0664);
+        $this->normalisePhoto($target, 'media');
+        $extraction = $this->queueExtraction(
+            $target,
+            'media',
+            $context,
+            basename($originalName ?: $resolved),
+            $uploaderId,
+            $expectedDocumentType
+        );
         return [
             'absolute_path' => $target,
+            'extraction' => $extraction,
             'storage_filename' => $filename,
             'original_filename' => basename($originalName ?: $resolved),
             'file_type' => $extension,
@@ -1103,6 +1416,112 @@ final class UploadService
         $tmp = (string) ($file['tmp_name'] ?? '');
         if ($tmp === '' || !is_uploaded_file($tmp)) {
             throw new RuntimeException('Invalid uploaded file.');
+        }
+        $this->assertContentAllowed($tmp, $extension);
+    }
+
+    /**
+     * Content-level upload gate: the bytes decide, not the filename.
+     *
+     * A file renamed to an accepted extension still carries its real type:
+     * finfo reads the magic bytes, executables/scripts/markup are refused
+     * outright, and a known extension must agree with the detected type.
+     */
+    private function assertContentAllowed(string $path, string $extension): void
+    {
+        $mime = $this->detectMimeType($path);
+        if (in_array($mime, self::DANGEROUS_MIME_TYPES, true)) {
+            throw new RuntimeException(
+                'File content is not an allowed document or media type.'
+            );
+        }
+        $expected = self::EXTENSION_MIME_MAP[$extension] ?? null;
+        if (
+            $expected !== null
+            && $mime !== $expected
+            // finfo reports CSVs as text/plain on some builds.
+            && !($extension === 'csv' && $mime === 'text/plain')
+            // Some browsers/OSes tag modern phone videos as generic MPEG.
+            && !($extension === 'mp4' && $mime === 'application/mp4')
+        ) {
+            throw new RuntimeException(
+                sprintf('File content does not match the .%s type.', $extension)
+            );
+        }
+
+        if ($extension === 'pdf') {
+            $this->assertPdfHasNoActiveContent($path);
+        } elseif (in_array($extension, self::RASTER_IMAGE_EXTENSIONS, true)) {
+            $this->assertDecodableImage($path);
+        } elseif ($extension === 'csv') {
+            $this->sanitiseCsvInPlace($path);
+        }
+    }
+
+    /** Raster formats getimagesize() can actually decode. */
+    private const RASTER_IMAGE_EXTENSIONS = [
+        'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp',
+    ];
+
+    /**
+     * PDF active-content markers. A PDF is a container: /JavaScript,
+     * /Launch, /XFA, embedded files and rich media let a document run code
+     * or fetch remote content inside the viewer. School uploads (letters,
+     * report cards, registers) never legitimately need them, so their
+     * presence rejects the file outright.
+     */
+    private const PDF_ACTIVE_CONTENT_MARKERS = [
+        '/JavaScript',
+        '/Launch',
+        '/XFA',
+        '/EmbeddedFiles',
+        '/RichMedia',
+        '/SubmitForm',
+    ];
+
+    private function assertPdfHasNoActiveContent(string $path): void
+    {
+        $contents = @file_get_contents($path);
+        if ($contents === false) {
+            throw new RuntimeException('Unable to inspect the uploaded file.');
+        }
+        foreach (self::PDF_ACTIVE_CONTENT_MARKERS as $marker) {
+            if (strpos($contents, $marker) !== false) {
+                throw new RuntimeException(
+                    'PDF contains active content and was rejected.'
+                );
+            }
+        }
+    }
+
+    /**
+     * Polyglot guard for raster images: the bytes must decode as the image
+     * they claim to be. An appended payload still decodes, but anything
+     * that is not a real image at all is refused here.
+     */
+    private function assertDecodableImage(string $path): void
+    {
+        if (@getimagesize($path) === false) {
+            throw new RuntimeException(
+                'Image file is corrupted or is not a valid image.'
+            );
+        }
+    }
+
+    /**
+     * Uploaded CSVs are downloaded again by staff who may open them in a
+     * spreadsheet app. Neutralise formula-leading cells (=, +, -, @, tab,
+     * CR) in place so the stored file is already safe.
+     */
+    private function sanitiseCsvInPlace(string $path): void
+    {
+        $contents = @file_get_contents($path);
+        if (!is_string($contents) || $contents === '') {
+            return;
+        }
+        $sanitised = \App\API\Includes\CsvSafety::content($contents);
+        if ($sanitised !== $contents) {
+            file_put_contents($path, $sanitised);
         }
     }
 

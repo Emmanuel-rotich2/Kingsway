@@ -10,22 +10,23 @@
     <!-- Header toolbar -->
     <div class="kw-msg-header">
         <div class="kw-msg-header-title">
-            <h4 class="kw-msg-title mb-0"><i class="bi bi-chat-left-text me-2"></i>Messages</h4>
-            <span class="kw-msg-subtitle">Internal staff messaging</span>
+            <h1 class="kw-msg-title mb-0"><i class="bi bi-chat-left-text me-2" aria-hidden="true"></i>Messages</h1>
+            <p class="kw-msg-subtitle mb-0">Internal conversations with colleagues across the school.</p>
         </div>
         <div class="kw-msg-header-actions">
             <div class="kw-msg-search">
-                <i class="bi bi-search kw-msg-search-icon"></i>
+                <i aria-hidden="true" class="bi bi-search kw-msg-search-icon"></i>
                 <input
                     type="search"
                     class="form-control kw-msg-search-input"
                     id="msgSearch"
                     placeholder="Search conversations..."
+                    aria-label="Search conversations"
                     autocomplete="off"
                 >
             </div>
             <button type="button" class="btn btn-success btn-sm kw-msg-new" id="btnNewMessage">
-                <i class="bi bi-pencil-square me-1"></i>New Message
+                <i class="bi bi-pencil-square me-1" aria-hidden="true"></i>New message
             </button>
         </div>
     </div>
@@ -50,11 +51,11 @@
         <section class="kw-msg-pane">
             <!-- Empty state -->
             <div class="kw-msg-empty" id="threadEmpty">
-                <i class="bi bi-chat-dots kw-msg-empty-icon"></i>
-                <h5>Select a conversation</h5>
-                <p class="text-muted mb-3">Pick a conversation on the left, or start a new one.</p>
+                <i class="bi bi-chat-dots kw-msg-empty-icon" aria-hidden="true"></i>
+                <h2 class="h6">No conversation open</h2>
+                <p class="text-muted mb-3">Choose a conversation on the left, or start a new message.</p>
                 <button type="button" class="btn btn-outline-success btn-sm" data-start-compose>
-                    <i class="bi bi-pencil-square me-1"></i>New Message
+                    <i class="bi bi-pencil-square me-1" aria-hidden="true"></i>New message
                 </button>
             </div>
 
@@ -76,10 +77,11 @@
                         id="replyBox"
                         rows="2"
                         placeholder="Write a reply..."
+                        aria-label="Write a reply"
                         maxlength="5000"
                     ></textarea>
                     <button type="button" class="btn btn-success btn-sm" id="btnSendReply">
-                        <i class="bi bi-send me-1"></i>Send
+                        <i class="bi bi-send me-1" aria-hidden="true"></i>Send
                     </button>
                 </div>
             </div>
@@ -88,7 +90,7 @@
             <div class="kw-msg-compose d-none" id="composeView">
                 <div class="kw-msg-thread-header">
                     <div class="kw-msg-thread-meta">
-                        <span class="kw-msg-thread-title">New Message</span>
+                        <h2 class="kw-msg-thread-title h6 mb-0">New message</h2>
                     </div>
                 </div>
                 <div class="kw-msg-compose-body">
@@ -131,7 +133,7 @@
                 <div class="kw-msg-compose-footer">
                     <button type="button" class="btn btn-outline-secondary btn-sm" data-cancel-compose>Cancel</button>
                     <button type="button" class="btn btn-success btn-sm" id="btnSendMessage">
-                        <i class="bi bi-send me-1"></i>Send Message
+                        <i class="bi bi-send me-1" aria-hidden="true"></i>Send message
                     </button>
                 </div>
             </div>

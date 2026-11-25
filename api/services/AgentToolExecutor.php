@@ -41,6 +41,8 @@ final class AgentToolExecutor
     private const READ_TOOLS = [
         'assistant.catalog' => 'workflow catalogue',
         'assistant.workspace_scan' => 'workspace scan',
+        'assistant.page_catalog' => 'system page catalogue',
+        'assistant.page_activity' => 'page usage activity',
         'data.query' => 'permission-scoped dataset',
         'reports.insight_brief' => 'intelligence briefing',
         'reports.kpi_brief' => 'KPI brief',
@@ -136,7 +138,7 @@ final class AgentToolExecutor
      * @param array<string,mixed> $input
      * @return array<string,mixed>
      */
-    public function execute(int $userId, array $permissions, string $tool, array $input, string $requestId = '', ?PDO $pdo = null): array
+    public function execute(int $userId, array $permissions, string $tool, array $input, string $requestId = '', ?PDO $pdo = null, array $roleIds = []): array
     {
         if ($userId < 1) {
             throw new DomainException('A recorded operator is required.', 422);
@@ -185,7 +187,7 @@ final class AgentToolExecutor
             if (isset(self::REPORT_TOOLS[(string) $tool])) {
                 return $this->readReport((string) $tool, $context, (array) $input, $pdo);
             }
-            return $this->readGoverned((string) $tool, $context, (array) $input, $pdo);
+            return $this->readGoverned((string) $tool, $context, (array) $input, $pdo, $roleIds);
         } catch (DomainException $e) {
             return ['status' => 'not_authorized', 'message' => 'access could not be confirmed'];
         } catch (Throwable $e) {
@@ -371,9 +373,23 @@ final class AgentToolExecutor
      * @param array<string,mixed> $input
      * @return array<string,mixed>
      */
-    private function readGoverned(string $tool, array $context, array $input, ?PDO $pdo = null): array
+    private function readGoverned(string $tool, array $context, array $input, ?PDO $pdo = null, array $roleIds = []): array
     {
         $userId = (int) $context['user_id'];
+
+        if ($tool === 'assistant.page_catalog' || $tool === 'assistant.page_activity') {
+            // The agents' map of their own environment: every page, its
+            // components, which roles reach it, and real usage from the
+            // journals. Scoped to the operator's resolved role ids.
+            $service = new SystemContextService();
+            if ($tool === 'assistant.page_catalog') {
+                return $service->catalogFor($roleIds);
+            }
+            $route = mb_substr(trim((string) ($input['route'] ?? '')), 0, 160);
+            return $route === ''
+                ? $service->pageActivity('')
+                : $service->pageEntry($route, $roleIds);
+        }
 
         if ($tool === 'data.query') {
             $service = new PolarsDatasetService($pdo);

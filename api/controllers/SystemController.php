@@ -447,6 +447,104 @@ class SystemController extends BaseController
         }
     }
 
+    // STAFF USAGE & ADOPTION (deterministic-first, system.usage_brief)
+
+    /** GET /api/system/usage-summary — live usage aggregates for the admin panel. */
+    public function getUsageSummary($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+        try {
+            $service = $this->contract('App\\API\\Services\\SystemUsageReviewService', $this->db->getConnection());
+            return $this->success($service->summary(), 'Usage summary retrieved');
+        } catch (\Throwable $e) {
+            return $this->serverError('Usage summary is temporarily unavailable');
+        }
+    }
+
+    /** POST /api/system/ai-usage-review-queue */
+    public function postAiUsageReviewQueue($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+        if (!$this->canUseAiUsage()) {
+            return $this->forbidden('Usage AI assistance is not available for your account');
+        }
+        try {
+            $service = $this->contract('App\\API\\Services\\SystemUsageReviewService', $this->db->getConnection());
+            $input = $service->aiPayload($service->summary());
+            $queued = $this->contract('App\\API\\Services\\DraftRepository')->queue(
+                'system.usage_brief', $this->aiOperationsContext(), $input,
+                ['subject_type' => 'system_usage_review', 'scope' => 'authorized_usage_aggregates']
+            );
+            return $this->accepted($queued, 'Usage review queued for review');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (\Throwable $e) {
+            return $this->serverError('Usage assistance is temporarily unavailable');
+        }
+    }
+
+    /** GET /api/system/ai-usage-reviews?scope=own|review */
+    public function getAiUsageReviews($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+        $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
+        if ($review && !$this->canApproveAiUsage()) {
+            return $this->forbidden('Usage review permission is required');
+        }
+        $drafts = $this->contract('App\\API\\Services\\DraftRepository')->listForReview(
+            $this->db->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'system'
+        );
+        $drafts = array_values(array_filter(
+            $drafts,
+            static fn(array $d): bool => ($d['workflow_id'] ?? '') === 'system.usage_brief'
+        ));
+        return $this->success(['drafts' => $drafts, 'scope' => $review ? 'review' : 'own'], 'Usage reviews retrieved');
+    }
+
+    /** POST /api/system/ai-usage-review-approve/{id} */
+    public function postAiUsageReviewApprove($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+        if (!$this->canApproveAiUsage()) {
+            return $this->forbidden('Usage review permission is required');
+        }
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) {
+            return $this->badRequest('draft_id is required');
+        }
+        try {
+            $approved = $this->contract('App\\API\\Services\\DraftRepository')->approve(
+                $this->db->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'system.usage_brief'
+            );
+            return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Usage review approved for staff guidance');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
+        }
+    }
+
+    private function canUseAiUsage(): bool
+    {
+        try {
+            $this->contract('App\\API\\Services\\WorkflowAuthorization')->authorize('system.usage_brief', $this->aiOperationsContext());
+            return true;
+        } catch (DomainException $e) {
+            return false;
+        }
+    }
+
+    private function canApproveAiUsage(): bool
+    {
+        return $this->userHasAny(['system_view', 'system_manage'], [], ['system administrator', 'admin']);
+    }
+
     private function aiOperationsContext(): array
     {
         return [
@@ -864,15 +962,15 @@ class SystemController extends BaseController
 
             if ($format === 'csv') {
                 $stream = fopen('php://temp', 'w+');
-                fputcsv($stream, ['timestamp', 'level', 'category', 'user_id', 'user', 'ip', 'method', 'route', 'status', 'action/type/event', 'message', 'request_id', 'archive'], ',', '"', '\\');
+                fputcsv($stream, \App\API\Includes\CsvSafety::row(['timestamp', 'level', 'category', 'user_id', 'user', 'ip', 'method', 'route', 'status', 'action/type/event', 'message', 'request_id', 'archive']), ',', '"', '\\');
                 foreach ($entries as $row) {
-                    fputcsv($stream, [
+                    fputcsv($stream, \App\API\Includes\CsvSafety::row([
                         $row['timestamp'] ?? '', $row['level'] ?? '', $row['_category'] ?? '',
                         $row['user_id'] ?? '', $row['user'] ?? '', $row['ip'] ?? '',
                         $row['method'] ?? '', $row['route'] ?? '', $row['status'] ?? '',
                         $row['action'] ?? $row['type'] ?? $row['event'] ?? '', $row['message'] ?? '',
                         $row['request_id'] ?? '', !empty($row['_archive']) ? 'yes' : 'no',
-                    ], ',', '"', '\\');
+                    ]), ',', '"', '\\');
                 }
                 rewind($stream); $content = stream_get_contents($stream); fclose($stream);
                 $mime = 'text/csv';

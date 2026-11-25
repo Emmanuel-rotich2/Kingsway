@@ -276,7 +276,15 @@ export function registerAgentRoutes(app) {
           { errorType: error.name, errorMessage: error.message },
           'Direct Node to Python assistant stream failed',
         );
-        sendEvent('error', { message: 'The assistant could not connect to its service. Please try again.', terminal: true });
+        // Surface the real failure class (PHP auth rejection vs Python
+        // upstream vs network) instead of collapsing everything into one
+        // message — the old generic text made every outage look identical.
+        const reason = String(error?.message || 'unknown error').slice(0, 160);
+        sendEvent('error', {
+          message: 'The assistant could not connect to its service. Please try again.',
+          reason,
+          terminal: true,
+        });
       }
     } finally {
       if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.end();

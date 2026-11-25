@@ -79,7 +79,7 @@ const manageSchoolGalleryController = {
     document.getElementById('galleryCaption').value  = '';
     document.getElementById('galleryCategory').value = 'General';
     document.getElementById('galleryMediaType').value = 'image';
-    galleryMediaTypeChanged();
+    this.previewImg('');
     bootstrap.Modal.getOrCreateInstance(document.getElementById('wsGalleryModal')).show();
   },
 

@@ -19,14 +19,30 @@
                 class="btn btn-outline-secondary"
                 id="resetTokenFiltersBtn"
             >
-                <i class="bi bi-arrow-counterclockwise me-1"></i> Reset filters
+                <i aria-hidden="true" class="bi bi-arrow-counterclockwise me-1"></i> Reset filters
+            </button>
+            <button
+                type="button"
+                class="btn btn-outline-secondary"
+                data-kw-sa-export
+                data-kw-sa-export-target="#tokenManagementTable"
+                data-kw-sa-export-name="token_management"
+            >
+                <i class="bi bi-filetype-csv me-1" aria-hidden="true"></i>Export CSV
+            </button>
+            <button
+                type="button"
+                class="btn btn-outline-secondary"
+                data-kw-sa-print
+            >
+                <i class="bi bi-printer me-1" aria-hidden="true"></i>Print / PDF
             </button>
             <button
                 type="button"
                 class="btn btn-primary"
                 id="refreshTokensBtn"
             >
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                <i aria-hidden="true" class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
     </div>
@@ -54,7 +70,7 @@
                     </label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="bi bi-search"></i>
+                            <i aria-hidden="true" class="bi bi-search"></i>
                         </span>
                         <input
                             class="form-control"
@@ -116,7 +132,7 @@
             <div class="d-flex flex-wrap align-items-center gap-2">
                 <span class="fw-semibold small" id="tokenManagementBulkCount">0 selected</span>
                 <button type="button" class="btn btn-sm btn-outline-danger" id="bulkRevokeTokensBtn">
-                    <i class="bi bi-ban me-1"></i> Revoke selected
+                    <i aria-hidden="true" class="bi bi-ban me-1"></i> Revoke selected
                 </button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkClearTokensBtn">
                     Clear selection
@@ -124,10 +140,11 @@
             </div>
         </div>
         <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
+            <table class="table table-hover align-middle mb-0" id="tokenManagementTable">
+                <caption class="visually-hidden">Token records</caption>
                 <thead id="tokenManagementTableHead">
                     <tr>
-                        <th class="text-center" style="width: 40px">
+                        <th scope="col" class="text-center" style="width: 40px">
                             <input
                                 class="form-check-input"
                                 type="checkbox"
@@ -199,7 +216,7 @@
                         class="btn btn-outline-secondary"
                         id="tokenPreviousPage"
                     >
-                        <i class="bi bi-chevron-left me-1"></i> Previous
+                        <i aria-hidden="true" class="bi bi-chevron-left me-1"></i> Previous
                     </button>
                     <span
                         class="btn btn-outline-secondary disabled"
@@ -212,7 +229,7 @@
                         class="btn btn-outline-secondary"
                         id="tokenNextPage"
                     >
-                        Next <i class="bi bi-chevron-right ms-1"></i>
+                        Next <i aria-hidden="true" class="bi bi-chevron-right ms-1"></i>
                     </button>
                 </div>
             </nav>

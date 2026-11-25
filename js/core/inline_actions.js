@@ -2,9 +2,10 @@
  * Inline actions: runs data-kw-on<event>="..." handler attributes under a
  * strict Content-Security-Policy (no 'unsafe-inline', no 'unsafe-eval').
  *
- * Templates and page controllers used to write onclick="ctrl.save(5)". The
- * browser now refuses every inline handler, so they are written as
- * data-kw-onclick="ctrl.save(5)" and this file runs them. It never calls
+ * Templates and page controllers used to attach raw click handlers such as
+ * ctrl.save(5) through inline attributes. The browser now refuses every inline
+ * handler, so they are written as data-kw-onclick attributes and this file runs
+ * them. It never calls
  * eval/Function: each handler is parsed into a small syntax tree (a JS
  * subset: calls, member access, literals, assignments, if/return, logical
  * and comparison operators) and evaluated with these limits:

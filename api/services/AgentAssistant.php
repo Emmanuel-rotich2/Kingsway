@@ -82,6 +82,9 @@ final class AgentAssistant
             'history' => is_array($context['history'] ?? null) ? array_slice($context['history'], -10) : [],
             'topics' => is_array($context['topics'] ?? null) ? array_slice($context['topics'], 0, 12) : [],
             'preferences' => is_array($context['preferences'] ?? null) ? $context['preferences'] : [],
+            'page_context' => is_array($context['page_context'] ?? null) ? $context['page_context'] : [],
+            'page_info' => is_array($context['page_info'] ?? null) ? $context['page_info'] : [],
+            'user_memory' => is_array($context['user_memory'] ?? null) ? $context['user_memory'] : [],
         ], $question);
     }
 
@@ -113,13 +116,19 @@ final class AgentAssistant
             throw new DomainException('The recorded operator permissions could not be resolved.', 403);
         }
 
+        $roleIds = array_values(array_map(
+            static fn(array $role): int => (int) ($role['id'] ?? 0),
+            $this->resolveEffectiveRoles($pdo, $userId)
+        ));
+
         return (new AgentToolExecutor())->execute(
             $userId,
             $permissions,
             (string) ($payload['tool'] ?? ''),
             is_array($payload['tool_input'] ?? null) ? $payload['tool_input'] : [],
             (string) ($payload['request_id'] ?? 'agent-tool'),
-            $pdo
+            $pdo,
+            $roleIds
         );
     }
 

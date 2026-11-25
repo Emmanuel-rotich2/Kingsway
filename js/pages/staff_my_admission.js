@@ -25,7 +25,9 @@
       var message = document.getElementById('staffAdmissionMessage'), button = document.getElementById('staffAdmissionSubmit');
       message.className = 'alert d-none mb-0'; button.disabled = true;
       try {
-        var response = unwrap(await apiCall('/staff/my-admission-application', 'POST', new FormData(form), null, { isFile: true, noRedirect: true }));
+        var fd = new FormData(form);
+        window.KingswayDocumentCamera?.syncFormData(fd, form);
+        var response = unwrap(await apiCall('/staff/my-admission-application', 'POST', fd, null, { isFile: true, noRedirect: true }));
         message.textContent = 'Application submitted successfully. Reference: ' + (response.ref || response.application_no || '');
         message.className = 'alert alert-success mb-0'; form.reset();
       } catch (error) { message.textContent = error.message || 'Application could not be submitted.'; message.className = 'alert alert-danger mb-0'; }

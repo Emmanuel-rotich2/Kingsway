@@ -2,42 +2,43 @@
 /** Kingsway System Administrator: Email Provider Configuration (system domain). */
 
 ?>
-<div class="container-fluid py-4">
+<div class="container-fluid py-3">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h2 fw-bold mb-1"><i class="bi bi-envelope-gear me-2 text-success"></i>Email Mailbox Profiles</h2>
+            <h2 class="mb-1"><i class="bi bi-envelope-gear me-2" aria-hidden="true"></i>Email mailbox profiles</h2>
             <p class="text-muted mb-0">Configure group email accounts (@kingswaypreparatoryschool.sc.ke) and their SMTP/IMAP connections. Assign staff separately on each account from Kingsway Mail.</p>
         </div>
         <div class="d-flex flex-wrap gap-2">
-            <button class="btn btn-success btn-sm" id="emailExportCsv"><i class="bi bi-filetype-csv me-1"></i>Export CSV</button>
-            <button class="btn btn-outline-secondary btn-sm" id="emailPrint"><i class="bi bi-printer me-1"></i>Print/PDF</button>
-            <button class="btn btn-success" id="emailNewProfile"><i class="bi bi-plus-circle me-1"></i>New Mailbox</button>
-            <button class="btn btn-outline-success btn-sm" id="emailRefresh"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="emailExportCsv"><i class="bi bi-filetype-csv me-1" aria-hidden="true"></i>Export CSV</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="emailPrint"><i class="bi bi-printer me-1" aria-hidden="true"></i>Print / PDF</button>
+            <button type="button" class="btn btn-success btn-sm" id="emailNewProfile"><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>New mailbox</button>
+            <button type="button" class="btn btn-outline-success btn-sm" id="emailRefresh"><i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>Refresh</button>
         </div>
     </div>
-    <div id="emailState" class="alert alert-info" role="status"><i class="bi bi-hourglass-split me-1"></i>Loading email profiles...</div>
+    <div id="emailState" class="alert alert-info" role="status" aria-live="polite"><i class="bi bi-hourglass-split me-1" aria-hidden="true"></i>Loading email profiles…</div>
 
-    <div class="card border-0 shadow-sm mb-4">
-        <div class="card-header bg-white d-flex justify-content-between align-items-center">
-            <h6 class="mb-0 fw-semibold">Mailbox Profiles</h6>
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h3 class="h6 mb-0">Mailbox profiles</h3>
         </div>
         <div class="card-body">
             <div class="table-responsive"><table class="table table-hover table-sm mb-0" id="emailProfilesTable">
-                <thead class="table-light"><tr><th>Label</th><th>Email Address</th><th>Display Name</th><th>Status</th><th>Default</th><th>Staff access</th><th>Actions</th></tr></thead>
-                <tbody id="emailProfilesBody"><tr id="emailProfilesState"><td colspan="7" class="text-center text-muted py-3">Loading...</td></tr></tbody>
+                <caption class="visually-hidden">Email mailbox profiles</caption>
+                <thead><tr><th scope="col">Label</th><th scope="col">Email address</th><th scope="col">Display name</th><th scope="col">Status</th><th scope="col">Default</th><th scope="col">Staff access</th><th scope="col">Actions</th></tr></thead>
+                <tbody id="emailProfilesBody"><tr id="emailProfilesState"><td colspan="7" class="text-center text-muted py-3">Loading mailboxes…</td></tr></tbody>
             </table></div>
-            <template id="emailProfileRowTemplate"><tr data-email-profile-row><td class="align-middle"><strong data-fill="label"></strong></td><td class="align-middle"><a data-fill="email"></a></td><td class="align-middle" data-fill="display-name"></td><td class="align-middle"><span class="badge" data-fill="status"></span></td><td class="align-middle"><span data-fill="default"></span></td><td class="align-middle"><span class="badge bg-info text-dark">Per-mailbox</span></td><td class="align-middle"><div class="d-flex flex-wrap gap-1"><button class="btn btn-sm btn-outline-primary" data-action="view" type="button" title="View inbox"><i class="bi bi-envelope-open"></i></button><button class="btn btn-sm btn-outline-success" data-action="edit" type="button" title="Edit mailbox"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-warning" data-action="set_default" type="button" title="Set as default"><i class="bi bi-star"></i></button><button class="btn btn-sm btn-outline-info" data-action="test_smtp" type="button" title="Test SMTP"><i class="bi bi-lightning"></i></button><button class="btn btn-sm btn-outline-info" data-action="test_imap" type="button" title="Test IMAP"><i class="bi bi-inbox"></i></button><button class="btn btn-sm btn-outline-danger" data-action="delete" type="button" title="Delete mailbox"><i class="bi bi-trash"></i></button></div></td></tr></template>
+            <template id="emailProfileRowTemplate"><tr data-email-profile-row><td class="align-middle"><strong data-fill="label"></strong></td><td class="align-middle"><a data-fill="email"></a></td><td class="align-middle" data-fill="display-name"></td><td class="align-middle"><span class="badge" data-fill="status"></span></td><td class="align-middle"><span data-fill="default"></span></td><td class="align-middle"><span class="badge bg-info text-dark">Per-mailbox</span></td><td class="align-middle"><div class="d-flex flex-wrap gap-1"><button class="btn btn-sm btn-outline-primary" data-action="view" type="button" title="View inbox"><i aria-hidden="true" class="bi bi-envelope-open"></i></button><button class="btn btn-sm btn-outline-success" data-action="edit" type="button" title="Edit mailbox"><i aria-hidden="true" class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-warning" data-action="set_default" type="button" title="Set as default"><i aria-hidden="true" class="bi bi-star"></i></button><button class="btn btn-sm btn-outline-info" data-action="test_smtp" type="button" title="Test SMTP"><i aria-hidden="true" class="bi bi-lightning"></i></button><button class="btn btn-sm btn-outline-info" data-action="test_imap" type="button" title="Test IMAP"><i aria-hidden="true" class="bi bi-inbox"></i></button><button class="btn btn-sm btn-outline-danger" data-action="delete" type="button" title="Delete mailbox"><i aria-hidden="true" class="bi bi-trash"></i></button></div></td></tr></template>
         </div>
     </div>
 
-    <div class="card border-0 shadow-sm mb-4">
-        <div class="card-header bg-white d-flex justify-content-between align-items-center">
-            <h6 class="mb-0 fw-semibold">Audit BCC (watchdog copy of user-sent email)</h6>
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h3 class="h6 mb-0">Audit BCC (watchdog copy of user-sent email)</h3>
         </div>
         <div class="card-body">
             <div class="row g-3 align-items-end">
                 <div class="col-md-4">
-                    <label class="form-label fw-semibold">Audit BCC Email</label>
+                    <label class="form-label" for="auditBccEmail">Audit BCC email</label>
                     <input type="email" class="form-control" id="auditBccEmail" placeholder="preparatoryschoolkingsway@gmail.com">
                 </div>
                 <div class="col-md-3">
@@ -46,20 +47,20 @@
                         <label class="form-check-label" for="auditBccEnabled">Enabled</label>
                     </div>
                 </div>
-                <div class="col-md-2"><button class="btn btn-success w-100" id="auditBccSaveBtn"><i class="bi bi-check-lg me-1"></i>Save</button></div>
-                <div class="col-md-3"><div id="auditBccResult" class="text-muted small"></div></div>
+                <div class="col-md-2"><button type="button" class="btn btn-success btn-sm w-100" id="auditBccSaveBtn"><i class="bi bi-check-lg me-1" aria-hidden="true"></i>Save</button></div>
+                <div class="col-md-3"><div id="auditBccResult" class="text-muted small" role="status" aria-live="polite"></div></div>
             </div>
-            <p class="text-muted small mt-2 mb-0"><i class="bi bi-info-circle me-1"></i>When enabled, emails a staff member composes and sends through the Communications Hub are also BCC'd to the watchdog address (default prepapartoryschoolkingsway@gmail.com). System-generated emails (OTP codes, password resets, invitation links, payment confirmations) are private between the recipient and the system and are never BCC'd.</p>
+            <p class="text-muted small mt-2 mb-0"><i aria-hidden="true" class="bi bi-info-circle me-1"></i>When enabled, emails a staff member composes and sends through the Communications Hub are also BCC'd to the watchdog address (default prepapartoryschoolkingsway@gmail.com). System-generated emails (OTP codes, password resets, invitation links, payment confirmations) are private between the recipient and the system and are never BCC'd.</p>
         </div>
     </div>
 
-    <div class="mt-3"><button class="btn btn-success" id="emailTestBtn"><i class="bi bi-lightning me-1"></i>Test Global SMTP</button> <span id="emailTestResult" class="text-muted small ms-2"></span></div>
+    <div class="mt-3 d-flex flex-wrap align-items-center gap-2"><button type="button" class="btn btn-outline-success btn-sm" id="emailTestBtn"><i class="bi bi-lightning me-1" aria-hidden="true"></i>Test global SMTP</button> <span id="emailTestResult" class="text-muted small" role="status" aria-live="polite"></span></div>
 </div>
 
 <!-- Profile create/edit modal -->
 <div class="modal fade" id="emailProfileModal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
     <form id="emailProfileForm" novalidate>
-        <div class="modal-header bg-success text-white"><h5 class="modal-title" id="emailProfileModalTitle">New Email Mailbox</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header"><h5 class="modal-title" id="emailProfileModalTitle">New email mailbox</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
         <div class="modal-body">
             <input type="hidden" id="emailProfileId">
             <div class="row g-3">
@@ -90,11 +91,11 @@
             </div>
         </div>
         <div class="modal-footer">
-            <button type="button" class="btn btn-outline-success btn-sm me-2" id="emailProfileTestSmtpBtn"><i class="bi bi-lightning me-1"></i>Test SMTP</button>
-            <button type="button" class="btn btn-outline-success btn-sm me-auto" id="emailProfileTestImapBtn"><i class="bi bi-inbox me-1"></i>Test IMAP</button>
-            <span id="emailProfileTestResult" class="text-muted small me-auto"></span>
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-            <button type="submit" class="btn btn-success" id="emailProfileSaveBtn"><i class="bi bi-check-lg me-1"></i>Save Mailbox</button>
+            <button type="button" class="btn btn-outline-success btn-sm me-2" id="emailProfileTestSmtpBtn"><i class="bi bi-lightning me-1" aria-hidden="true"></i>Test SMTP</button>
+            <button type="button" class="btn btn-outline-success btn-sm me-auto" id="emailProfileTestImapBtn"><i class="bi bi-inbox me-1" aria-hidden="true"></i>Test IMAP</button>
+            <span id="emailProfileTestResult" class="text-muted small me-auto" role="status" aria-live="polite"></span>
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-success" id="emailProfileSaveBtn"><i class="bi bi-check-lg me-1" aria-hidden="true"></i>Save mailbox</button>
         </div>
     </form>
 </div></div></div>

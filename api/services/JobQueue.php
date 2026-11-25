@@ -59,7 +59,7 @@ final class JobQueue
 
     /** Exact job types that always run on the BATCH lane. */
     private const BATCH_JOB_TYPES = [
-        'reads.projection.refresh', 'automation.run', 'ai.analytics.insight',
+        'reads.projection.refresh', 'automation.run', 'documents.extract', 'ai.analytics.insight',
         'ai.insight.generate', 'ai.agent.run', 'ai.workflow.draft',
         'ai.agent.task',
         'curriculum.policy_interpret', 'rpc.async.dispatch',

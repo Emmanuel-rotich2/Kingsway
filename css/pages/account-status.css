@@ -1,0 +1,94 @@
+/* System Administrator — Account status ledger. */
+#accountStatusPage .table-responsive {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+#accountStatusPage table.table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+#accountStatusPage table.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #f1f6f3;
+  box-shadow: inset 0 -2px 0 #d7e2dc;
+}
+
+#accountStatusPage table.table .col-actions {
+  position: sticky;
+  right: 0;
+  z-index: 4;
+  background: #fff;
+  box-shadow: -6px 0 8px -6px rgba(21, 36, 31, 0.12);
+  min-width: 220px;
+}
+
+#accountStatusPage table.table thead th.col-actions {
+  z-index: 6;
+  box-shadow: -6px -2px 8px -6px rgba(0, 0, 0, 0.12);
+}
+
+#accountStatusPage .accounts-pager .form-select {
+  width: auto;
+  min-width: 72px;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  #accountStatusPage .no-print,
+  #pageTopbar,
+  #pageFooter,
+  .sidebar,
+  .navbar,
+  .toast-container {
+    display: none !important;
+  }
+
+  #accountStatusPage .card {
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  #accountStatusPage .table-responsive {
+    overflow: visible !important;
+  }
+
+  #accountStatusPage table {
+    width: 100%;
+  }
+
+  #accountStatusPage table.table thead th,
+  #accountStatusPage table.table .col-actions {
+    position: static;
+    box-shadow: none;
+  }
+
+  #accountStatusPage thead {
+    display: table-header-group;
+  }
+
+  #accountStatusPage tr {
+    break-inside: avoid;
+  }
+
+  #accountStatusPage td,
+  #accountStatusPage th {
+    font-size: 8pt;
+    padding: 2px 4px;
+  }
+
+  #accountStatusPage .accounts-pager {
+    display: none !important;
+  }
+}

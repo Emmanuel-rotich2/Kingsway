@@ -15,7 +15,6 @@
   "use strict";
 
   const COLLAPSE_STORAGE_KEY = "kingsway_sidebar_collapsed";
-  const THEME_STORAGE_KEY = "kingsway_theme";
   const MOBILE_BREAKPOINT = 992;
 
   let initialized = false;
@@ -518,6 +517,7 @@
     }
 
     initializeHeaderUser();
+    window.KingswayTheme?.hydrate?.();
     void fetchNotifications();
   }
 
@@ -1578,6 +1578,7 @@
   let assistantRecognition = null;
 
   async function initAssistantChrome() {
+    // Legacy global assistant panel removed; ai_inline_draft.js is the single assistant.
     if (!document.getElementById("globalAiAssistantPanel")) return;
     if (assistantChromeBound) return;
     assistantChromeBound = true;
@@ -2354,7 +2355,9 @@
   function openAssistantWith(question) {
     const q = String(question || "").slice(0, 600);
     const ka = window.KingswayAssistant;
-    if (ka?.ask) { ka.ask(q); return; }
+    // Never call ourselves through the shim: that recursed forever when the
+    // session-aware panel loaded before this legacy shell script.
+    if (ka?.ask && ka.ask !== openAssistantWith) { ka.ask(q); return; }
     const panel = document.getElementById("kwAiAssistPanel");
     if (panel) {
       panel.hidden = false;
@@ -2365,10 +2368,12 @@
     }
   }
 
-  // Compatibility shim: universal AI panel owns the assistant UI.
-  window.KingswayAssistant = Object.assign(window.KingswayAssistant || {}, {
-    ask: (question) => openAssistantWith(question),
-  });
+  // Compatibility shim only: the session-aware panel owns the assistant UI.
+  if (typeof window.KingswayAssistant?.ask !== "function" || window.KingswayAssistant.ask === openAssistantWith) {
+    window.KingswayAssistant = Object.assign(window.KingswayAssistant || {}, {
+      ask: (question) => openAssistantWith(question),
+    });
+  }
 
   function renderProactiveNudge(suggestion, signature) {
     hideProactiveNudge();
@@ -3280,24 +3285,18 @@
       .join("")}</tr></thead><tbody>${body}</tbody></table></div>`;
   }
 
+  // Kept for callers that still think in light/dark. The theme controller owns
+  // storage, root state, icon state and cross-tab broadcasting.
   function setTheme(dark) {
-    document.body.classList.toggle(
-      "app-dark",
-      dark
-    );
-
-    localStorage.setItem(
-      THEME_STORAGE_KEY,
-      dark ? "dark" : "light"
-    );
-
-    const icon = $("#header-theme-button i");
-
-    if (icon) {
-      icon.className = dark
-        ? "bi bi-sun"
-        : "bi bi-moon-stars";
+    if (window.KingswayTheme?.setPreference) {
+      window.KingswayTheme.setPreference(
+        dark ? "dark" : "light",
+        { persist: true, broadcast: true, animate: true }
+      );
+      return;
     }
+
+    document.body.classList.toggle("app-dark", dark);
   }
 
   function showLogoutModal() {
@@ -3430,61 +3429,13 @@
       void restoreDelegatedTask();
     }
 
-    /* legacy globalAiAssistantPanel removed */
-    
-    // A persisted-open panel is restored by ui_state_manager, which can add
-    // `.show` before this script attaches its Bootstrap listeners. Watching the
-    // class attribute catches that restore regardless of load order; the flag
-    // keeps every path from loading the data twice.
-    // `$` is querySelector and already returns the element (or null) — do not
-    // index it with `[0]`, which would be undefined and disable every check.
-    const assistantPanelEl = document.getElementById("globalAiAssistantPanel");
-    if (assistantPanelEl && window.MutationObserver) {
-      const panelObserver = new MutationObserver(() => {
-        if (assistantPanelEl.classList.contains("show")) {
-          hydrateOpenAssistantPanel();
-        }
-      });
-      panelObserver.observe(assistantPanelEl, {
-        attributes: true,
-        attributeFilter: ["class"],
-      });
-    }
-    if (assistantPanelEl?.classList.contains("show")) {
-      hydrateOpenAssistantPanel();
-    }
-    // Hard reload: ui_state_manager restores `.show` on DOMContentLoaded, which
-    // can run AFTER bindEvents() captured a not-yet-open panel, so neither the
-    // class check above nor the Bootstrap `show` event was observable at bind
-    // time. Defer a few guarded checks past the boot sequence so a persisted-
-    // open panel always hydrates its insight regions without needing a manual
-    // close/reopen. The flag keeps this idempotent — no duplicate data loads.
-    [0, 300, 1200].forEach((delay) =>
-      window.setTimeout(() => {
-        if (
-          assistantPanelEl?.classList.contains("show") &&
-          !assistantPanelHydrated
-        ) {
-          hydrateOpenAssistantPanel();
-        }
-      }, delay)
-    );
+    // Legacy globalAiAssistantPanel removed. Universal AI panel is ai_inline_draft.js.
 
     // legacy globalAiAssistantPanel shown handler removed
 
     $("#global-search-input")?.addEventListener(
       "input",
       (event) => renderSearch(event.target.value)
-    );
-
-    $("#header-theme-button")?.addEventListener(
-      "click",
-      () =>
-        setTheme(
-          !document.body.classList.contains(
-            "app-dark"
-          )
-        )
     );
 
     $("#mark-all-notifications-read")
@@ -3583,10 +3534,9 @@
       );
     }
 
-    setTheme(
-      localStorage.getItem(THEME_STORAGE_KEY) ===
-        "dark"
-    );
+    // The head bootstrap and theme_manager.js have already applied the stored
+    // preference before this shell initializes.
+    window.KingswayTheme?.hydrate?.();
 
     bindEvents();
     window.addEventListener("kingsway:page-loaded", () => {

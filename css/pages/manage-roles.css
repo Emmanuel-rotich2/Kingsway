@@ -1,0 +1,14 @@
+/* System Administrator — Role definitions ledger. */
+#manageRolesPage .role-permissions-scroll {
+  max-height: 340px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+#manageRolesPage #roleWizardSteps .nav-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}

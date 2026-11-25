@@ -49,7 +49,10 @@ final class LocalSqliteBuffer
             return;
         }
         $path = $this->jsonPath($namespace, $key);
-        $handle = fopen($path, 'c+');
+        // The directory may be owned by the web server and unwritable for CLI;
+        // let the explicit exception below handle that instead of emitting a
+        // native warning into a request or a test run.
+        $handle = @fopen($path, 'c+');
         if (!$handle || !flock($handle, LOCK_EX)) throw new RuntimeException('Unable to lock local JSON buffer.');
         try {
             ftruncate($handle, 0);

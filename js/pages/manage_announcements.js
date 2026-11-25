@@ -319,6 +319,7 @@
   },
 
   openModal: function (item) {
+      this.mountAiDrafts();
       const form = document.getElementById("announcementForm");
       if (form) form.reset();
 

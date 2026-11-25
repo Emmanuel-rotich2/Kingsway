@@ -6,95 +6,208 @@
  * absorbed the former term_dates page). Terms are created for a year by Year
  * Rollover; this page lets you adjust dates/status or add a missing term.
  * Features:
- * - Data display and filtering by academic year
- * - Search, status filter and export
+ * - School-today phase: in session, holiday, waiting for cutover or schedule
+ * - Term sequence overview for the selected scope, defaulting to the current year
+ * - Sorting, search, status and date filters that load without a submit button
+ * - Native dialog editor, CSV export and print layout
  */
 ?>
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/manage-terms.css?v=<?= asset_version('css/pages/manage-terms.css') ?>">
 
-<div>
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <h4 class="mb-1"><i class="bi bi-list-ul-ol me-2"></i>Manage Terms</h4>
-                    <p class="text-muted mb-0">View and manage academic terms and dates</p>
-                </div>
-                <button class="btn btn-primary" data-kw-onclick="ManageTermsController.showAddModal()" data-year-write><i class="bi bi-plus-lg me-1"></i> Add New</button>
+<div class="manage-terms-page kw-clean" id="manageTermsPage">
+    <p class="mt-print-context" id="mtPrintContext"></p>
+
+    <header class="mt-page-header">
+        <div>
+            <p class="mt-eyebrow">Academic register</p>
+            <h1>Manage Terms</h1>
+        </div>
+        <div class="mt-actions no-print" aria-label="Term actions">
+            <button class="mt-primary-button" type="button" id="mtAddBtn" data-year-write>
+                <i class="bi bi-plus-lg" aria-hidden="true"></i> Add term
+            </button>
+            <button class="mt-quiet-button" type="button" id="mtExportBtn" data-no-print>
+                <i class="bi bi-filetype-csv" aria-hidden="true"></i> CSV
+            </button>
+            <button class="mt-quiet-button" type="button" id="mtPrintBtn" data-no-print>
+                <i class="bi bi-printer" aria-hidden="true"></i> Print
+            </button>
+        </div>
+    </header>
+
+    <section class="mt-overview" aria-labelledby="mtOverviewTitle">
+        <div class="mt-overview-head">
+            <div>
+                <p class="mt-panel-label" id="mtOverviewTitle">Term sequence</p>
+                <strong class="mt-overview-year" id="mtOverviewYear">Loading…</strong>
             </div>
+            <p class="mt-overview-note">Opening, closing and half-term dates are editable here.</p>
         </div>
-    </div>
+        <ol class="mt-term-band" id="mtTermBand" aria-label="Term sequence for the selected scope"></ol>
+        <dl class="mt-metrics">
+            <div><dt>Terms</dt><dd id="mtStatTotal">0</dd></div>
+            <div><dt>In session</dt><dd id="mtStatActive">0</dd></div>
+            <div><dt>Completed</dt><dd id="mtStatCompleted">0</dd></div>
+            <div><dt>Upcoming</dt><dd id="mtStatUpcoming">0</dd></div>
+        </dl>
+    </section>
 
-    <div class="row mb-4">
-        <div class="col-md-3 mb-3">
-            <div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center">
-                <div class="rounded-circle bg-primary bg-opacity-10 p-3 me-3"><i class="bi bi-list-ul text-primary fa-lg"></i></div>
-                <div><h6 class="text-muted mb-1">Total Terms</h6><h4 class="mb-0" id="mtStatTotal">0</h4></div>
-            </div></div></div>
+    <section class="mt-phase" id="mtPhasePanel" aria-labelledby="mtPhaseTitle" data-phase="loading">
+        <p class="visually-hidden" id="mtPhaseAnnouncement" role="status" aria-live="polite"></p>
+        <div class="mt-phase-main">
+            <p class="mt-panel-label" id="mtPhaseEyebrow">School today</p>
+            <h2 id="mtPhaseTitle">Checking the calendar…</h2>
+            <p class="mt-phase-detail" id="mtPhaseDetail">Reading the live academic period and transition state.</p>
         </div>
-        <div class="col-md-3 mb-3">
-            <div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center">
-                <div class="rounded-circle bg-success bg-opacity-10 p-3 me-3"><i class="bi bi-play-circle text-success fa-lg"></i></div>
-                <div><h6 class="text-muted mb-1">Active Term</h6><h4 class="mb-0" id="mtStatActive">0</h4></div>
-            </div></div></div>
+        <div class="mt-phase-context" aria-label="Adjacent terms">
+            <article class="mt-phase-card" id="mtPhaseRecentCard">
+                <p class="mt-phase-card-label">Recently completed</p>
+                <strong class="mt-phase-card-title" id="mtPhaseRecentTitle">—</strong>
+                <p class="mt-phase-card-dates" id="mtPhaseRecentDates"></p>
+            </article>
+            <article class="mt-phase-card" id="mtPhaseNextCard">
+                <p class="mt-phase-card-label">Immediate incoming</p>
+                <strong class="mt-phase-card-title" id="mtPhaseNextTitle">—</strong>
+                <p class="mt-phase-card-dates" id="mtPhaseNextDates"></p>
+            </article>
         </div>
-        <div class="col-md-3 mb-3">
-            <div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center">
-                <div class="rounded-circle bg-info bg-opacity-10 p-3 me-3"><i class="bi bi-check-lg-circle text-info fa-lg"></i></div>
-                <div><h6 class="text-muted mb-1">Completed</h6><h4 class="mb-0" id="mtStatCompleted">0</h4></div>
-            </div></div></div>
-        </div>
-        <div class="col-md-3 mb-3">
-            <div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center">
-                <div class="rounded-circle bg-warning bg-opacity-10 p-3 me-3"><i class="bi bi-skip-forward text-warning fa-lg"></i></div>
-                <div><h6 class="text-muted mb-1">Upcoming</h6><h4 class="mb-0" id="mtStatUpcoming">0</h4></div>
-            </div></div></div>
-        </div>
-    </div>
+        <a class="mt-phase-link no-print" id="mtPhaseLink" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/home.php?route=term_transition" hidden>
+            <span id="mtPhaseLinkLabel">Open Term Transition</span>
+            <i class="bi bi-arrow-right" aria-hidden="true"></i>
+        </a>
+    </section>
 
-    <div class="card shadow-sm mb-4">
-        <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-3"><input type="text" class="form-control" id="searchInput" placeholder="Search..."></div>
-                <div class="col-md-3"><select class="form-select" id="yearFilter"><option value="">All Academic Years</option></select></div>
-                <div class="col-md-2"><select class="form-select" id="filterSelect"><option value="">All Statuses</option></select></div>
-                <div class="col-md-2"><input type="date" class="form-control" id="dateFilter"></div>
-                <div class="col-md-2"><button class="btn btn-outline-secondary w-100" data-kw-onclick="ManageTermsController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
+    <section class="mt-filter-panel no-print" aria-labelledby="mtFiltersTitle">
+        <h2 class="visually-hidden" id="mtFiltersTitle">Filter terms</h2>
+        <div class="mt-filter-grid">
+            <div class="mt-field">
+                <label for="searchInput">Search</label>
+                <input type="search" id="searchInput" placeholder="Term or year" autocomplete="off">
             </div>
-        </div>
-    </div>
-
-    <div class="card shadow-sm">
-        <div class="card-header bg-white d-flex justify-content-between align-items-center">
-            <h6 class="mb-0"><i class="bi bi-table me-2"></i>Manage Terms</h6>
-            <button class="btn btn-sm btn-outline-success" data-kw-onclick="ManageTermsController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button>
-        </div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-hover mb-0" id="dataTable">
-                    <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Term Name</th><th scope="col">Academic Year</th><th scope="col">Start Date</th><th scope="col">End Date</th><th scope="col">Weeks</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
-                    <tbody id="mtTermsBody"><tr id="mtTermsState"><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr></tbody>
-                </table>
-                <template id="mtTermRowTemplate"><tr data-term-row><td class="small" data-fill="number"></td><td class="small" data-fill="name"></td><td class="small" data-fill="year"></td><td class="small" data-fill="start"></td><td class="small" data-fill="end"></td><td class="small" data-fill="weeks"></td><td class="small"><span class="badge" data-fill="status"></span></td><td><button class="btn btn-sm btn-outline-primary" type="button" title="Edit term" data-action="edit" data-year-write><i class="bi bi-pencil"></i></button></td></tr></template>
+            <div class="mt-field">
+                <label for="yearFilter">Academic year</label>
+                <select id="yearFilter"><option value="all">All academic years</option></select>
             </div>
+            <div class="mt-field">
+                <label for="filterSelect">Status</label>
+                <select id="filterSelect">
+                    <option value="">All statuses</option>
+                    <option value="current">Current</option>
+                    <option value="completed">Completed</option>
+                    <option value="upcoming">Upcoming</option>
+                </select>
+            </div>
+            <div class="mt-field">
+                <label for="dateFilter">Date in term</label>
+                <input type="date" id="dateFilter">
+            </div>
+            <button class="mt-clear-button" type="button" id="mtClearFilters" hidden>Clear filters</button>
         </div>
-    </div>
+        <div class="mt-year-banner-slot" id="mtYearBannerSlot" aria-live="polite"></div>
+    </section>
+
+    <section class="mt-register" aria-labelledby="mtRegisterTitle">
+        <div class="mt-register-head">
+            <div>
+                <p class="mt-panel-label">Register</p>
+                <h2 id="mtRegisterTitle">Term dates</h2>
+            </div>
+            <p class="mt-result-count" id="mtResultCount">Loading…</p>
+        </div>
+        <div class="mt-table-scroll" role="region" aria-labelledby="mtTableCaption" tabindex="0">
+            <table id="dataTable">
+                <caption class="visually-hidden" id="mtTableCaption">Academic terms in the selected scope</caption>
+                <thead>
+                    <tr>
+                        <th scope="col" data-type="number"><button type="button" commandfor="dataTable" command="--sort">No.<span class="mt-sort-icon" aria-hidden="true"></span></button></th>
+                        <th scope="col" data-type="text"><button type="button" commandfor="dataTable" command="--sort">Term<span class="mt-sort-icon" aria-hidden="true"></span></button></th>
+                        <th scope="col" data-type="text"><button type="button" commandfor="dataTable" command="--sort">Academic year<span class="mt-sort-icon" aria-hidden="true"></span></button></th>
+                        <th scope="col" data-type="date" aria-sort="ascending"><button type="button" commandfor="dataTable" command="--sort">Opens<span class="mt-sort-icon" aria-hidden="true"></span></button></th>
+                        <th scope="col" data-type="date"><button type="button" commandfor="dataTable" command="--sort">Closes<span class="mt-sort-icon" aria-hidden="true"></span></button></th>
+                        <th scope="col" data-type="number"><button type="button" commandfor="dataTable" command="--sort">Weeks<span class="mt-sort-icon" aria-hidden="true"></span></button></th>
+                        <th scope="col" data-type="text"><button type="button" commandfor="dataTable" command="--sort">Status<span class="mt-sort-icon" aria-hidden="true"></span></button></th>
+                        <th scope="col">Record</th>
+                    </tr>
+                </thead>
+                <tbody id="mtTermsBody">
+                    <tr id="mtTermsState"><td colspan="8" class="mt-empty"><p>Loading the term register…</p></td></tr>
+                </tbody>
+            </table>
+            <p class="visually-hidden" id="mtTableStatus" role="status" aria-live="polite"></p>
+        </div>
+        <template id="mtTermRowTemplate">
+            <tr data-term-row>
+                <td data-label="" data-fill="number"></td>
+                <th scope="row" data-fill="name"></th>
+                <td data-label="Academic year" data-fill="year"></td>
+                <td data-label="Opens" data-fill="start"></td>
+                <td data-label="Closes" data-fill="end"></td>
+                <td data-label="Weeks" data-fill="weeks"></td>
+                <td data-label="Status"><span class="mt-status" data-fill="status"></span></td>
+                <td data-label="Record">
+                    <button class="mt-edit-button" type="button" data-action="edit" data-year-write>
+                        <i class="bi bi-pencil" aria-hidden="true"></i><span>Edit</span>
+                    </button>
+                </td>
+            </tr>
+        </template>
+    </section>
 </div>
-<div class="modal fade" id="formModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="formModalTitle"><i class="bi bi-list-ul-ol me-2"></i>Add Record</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-    <div class="modal-body"><form id="recordForm"><input type="hidden" id="recordId">
-        <div class="mb-3"><label class="form-label">Term Name <span class="text-danger">*</span></label><input type="text" class="form-control" id="recordName" placeholder="e.g., Term 1" required></div>
-        <div class="mb-3"><label class="form-label">Academic Year</label><select class="form-select" id="recordYear"></select></div>
-        <div class="row">
-            <div class="col-md-6 mb-3"><label class="form-label">Start Date</label><input type="date" class="form-control" id="recordStartDate"></div>
-            <div class="col-md-6 mb-3"><label class="form-label">End Date</label><input type="date" class="form-control" id="recordEndDate"></div>
+
+<dialog class="mt-dialog" id="mtFormDialog" aria-labelledby="mtFormTitle" aria-describedby="mtFormIntro">
+    <form id="recordForm" novalidate>
+        <header class="mt-dialog-head">
+            <div>
+                <p class="mt-panel-label">Term record</p>
+                <h1 id="mtFormTitle">Add term</h1>
+                <p id="mtFormIntro">Dates apply to the selected academic year.</p>
+            </div>
+            <button class="mt-dialog-close" type="button" id="mtFormClose" aria-label="Close term editor">
+                <i class="bi bi-x-lg" aria-hidden="true"></i>
+            </button>
+        </header>
+        <p class="mt-form-error" id="mtFormError" role="alert" hidden></p>
+        <div class="mt-form-grid">
+            <div class="mt-field mt-field--wide">
+                <label for="recordName">Term name <span aria-hidden="true">*</span></label>
+                <input type="text" id="recordName" placeholder="e.g. Term 1" required autofocus>
+            </div>
+            <div class="mt-field mt-field--wide">
+                <label for="recordYear">Academic year <span aria-hidden="true">*</span></label>
+                <select id="recordYear" required></select>
+            </div>
+            <div class="mt-field">
+                <label for="recordStartDate">Opens <span aria-hidden="true">*</span></label>
+                <input type="date" id="recordStartDate" required>
+            </div>
+            <div class="mt-field">
+                <label for="recordEndDate">Closes <span aria-hidden="true">*</span></label>
+                <input type="date" id="recordEndDate" required>
+            </div>
+            <div class="mt-field">
+                <label for="recordHalfTermStart">Half-term opens</label>
+                <input type="date" id="recordHalfTermStart" aria-describedby="mtHalfTermHint">
+                <p class="mt-hint" id="mtHalfTermHint">Leave both half-term dates blank when there is no break.</p>
+            </div>
+            <div class="mt-field">
+                <label for="recordHalfTermEnd">Half-term closes</label>
+                <input type="date" id="recordHalfTermEnd">
+            </div>
+            <div class="mt-field">
+                <label for="recordStatus">Status</label>
+                <select id="recordStatus">
+                    <option value="upcoming">Upcoming</option>
+                    <option value="current">Current</option>
+                    <option value="completed">Completed</option>
+                </select>
+            </div>
         </div>
-        <div class="row">
-            <div class="col-md-6 mb-3"><label class="form-label">Half-Term Start <span class="text-muted small">(blank = no half-term)</span></label><input type="date" class="form-control" id="recordHalfTermStart"></div>
-            <div class="col-md-6 mb-3"><label class="form-label">Half-Term End</label><input type="date" class="form-control" id="recordHalfTermEnd"></div>
-        </div>
-        <div class="mb-3"><label class="form-label">Status</label><select class="form-select" id="recordStatus"><option value="upcoming">Upcoming</option><option value="current">Current</option><option value="completed">Completed</option></select></div>
-    </form></div>
-    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" data-kw-onclick="ManageTermsController.saveRecord()" data-year-write><i class="bi bi-check-lg me-1"></i> Save</button></div>
-</div></div></div>
+        <input type="hidden" id="recordId">
+        <footer class="mt-dialog-foot">
+            <button class="mt-quiet-button" type="button" id="mtFormCancel">Cancel</button>
+            <button class="mt-primary-button" type="submit" id="mtFormSave" data-year-write>Save term</button>
+        </footer>
+    </form>
+</dialog>
 
 <script src="<?= $appBase ?>/js/pages/manage_terms.js?v=<?php echo asset_version('js/pages/manage_terms.js'); ?>"></script>
