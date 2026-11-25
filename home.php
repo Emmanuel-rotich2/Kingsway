@@ -80,7 +80,10 @@ if (!headers_sent()) {
           var uid = localStorage.getItem('kw_active_user_id') || '';
           var key = uid ? 'kw_' + uid + '_theme' : 'kingsway_theme';
           var stored = localStorage.getItem(key);
-          if (!stored && uid) stored = localStorage.getItem('kingsway_theme');
+          // One-time legacy migration only. A stored owner keeps another
+          // signed-in user's old preference from leaking into this session.
+          var owner = localStorage.getItem('kingsway_theme_owner') || '';
+          if (!stored && uid && (!owner || owner === uid)) stored = localStorage.getItem('kingsway_theme');
           if (stored === 'light' || stored === 'dark') preference = stored;
         } catch (_) {}
         var dark = preference === 'dark' ||
@@ -323,6 +326,7 @@ $files = [
     'js/core/markdown.js',
     'js/index.js',
     'js/sidebar.js',
+    'js/core/chart_theme.js',
     'js/core/theme_manager.js',
     'js/app_shell_ui.js',
     'js/main.js',

@@ -60,8 +60,8 @@ class UIComponents {
     static createDropzone(fileInputId, acceptedTypes = '*') {
         return `
             <div class="dropzone-wrapper" data-input-id="${fileInputId}">
-                <div class="dropzone-area p-5 border-2 border-dashed rounded text-center" style="background-color: #f8f9fa; cursor: pointer;">
-                    <i class="bi bi-cloud-upload" style="font-size: 2rem; color: #6c757d;"></i>
+                <div class="dropzone-area p-5 border-2 border-dashed rounded text-center" style="background-color: var(--kw-theme-surface-2); cursor: pointer;">
+                    <i class="bi bi-cloud-upload" style="font-size: 2rem; color: var(--kw-theme-muted);"></i>
                     <p class="mt-3 mb-0">
                         <strong>Drop files here</strong><br>
                         <small class="text-muted">or click to browse</small>
@@ -182,19 +182,19 @@ class UIComponents {
                     <div class="row text-center">
                         <div class="col">
                             <div class="attendance-stat">
-                                <strong style="color: #28a745;">${attendance.present}</strong>
+                                <strong style="color: var(--kw-theme-good);">${attendance.present}</strong>
                                 <small class="text-muted">Present</small>
                             </div>
                         </div>
                         <div class="col">
                             <div class="attendance-stat">
-                                <strong style="color: #dc3545;">${attendance.absent}</strong>
+                                <strong style="color: var(--kw-theme-bad);">${attendance.absent}</strong>
                                 <small class="text-muted">Absent</small>
                             </div>
                         </div>
                         <div class="col">
                             <div class="attendance-stat">
-                                <strong style="color: #ffc107;">${attendance.late}</strong>
+                                <strong style="color: var(--kw-theme-warn);">${attendance.late}</strong>
                                 <small class="text-muted">Late</small>
                             </div>
                         </div>
@@ -215,14 +215,14 @@ class UIComponents {
      */
     static createGradeBadge(grade, marks = null) {
         const gradeConfig = {
-            'A': { color: '#28a745', range: '80-100' },
-            'B': { color: '#17a2b8', range: '70-79' },
-            'C': { color: '#ffc107', range: '60-69' },
-            'D': { color: '#fd7e14', range: '50-59' },
-            'E': { color: '#dc3545', range: '0-49' }
+            'A': { color: 'var(--kw-theme-solid-good)', range: '80-100' },
+            'B': { color: 'var(--kw-theme-solid-info)', range: '70-79' },
+            'C': { color: 'var(--kw-theme-solid-warn)', range: '60-69' },
+            'D': { color: 'var(--kw-theme-solid-warn)', range: '50-59' },
+            'E': { color: 'var(--kw-theme-solid-bad)', range: '0-49' }
         };
 
-        const config = gradeConfig[grade?.toUpperCase()] || { color: '#6c757d', range: 'N/A' };
+        const config = gradeConfig[grade?.toUpperCase()] || { color: 'var(--kw-theme-muted)', range: 'N/A' };
 
         return `
             <div class="grade-badge" style="display: inline-block; padding: 0.5rem 1rem; background-color: ${config.color}; color: white; border-radius: 0.25rem; font-weight: bold;">
@@ -279,7 +279,7 @@ class UIComponents {
     static createEmptyState(icon, title, message, action = null) {
         return `
             <div class="empty-state text-center py-5">
-                <i class="bi ${icon}" style="font-size: 3rem; color: #ccc;"></i>
+                <i class="bi ${icon}" style="font-size: 3rem; color: var(--kw-theme-muted);"></i>
                 <h5 class="mt-3">${title}</h5>
                 <p class="text-muted">${message}</p>
                 ${action ? `

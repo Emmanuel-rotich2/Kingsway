@@ -31,6 +31,8 @@
   // stylesheet blocks and hard-coded inline colours. Keep the original inline
   // declarations so light mode is restored byte-for-byte.
   const originalInlineStyles = new WeakMap();
+  const originalStyleAttributes = new WeakMap();
+  const originalStyleText = new WeakMap();
   let inlineFrame = null;
   let inlineObserver = null;
   const KEEP_LIGHT = [
@@ -47,6 +49,7 @@
     ".id-card-preview-back",
     ".print-preview-stage",
     ".web-canvas",
+    ".kw-wa-preview",
     '[class*="swatch"]',
     '[class*="signature"]',
     "canvas",
@@ -182,25 +185,253 @@
     };
   }
 
-  function isLight(color) {
-    if (!color || color.a < 0.55) return false;
-    return (0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b) / 255 > 0.82;
+  // Inline styles are the last place light values hide. Rewrite the colour
+  // literals in place (including gradients, shadows and var() fallbacks) while
+  // leaving brand colours, images and translucent overlays untouched.
+  function luminance(color) {
+    if (!color) return -1;
+    return (0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b) / 255;
   }
 
-  function isDarkColor(color) {
-    if (!color || color.a < 0.55) return false;
-    return (0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b) / 255 < 0.3;
+  function tokenFor(color, kind) {
+    if (!color || color.a < 0.55) return null;
+    const l = luminance(color);
+    const semantic = CSS_SEMANTIC[hexKey(color)];
+    if (kind === "color") {
+      if (l < 0.25) return "--kw-theme-text";
+      if (semantic === "muted") return "--kw-theme-muted";
+      if (semantic === "warn" || semantic === "warn-soft") return "--kw-theme-warn";
+      if (semantic === "bad" || semantic === "bad-soft") return "--kw-theme-bad";
+      if (semantic === "info") return "--kw-theme-info";
+      if (semantic === "solid-good" || semantic === "good-soft") return "--kw-theme-good";
+      if (l < 0.55) return "--kw-theme-muted";
+      return null;
+    }
+    if (kind === "border") return l > 0.7 ? "--kw-theme-border" : null;
+    if (l > 0.9) return "--kw-theme-surface";
+    if (l > 0.8) return "--kw-theme-surface-2";
+    if (l > 0.68) return "--kw-theme-surface-3";
+    return null;
   }
 
-  function allLightColors(value) {
-    const tokens = String(value || "").match(
+  function rewriteInlineValue(value, kind) {
+    if (!value || typeof value !== "string") return value;
+    return value.replace(
       /#[0-9a-f]{3,8}\b|rgba?\([^)]*\)|\b(?:white|black)\b/gi,
+      (literal) => {
+        const token = tokenFor(parseColor(literal), kind);
+        return token ? `var(${token})` : literal;
+      },
     );
-    if (!tokens || !tokens.length) return false;
-    return tokens.every((token) => isLight(parseColor(token)));
+  }
+
+  function hexKey(color) {
+    return "#" + [color.r, color.g, color.b]
+      .map((value) => value.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  // Hard-coded colours inside page-local <style> blocks are the largest source
+  // of light islands. Map the recurring school palette onto semantic tokens;
+  // unknown colours keep their authored value unless they are near-black or
+  // near-white, in which case the matching theme surface/text token is safer.
+  const CSS_SEMANTIC = {
+    "#146c43": "solid-good", "#198754": "solid-good", "#0f6b3d": "solid-good",
+    "#166534": "solid-good", "#1b5e20": "solid-good", "#2e7d32": "solid-good",
+    "#178a50": "solid-good", "#388e3c": "solid-good", "#0b4f31": "solid-good",
+    "#0f6b43": "solid-good", "#075b3b": "solid-good",
+    "#f57c00": "warn", "#e8b44c": "warn", "#facc15": "warn", "#ffc107": "warn",
+    "#f2cf78": "warn", "#a86f16": "warn", "#8a5a0d": "warn",
+    "#dc3545": "bad", "#c62828": "bad", "#b71c1c": "bad", "#dc2626": "bad",
+    "#b53747": "bad", "#c64b4b": "bad",
+    "#0d6efd": "info", "#0e7490": "info", "#17a2b8": "info", "#0891b2": "info",
+    "#6f42c1": "info", "#8b5fbf": "info", "#3677b5": "info",
+    "#666666": "muted", "#9e9e9e": "muted", "#6c757d": "muted", "#6b7280": "muted",
+    "#f1f8e9": "good-soft", "#e7f6ed": "good-soft", "#e8f5e9": "good-soft",
+    "#dcfce7": "good-soft", "#9fd3bc": "good-soft",
+    "#fff3cd": "warn-soft", "#fff5df": "warn-soft",
+    "#fdecec": "bad-soft", "#fee2e2": "bad-soft",
+    "#e9ecef": "surface-3", "#f8f9fa": "surface-2", "#f4f6f8": "surface-2",
+    "#f5f0e6": "surface-2", "#fffefb": "surface",
+  };
+  const LIGHT_DOCUMENT_SELECTOR = /payslip-document|id-card-preview|certificate|official-seal|print-preview-stage|web-preview-stage|web-canvas|kw-wa-preview|qr-code|signature|swatch/i;
+
+  function cssPropertyKind(property) {
+    if (/^(color|fill|stroke)$/i.test(property)) return "color";
+    if (/^background/i.test(property)) return "background";
+    if (/^(border|outline)/i.test(property)) return "border";
+    if (/shadow$/i.test(property)) return "shadow";
+    return null;
+  }
+
+  function cssTokenFor(literal, kind, hasDarkFill) {
+    const color = parseColor(literal);
+    if (!color) return null;
+    const key = hexKey(color);
+    const semantic = CSS_SEMANTIC[key];
+    const lightness = luminance(color);
+
+    if (kind === "border") return "--kw-theme-border";
+    if (kind === "shadow") return "--kw-theme-shadow";
+
+    if (kind === "color") {
+      if (lightness > 0.82 && hasDarkFill) return null;
+      if (semantic === "muted") return "--kw-theme-muted";
+      if (semantic === "warn" || semantic === "warn-soft") return "--kw-theme-warn";
+      if (semantic === "bad" || semantic === "bad-soft") return "--kw-theme-bad";
+      if (semantic === "info") return "--kw-theme-info";
+      if (semantic === "solid-good" || semantic === "good-soft") return "--kw-theme-good";
+      if (semantic === "surface-2" || semantic === "surface-3") return "--kw-theme-muted";
+      return "--kw-theme-text";
+    }
+
+    if (semantic === "solid-good") return "--kw-theme-solid-good";
+    if (semantic === "warn") return "--kw-theme-solid-warn";
+    if (semantic === "warn-soft") return "--kw-theme-warn-soft";
+    if (semantic === "bad") return "--kw-theme-solid-bad";
+    if (semantic === "bad-soft") return "--kw-theme-bad-soft";
+    if (semantic === "info") return "--kw-theme-info-soft";
+    if (semantic === "good-soft") return "--kw-theme-good-soft";
+    if (semantic === "surface-3") return "--kw-theme-surface-3";
+    if (semantic === "surface-2") return "--kw-theme-surface-2";
+    if (lightness > 0.86) return "--kw-theme-surface";
+    if (lightness > 0.62) return "--kw-theme-surface-2";
+    if (lightness < 0.3) return "--kw-theme-solid-good";
+    return "--kw-theme-surface-3";
+  }
+
+  function rewriteCssValue(value, kind, hasDarkFill) {
+    if (typeof value !== "string" || value.includes("var(")) return value;
+    return value.replace(
+      /#[0-9a-f]{3,8}\b|rgba?\([^)]*\)|\b(?:white|black)\b/gi,
+      (literal) => {
+        const token = cssTokenFor(literal, kind, hasDarkFill);
+        return token ? `var(${token})` : literal;
+      },
+    );
+  }
+
+  function hasDarkBackground(declarations) {
+    return declarations.some((declaration) => {
+      const match = declaration.match(/^\s*background(?:-color|-image)?\s*:/i);
+      if (!match) return false;
+      const value = declaration.slice(match[0].length);
+      let found = false;
+      value.replace(/#([0-9a-f]{3,8})\b|rgba?\([^)]*\)|\b(?:white|black)\b/gi, (literal) => {
+        const color = parseColor(literal);
+        if (color && luminance(color) < 0.45) found = true;
+        return literal;
+      });
+      return found;
+    });
+  }
+
+  function findClosingBrace(text, openIndex) {
+    let depth = 0;
+    let quote = null;
+    for (let index = openIndex; index < text.length; index += 1) {
+      const char = text[index];
+      if (quote) {
+        if (char === "\\") {
+          index += 1;
+        } else if (char === quote) {
+          quote = null;
+        }
+        continue;
+      }
+      if (char === '"' || char === "'") {
+        quote = char;
+        continue;
+      }
+      if (char === "/" && text[index + 1] === "*") {
+        const end = text.indexOf("*/", index + 2);
+        if (end < 0) return -1;
+        index = end + 1;
+        continue;
+      }
+      if (char === "{") depth += 1;
+      if (char === "}") {
+        depth -= 1;
+        if (depth === 0) return index;
+      }
+    }
+    return -1;
+  }
+
+  function skippedPrelude(prelude) {
+    const normalized = prelude.replace(/\s+/g, " ").trim();
+    return (
+      /^@(?:media\s+print\b|page\b|(?:-webkit-)?keyframes\b|font-face\b)/i.test(
+        normalized,
+      ) ||
+      /@media[^{]*\bprint\b/i.test(normalized) ||
+      /prefers-color-scheme:\s*light/i.test(normalized) ||
+      LIGHT_DOCUMENT_SELECTOR.test(prelude)
+    );
+  }
+
+  function rewriteDeclarations(body) {
+    const declarations = body.split(";");
+    const darkFill = hasDarkBackground(declarations);
+    return declarations
+      .map((declaration) => {
+        const colon = declaration.indexOf(":");
+        if (colon < 0) return declaration;
+        const property = declaration.slice(0, colon).trim();
+        const value = declaration.slice(colon + 1);
+        const kind = cssPropertyKind(property);
+        if (!kind) return declaration;
+        return `${property}:${rewriteCssValue(value, kind, darkFill)}`;
+      })
+      .join(";");
+  }
+
+  // Rewrite declarations in nested @media/@supports blocks too, but leave
+  // print, keyframes, font faces and deliberately light documents untouched.
+  function rewriteStyleText(text) {
+    const process = (input, skipContext) => {
+      let output = "";
+      let preludeStart = 0;
+      for (let index = 0; index < input.length; index += 1) {
+        if (input[index] !== "{") continue;
+        const close = findClosingBrace(input, index);
+        if (close < 0) return input;
+        const prelude = input.slice(preludeStart, index);
+        const skip = skipContext || skippedPrelude(prelude);
+        const body = input.slice(index + 1, close);
+        output += prelude + "{";
+        if (body.includes("{")) {
+          output += process(body, skip);
+        } else if (!skip) {
+          output += rewriteDeclarations(body);
+        } else {
+          output += body;
+        }
+        output += "}";
+        index = close;
+        preludeStart = index + 1;
+      }
+      return output + input.slice(preludeStart);
+    };
+    return process(text, false);
   }
 
   function restoreInline(element) {
+    const hasAttributeApi = typeof element.getAttribute === "function"
+      && typeof element.setAttribute === "function"
+      && typeof element.removeAttribute === "function";
+    const original = hasAttributeApi ? originalStyleAttributes.get(element) : undefined;
+    if (original !== undefined) {
+      if (original) {
+        element.setAttribute("style", original);
+      } else {
+        element.removeAttribute("style");
+      }
+      originalStyleAttributes.delete(element);
+      originalInlineStyles.delete(element);
+      return;
+    }
+
     const stored = originalInlineStyles.get(element);
     if (!stored) return;
     Object.keys(stored).forEach((property) => {
@@ -224,28 +455,61 @@
       return;
     }
 
-    const stored = originalInlineStyles.get(element) || {};
+    if (typeof element.getAttribute === "function" && !originalStyleAttributes.has(element)) {
+      originalStyleAttributes.set(element, element.getAttribute("style") || "");
+    }
 
-    [
-      { props: ["background", "background-color"], token: "--kw-theme-surface", test: allLightColors },
-      { props: ["color"], token: "--kw-theme-text", test: (value) => isDarkColor(parseColor(value)) },
-      { props: ["border-color", "border"], token: "--kw-theme-border", test: allLightColors },
-    ].forEach((group) => {
-      group.props.forEach((property) => {
-        const current = element.style.getPropertyValue(property);
-        if (!current) return;
-        if (!Object.prototype.hasOwnProperty.call(stored, property)) {
-          stored[property] = current;
-        }
-        if (group.test(current)) {
-          element.style.setProperty(property, `var(${group.token})`, "important");
-        }
-      });
-    });
+    const stored = originalInlineStyles.get(element) || {};
+    const style = element.style;
+
+    for (let index = 0; index < style.length; index += 1) {
+      const property = style.item(index);
+      const current = style.getPropertyValue(property);
+      if (!current) continue;
+
+      let kind = null;
+      if (/^(color|fill|stroke)$/.test(property)) kind = "color";
+      else if (/^(border|outline)/.test(property)) kind = "border";
+      else if (/^(background|box-shadow)/.test(property)) kind = "background";
+      if (!kind) continue;
+
+      if (!Object.prototype.hasOwnProperty.call(stored, property)) {
+        stored[property] = current;
+      }
+      const next = rewriteInlineValue(current, kind);
+      if (next !== current) {
+        style.setProperty(property, next, "important");
+      }
+    }
 
     if (Object.keys(stored).length) {
       originalInlineStyles.set(element, stored);
     }
+  }
+
+  function restoreStyle(element) {
+    const original = originalStyleText.get(element);
+    if (original === undefined) return;
+    if (element.textContent !== original) element.textContent = original;
+    originalStyleText.delete(element);
+  }
+
+  function normalizeStyle(element) {
+    if (!element || typeof element.textContent !== "string") return;
+    if (element.closest?.(KEEP_LIGHT)) {
+      restoreStyle(element);
+      return;
+    }
+    if (resolved !== DARK) {
+      restoreStyle(element);
+      return;
+    }
+    if (!originalStyleText.has(element)) {
+      originalStyleText.set(element, element.textContent);
+    }
+    const original = originalStyleText.get(element);
+    const next = rewriteStyleText(original);
+    if (next !== element.textContent) element.textContent = next;
   }
 
   function scheduleInlineSync() {
@@ -254,6 +518,7 @@
     if (inlineFrame) cancel(inlineFrame);
     inlineFrame = schedule(() => {
       inlineFrame = null;
+      document.querySelectorAll?.("style").forEach(normalizeStyle);
       document.querySelectorAll?.("[style]").forEach(normalizeInline);
     });
   }
@@ -531,7 +796,7 @@
         hydrate({ force: true });
       }
       ensureThemeStylesheetLast();
-      if (resolved === DARK) scheduleInlineSync();
+      scheduleInlineSync();
     });
     inlineObserver.observe(document.documentElement, {
       childList: true,
@@ -556,7 +821,7 @@
     window.addEventListener?.("kingsway:page-loaded", () => {
       hydrate();
       ensureThemeStylesheetLast();
-      if (resolved === DARK) scheduleInlineSync();
+      scheduleInlineSync();
     });
 
     try {

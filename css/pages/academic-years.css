@@ -280,7 +280,7 @@
 /* Register ---------------------------------------------------------------- */
 .academic-years-page .ay-register {
   border: 1px solid var(--ay-rule);
-  background: #fff;
+  background: var(--kw-theme-surface);
 }
 
 .academic-years-page .ay-register-toolbar {
@@ -321,7 +321,7 @@
   padding-inline: .65rem;
   border: 1px solid var(--ay-rule-strong);
   border-radius: 4px;
-  background: #fff;
+  background: var(--kw-theme-surface);
   color: var(--ay-muted);
 }
 
@@ -348,7 +348,7 @@
   padding: .2rem;
   border: 1px solid var(--ay-rule-strong);
   border-radius: 5px;
-  background: #fff;
+  background: var(--kw-theme-surface);
 }
 
 .academic-years-page .ay-filter-button {
@@ -573,7 +573,7 @@
   padding: .3rem .55rem;
   border: 1px solid var(--ay-rule-strong);
   border-radius: 3px;
-  background: #fff;
+  background: var(--kw-theme-surface);
   color: var(--ay-ink);
   font-size: .78rem;
   font-weight: 650;
@@ -592,7 +592,7 @@
   padding: .3rem .55rem;
   border: 1px solid var(--ay-rule-strong);
   border-radius: 3px;
-  background: #fff;
+  background: var(--kw-theme-surface);
   color: var(--ay-ink);
   font-size: .78rem;
   font-weight: 650;
@@ -662,7 +662,7 @@
     margin: .75rem;
     border: 1px solid var(--ay-rule);
     border-radius: 4px;
-    background: #fff;
+    background: var(--kw-theme-surface);
   }
 
   .academic-years-page tbody th[scope="row"] {
@@ -881,7 +881,7 @@
   border: 1px solid var(--ay-rule);
   border-inline-start: 3px solid var(--ay-gold);
   border-radius: 3px;
-  background: #fff;
+  background: var(--kw-theme-surface);
 }
 
 .ay-term-card-head {
@@ -947,7 +947,7 @@
 .ay-bulk-scroll {
   max-block-size: 18rem;
   border: 1px solid var(--ay-rule);
-  background: #fff;
+  background: var(--kw-theme-surface);
 }
 
 .ay-bulk-table {

@@ -41,7 +41,10 @@ declare(strict_types=1);
     try {
       var key = uid ? 'kw_' + uid + '_theme' : 'kingsway_theme';
       var stored = localStorage.getItem(key);
-      if (!stored && uid) stored = localStorage.getItem('kingsway_theme');
+      // One-time legacy migration only. A stored owner keeps another
+      // guardian's old preference from leaking into this family session.
+      var owner = localStorage.getItem('kingsway_theme_owner') || '';
+      if (!stored && uid && (!owner || owner === uid)) stored = localStorage.getItem('kingsway_theme');
       if (stored === 'light' || stored === 'dark') preference = stored;
     } catch (_) {}
 

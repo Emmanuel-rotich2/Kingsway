@@ -10,6 +10,16 @@
   padding: 1.25rem;
 }
 
+/* The shared console styles paint every <p> with muted ink. The hero is a
+ * dark artwork panel, so its copy must keep white regardless of theme. */
+#analyticsCataloguePage .analytics-hero :is(h1, h2, h3, h4, h5, h6, p, .small) {
+  color: #fff;
+}
+
+#analyticsCataloguePage .analytics-hero .opacity-75 {
+  opacity: 0.88 !important;
+}
+
 #analyticsCataloguePage .analytics-hero .btn-outline-light {
   color: #fff;
   border-color: rgba(255, 255, 255, 0.65);

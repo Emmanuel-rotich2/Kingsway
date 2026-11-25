@@ -191,7 +191,7 @@
   position: relative;
   padding: 1rem 1.25rem 1.1rem;
   border-inline-end: 1px solid var(--mt-rule);
-  background: #fff;
+  background: var(--kw-theme-surface);
 }
 
 .manage-terms-page .mt-band-item:last-child {
@@ -249,7 +249,7 @@
   padding: .1rem .4rem;
   border: 1px solid var(--mt-rule-strong);
   border-radius: 999px;
-  background: #fff;
+  background: var(--kw-theme-surface);
   color: var(--mt-muted);
   font-size: .66rem;
   font-weight: 700;
@@ -425,7 +425,7 @@
 }
 
 .manage-terms-page .mt-phase-link:hover {
-  background: #fff;
+  background: var(--kw-theme-surface);
   box-shadow: 0 1px 0 var(--mt-phase-accent);
 }
 
@@ -460,7 +460,7 @@
   padding: .45rem .65rem;
   border: 1px solid var(--mt-rule-strong);
   border-radius: 3px;
-  background: #fff;
+  background: var(--kw-theme-surface);
   color: var(--mt-ink);
   font: inherit;
   font-size: .875rem;
@@ -670,7 +670,7 @@
   padding: .3rem .6rem;
   border: 1px solid var(--mt-rule-strong);
   border-radius: 3px;
-  background: #fff;
+  background: var(--kw-theme-surface);
   color: var(--mt-ink);
   font-size: .78rem;
   font-weight: 650;
@@ -888,7 +888,7 @@
     margin: .75rem;
     border: 1px solid var(--mt-rule);
     border-radius: 4px;
-    background: #fff;
+    background: var(--kw-theme-surface);
   }
 
   .manage-terms-page tbody th[scope="row"] {

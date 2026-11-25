@@ -262,7 +262,7 @@
 }
 
 .tt-page .tt-state-link:hover {
-  background: #fff;
+  background: var(--kw-theme-surface);
   box-shadow: 0 1px 0 var(--tt-accent);
 }
 
@@ -669,7 +669,7 @@
   padding: .45rem .6rem;
   border: 1px solid var(--tt-rule-strong);
   border-radius: 3px;
-  background: #fff;
+  background: var(--kw-theme-surface);
   color: var(--tt-ink);
   font: inherit;
   font-size: .875rem;

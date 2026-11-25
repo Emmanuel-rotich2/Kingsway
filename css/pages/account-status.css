@@ -21,7 +21,7 @@
   position: sticky;
   right: 0;
   z-index: 4;
-  background: #fff;
+  background: var(--kw-theme-surface);
   box-shadow: -6px 0 8px -6px rgba(21, 36, 31, 0.12);
   min-width: 220px;
 }

@@ -16,7 +16,7 @@
     --kc-muted: #667085;
     --kc-rule: #e3e6eb;
     --kc-wash: #f6f7f9;
-    --kc-paper: #ffffff;
+    --kc-paper: var(--kw-theme-surface);
     --kc-danger: #a23b2a;
     --kc-success: #2f7d5b;
     --kc-warning: #9a6a00;

@@ -7,7 +7,7 @@
  */
 .kw-sysadmin-console {
   --kw-sa-ink: #15241f;
-  --kw-sa-muted: #66756e;
+  --kw-sa-muted: #5f6e66;
   --kw-sa-green: #17684a;
   --kw-sa-green-deep: #0f4b35;
   --kw-sa-green-soft: #eaf4ef;
@@ -17,7 +17,7 @@
   --kw-sa-red-soft: #fdecec;
   --kw-sa-line: #d7e2dc;
   --kw-sa-line-soft: #e9efec;
-  --kw-sa-sheet: #ffffff;
+  --kw-sa-sheet: var(--kw-theme-surface);
   --kw-sa-canvas: #f4f7f5;
   --kw-sa-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
@@ -74,6 +74,18 @@
 
 .kw-sysadmin-console p {
   color: var(--kw-sa-muted);
+}
+
+/* The console heading and paragraph rules must not pull white copy off the
+ * authored dark/gradient headers inside embedded catalogue and report pages. */
+.kw-sysadmin-console :is(
+    .catalog-account-head,
+    .commerce-ops-head,
+    .internal-catalog-hero,
+    .analytics-hero,
+    .gr-hero
+  ) :is(h1, h2, h3, h4, h5, h6, p) {
+  color: #ffffff;
 }
 
 .kw-sysadmin-console a:not(.btn) {
@@ -234,6 +246,7 @@
 
 .kw-sysadmin-console code,
 .kw-sysadmin-console .text-break code {
+  color: var(--kw-sa-ink);
   font-family: var(--kw-sa-code);
   font-size: 0.86em;
 }
@@ -462,6 +475,27 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/* Dark console: these selectors must match the original :not() chain and ID
+   specificity, so they live beside the source rule rather than in theme.css. */
+html[data-kw-theme="dark"] .kw-sysadmin-console :is(
+  .card-header:not(.bg-dark):not(.bg-warning):not(.bg-primary):not(.bg-danger),
+  .card-footer,
+  .kw-msg-header,
+  .table thead th
+) {
+  color: var(--kw-sa-ink) !important;
+  background: var(--kw-sa-line-soft) !important;
+  border-color: var(--kw-sa-line) !important;
+}
+
+html[data-kw-theme="dark"] .kw-sysadmin-console .table {
+  --bs-table-hover-bg: var(--kw-sa-line-soft);
+}
+
+html[data-kw-theme="dark"] .kw-sysadmin-console .alert-warning {
+  color: var(--kw-sa-amber) !important;
 }
 
 /* Print / PDF -------------------------------------------------------------- */

@@ -64,7 +64,7 @@
 }
 
 .academic-calendar-page .academic-calendar-table-wrapper thead th {
-    background: var(--kc-paper, #fff);
+    background: var(--kc-paper, var(--kw-theme-surface));
     box-shadow: inset 0 -1px 0 var(--academic-calendar-rule);
 }
 
@@ -73,7 +73,7 @@
     inset-inline-start: 0;
     z-index: 1;
     min-inline-size: 13rem;
-    background: var(--kc-paper, #fff);
+    background: var(--kc-paper, var(--kw-theme-surface));
 }
 
 .academic-calendar-page .academic-calendar-table-wrapper tbody tr:hover > * {
@@ -182,7 +182,7 @@
         margin: 0 .75rem .75rem;
         border: 1px solid var(--academic-calendar-rule);
         border-radius: 8px;
-        background: var(--kc-paper, #fff);
+        background: var(--kc-paper, var(--kw-theme-surface));
     }
 
     .academic-calendar-page .academic-calendar-table-wrapper tbody th[scope="row"] {

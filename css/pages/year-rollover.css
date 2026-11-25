@@ -221,7 +221,7 @@
   min-inline-size: 0;
   border-color: var(--yr-rule-strong);
   border-radius: 3px;
-  background: #fff;
+  background: var(--kw-theme-surface);
   color: var(--yr-ink);
   font-size: .85rem;
 }
