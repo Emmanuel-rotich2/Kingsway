@@ -47,6 +47,8 @@ if (!headers_sent()) {
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
     header('Expires: 0');
+    // Authenticated app shell (including clean-route catch-alls): never index.
+    header('X-Robots-Tag: noindex, nofollow');
     // Strict CSP (config/csp_helpers.php): nonce'd inline scripts only, no
     // inline handlers, no eval. Loopback realtime ports in development only.
     $connectSources = \App\Config\Config::isProduction() ? '' : 'http://localhost:*';
@@ -64,6 +66,7 @@ if (!headers_sent()) {
     <?= csp_bootstrap_script($appBase) ?>
     <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
     <meta charset="utf-8">
+    <meta name="robots" content="noindex, nofollow">
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1"

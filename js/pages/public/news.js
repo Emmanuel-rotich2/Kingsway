@@ -126,7 +126,7 @@
     },
 
     articleUrl(id) {
-      return `${base}/index.php?route=rfcb132e4845b&id=${encodeURIComponent(id)}`;
+      return `${base}/index.php?route=news-article&id=${encodeURIComponent(id)}`;
     },
 
     renderFeatured(items) {
@@ -173,7 +173,7 @@
           <div class="text-center py-5">
             <i class="bi bi-newspaper fs-1 text-muted d-block mb-3"></i>
             <p class="text-muted">No articles in this category yet.</p>
-            <a href="${base}/index.php?route=rcbd4a4c91922" class="btn-kw-outline mt-2">View All News</a>
+            <a href="${base}/news" class="btn-kw-outline mt-2">View All News</a>
           </div>`;
         return;
       }

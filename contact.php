@@ -13,7 +13,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
 <div class="page-header">
   <div class="container position-relative" style="z-index:1">
     <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2">
-      <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php">Home</a></li>
+      <li class="breadcrumb-item"><a href="<?= $appBase ?>/">Home</a></li>
       <li class="breadcrumb-item active">Contact Us</li>
     </ol></nav>
     <h1 class="page-title">Get In Touch</h1>

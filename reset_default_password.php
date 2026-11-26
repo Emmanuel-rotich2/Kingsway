@@ -8,7 +8,10 @@ $activePage = 'login';
 $bodyClass = 'auth-page auth-recovery-page account-setup-page';
 $rawToken = (string)($_GET['token'] ?? '');
 $token = htmlspecialchars($rawToken, ENT_QUOTES, 'UTF-8');
+$robotsNoindex = true;
+header('X-Robots-Tag: noindex, nofollow');
 require_once __DIR__ . '/public/layout/public_data.php';
+$canonicalUrl = public_site_base() . '/reset_default_password.php';
 // Thin template only: no SQL, no service calls. All data flows through
 // js/pages/reset_default_password.js -> /api/public/setup-invitation and
 // /api/auth/reset-default-password (the login.php pattern).

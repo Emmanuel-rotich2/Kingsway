@@ -6,7 +6,12 @@ if ($appBase === '.') {
 $pageTitle = 'Forgot Password';
 $activePage = 'login';
 $bodyClass = 'auth-page auth-recovery-page';
+// Recovery pages are private utilities: crawlable so Google can see noindex,
+// but never eligible to rank. Keep a self-canonical instead of pointing at home.
+$robotsNoindex = true;
+header('X-Robots-Tag: noindex, nofollow');
 require_once __DIR__ . '/public/layout/public_data.php';
+$canonicalUrl = public_site_base() . '/forgot_password.php';
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 <link rel="stylesheet" href="<?= $appBase ?>/css/pages/sign-in.css?v=<?= asset_version('css/pages/sign-in.css') ?>">
@@ -219,7 +224,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
             </button>
             <div id="forgotMessage" class="reset-state" role="status" aria-live="polite"></div>
             <div class="text-center mt-4">
-              <a href="<?= $appBase ?>/index.php?route=r6d394ab20b0b" class="reset-secondary-link"><i class="bi bi-arrow-left me-1"></i>Back to login</a>
+              <a href="<?= $appBase ?>/login" class="reset-secondary-link"><i class="bi bi-arrow-left me-1"></i>Back to login</a>
             </div>
           </form>
         </div>

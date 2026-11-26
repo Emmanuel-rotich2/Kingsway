@@ -79,7 +79,7 @@
   }
 }
 
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&family=Merriweather:wght@400;700&display=swap');
+/* Fonts are loaded once, with preconnect, in public/layout/header.php. */
 
 /* ─── Variables ────────────────────────────────────────────────────────────── */
 :root {
@@ -266,7 +266,15 @@ img { max-width: 100%; height: auto; display: block; }
 .hero-slide {
   position: relative;
   isolation: isolate;
-  background: var(--green-dark) var(--hero-image) center / cover no-repeat;
+  background-color: var(--green-dark);
+  /* Browsers without image-set() keep this declaration. */
+  background-image: var(--hero-image-fallback, var(--hero-image));
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+@supports (background-image: image-set(url('hero.png') type('image/png'))) {
+  .hero-slide { background-image: var(--hero-image); }
 }
 .hero-slide::before {
   content: '';

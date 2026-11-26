@@ -16,11 +16,11 @@ require_once __DIR__ . '/public/layout/public_data.php';
 <div class="page-header">
   <div class="container position-relative" style="z-index:1">
     <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2">
-      <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php">Home</a></li>
-      <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php?route=rcbd4a4c91922">News</a></li>
+      <li class="breadcrumb-item"><a href="<?= $appBase ?>/">Home</a></li>
+      <li class="breadcrumb-item"><a href="<?= $appBase ?>/news">News</a></li>
       <li class="breadcrumb-item active" id="article-crumb">Article</li>
     </ol></nav>
-    <h1 class="page-title" id="article-title-header" style="font-size:clamp(1.4rem,3vw,2rem)">Loading…</h1>
+    <h1 class="page-title" id="article-title-header" style="font-size:clamp(1.4rem,3vw,2rem)"><?= htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8') ?></h1>
   </div>
 </div>
 

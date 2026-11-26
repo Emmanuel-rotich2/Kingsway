@@ -6,13 +6,14 @@ $activePage = 'gallery';
 $pageScript = 'gallery';
 // Dynamic gallery is rendered by js/pages/public/gallery.js via /api/website/gallery.
 require_once __DIR__ . '/public/layout/public_data.php';
+require_once __DIR__ . '/public/layout/listing_seo.php';
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
 <div class="page-header">
   <div class="container position-relative" style="z-index:1">
     <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2">
-      <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php">Home</a></li>
+      <li class="breadcrumb-item"><a href="<?= $appBase ?>/">Home</a></li>
       <li class="breadcrumb-item active">School Gallery</li>
     </ol></nav>
     <h1 class="page-title">School <span>Gallery</span></h1>
@@ -31,10 +32,10 @@ require_once __DIR__ . '/public/layout/public_data.php';
       </p>
     </div>
     <div class="row g-3" id="public-gallery-grid">
-      <div class="col-12 text-muted small p-4"><div class="spinner-border spinner-border-sm me-2"></div>Loading gallery…</div>
+      <?php kw_public_seo_cards('gallery', false); ?>
     </div>
     <div class="text-center mt-4 reveal">
-      <a href="<?= $appBase ?>/index.php" class="btn btn-outline-success rounded-pill px-4">
+      <a href="<?= $appBase ?>/" class="btn btn-outline-success rounded-pill px-4">
         <i class="bi bi-house-door me-1"></i>Back to Home
       </a>
     </div>

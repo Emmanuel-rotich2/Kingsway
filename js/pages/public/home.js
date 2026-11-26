@@ -100,7 +100,7 @@
         const color = p.color || '#198754';
         const icon = p.icon || 'bi-journal-bookmark-fill';
         return '<div class="col-lg-4 col-md-6">' +
-          '<a href="' + base + '/index.php?route=r417bdc0697f0#' + S(p.anchor || 'programs') + '" class="text-decoration-none">' +
+          '<a href="' + base + '/about#' + S(p.anchor || 'programs') + '" class="text-decoration-none">' +
           '<div class="program-card reveal delay-' + ((i % 3) + 1) + '" style="cursor:pointer">' +
           '<div class="program-icon" style="background:' + S(color) + '22">' +
           '<i class="bi ' + S(icon) + '" style="color:' + S(color) + '"></i></div>' +
@@ -125,7 +125,7 @@
         const excerpt = String(n.excerpt || n.content || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
         const trimmed = excerpt.length > 120 ? excerpt.slice(0, 120).trim() + '…' : excerpt;
         return '<div class="col-md-' + (i === 0 ? '12' : '6') + '">' +
-          '<a href="' + base + '/index.php?route=rfcb132e4845b&id=' + encodeURIComponent(n.id) + '" class="text-decoration-none">' +
+          '<a href="' + base + '/index.php?route=news-article&id=' + encodeURIComponent(n.id) + '" class="text-decoration-none">' +
           '<div class="card-modern reveal delay-' + (i + 1) + '">' +
           '<div class="card-img-wrap">' +
           '<img src="' + img + '" alt="' + S(n.title) + '" loading="lazy" data-kw-onerror="this.src=\'https://placehold.co/600x380/' + color.replace('#', '') + '/ffffff?text=News\'">' +
@@ -166,7 +166,7 @@
           : fmtShort(dStart) + ' – ' + fmtShort(dEnd);
         const dayText = dStart ? String(dStart.getDate()).padStart(2, '0') : '';
         const monText = dStart ? dStart.toLocaleString('en-GB', { month: 'short' }) : '';
-        return '<a href="' + base + '/index.php?route=rdee45953a6c1&id=' + encodeURIComponent(ev.id) + '" class="text-decoration-none text-dark">' +
+        return '<a href="' + base + '/index.php?route=event-detail&id=' + encodeURIComponent(ev.id) + '" class="text-decoration-none text-dark">' +
           '<div class="event-item" style="cursor:pointer">' +
           '<div class="event-date-box">' +
           '<div class="day">' + dayText + '</div>' +

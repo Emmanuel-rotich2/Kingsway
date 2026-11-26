@@ -13,7 +13,7 @@
 declare(strict_types=1);
 
 \App\Config\Config::init();
-$siteBase = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/');
+$siteBase = public_site_base();
 $root = dirname(__DIR__, 2);
 $facade = (require __DIR__ . '/facade_routes.php')['public'] ?? [];
 
