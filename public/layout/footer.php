@@ -32,7 +32,7 @@
       <div class="col-lg-2 col-md-6 col-6">
         <h6 class="footer-title">Quick Links</h6>
         <ul class="footer-links">
-          <li><a href="<?= $appBase ?>/index.php"><i class="bi bi-chevron-right"></i>Home</a></li>
+          <li><a href="<?= $appBase ?>/"><i class="bi bi-chevron-right"></i>Home</a></li>
           <li><a href="<?= $appBase ?>/about"><i class="bi bi-chevron-right"></i>About Us</a></li>
           <li><a href="<?= $appBase ?>/admissions"><i class="bi bi-chevron-right"></i>Admissions</a></li>
           <li><a href="<?= $appBase ?>/admissions#apply"><i class="bi bi-chevron-right"></i>Apply for Admission</a></li>
@@ -94,14 +94,14 @@
         <a href="<?= $appBase ?>/<?= htmlspecialchars(public_clean_url('privacy-policy')) ?>">Privacy Policy</a> &nbsp;·&nbsp;
         <a href="<?= $appBase ?>/<?= htmlspecialchars(public_clean_url('terms-of-use')) ?>">Terms of Use</a> &nbsp;·&nbsp;
         <a href="<?= $appBase ?>/<?= htmlspecialchars(public_clean_url('cookie-policy')) ?>">Cookie Policy</a> &nbsp;·&nbsp;
-        <a href="<?= $appBase ?>/home.php">Staff Portal</a>
+        <a href="<?= $appBase ?>/home.php" rel="nofollow">Staff Portal</a>
       </p>
     </div>
   </div>
 </footer>
 
 <!-- Scripts -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+<script src="<?= $appBase ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js?v=<?= asset_version('public/vendor/bootstrap/js/bootstrap.bundle.min.js') ?>"></script>
 <script nonce="<?= csp_nonce() ?>">
   window.APP_BASE = <?= json_encode($appBase) ?>;
   // The public website must never boot, refresh or clear the staff session.

@@ -98,7 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const base = String(window.APP_BASE || '').replace(/\/+$/, '');
       const S = window.PublicSite.escapeHtml;
       const spans = list.map((n) =>
-        '<span><a href="' + base + '/index.php?route=rfcb132e4845b&id=' + encodeURIComponent(n.id) + '">' + S(n.title) + '</a></span>'
+        '<span><a href="' + base + '/index.php?route=news-article&id=' + encodeURIComponent(n.id) + '">' + S(n.title) + '</a></span>'
       ).join('');
       track.innerHTML = spans + spans;
     } catch (err) {

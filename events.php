@@ -7,13 +7,14 @@ $pageScript = 'events';
 // Upcoming events, the academic-terms sidebar and the event-type legend are
 // rendered by js/pages/public/events.js via /api/website/{events,terms}.
 require_once __DIR__ . '/public/layout/public_data.php';
+require_once __DIR__ . '/public/layout/listing_seo.php';
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
 <div class="page-header">
   <div class="container position-relative" style="z-index:1">
     <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2">
-      <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php">Home</a></li>
+      <li class="breadcrumb-item"><a href="<?= $appBase ?>/">Home</a></li>
       <li class="breadcrumb-item active">Events &amp; Calendar</li>
     </ol></nav>
     <h1 class="page-title">Events &amp; School Calendar</h1>
@@ -30,7 +31,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
         <div class="section-label mb-2"><span>Events & Calendar</span></div>
         <h2 class="section-title mb-4">School <span>Events</span></h2>
 
-        <div id="events-list"></div>
+        <div id="events-list"><?php kw_public_seo_cards('events'); ?></div>
       </div>
 
       <!-- Sidebar: Academic Calendar + Subscribe -->

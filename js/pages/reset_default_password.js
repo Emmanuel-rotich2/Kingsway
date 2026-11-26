@@ -89,7 +89,7 @@ const resetDefaultPasswordController = {
                 document.getElementById('rdpForm').querySelector('button[type="submit"]').disabled = true;
                 const destination = accountType === 'parent'
                     ? `${window.APP_BASE || ''}/parent_portal.php?route=dashboard&login=1`
-                    : `${window.APP_BASE || ''}/index.php?route=r6d394ab20b0b`;
+                    : `${window.APP_BASE || ''}/login`;
                 window.setTimeout(() => window.location.replace(destination), 1600);
             } catch (err) {
                 s.className = 'alert alert-danger';

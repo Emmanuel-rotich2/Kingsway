@@ -23,7 +23,7 @@ $pageDescriptions = [
   'cookie-policy' => 'The cookies and browser storage used by the Kingsway Preparatory School website and portals.',
 ];
 $pageDescription = $pageDescription ?? ($pageDescriptions[$activePage] ?? 'Kingsway Preparatory School — Nurturing Excellence, Character & Leadership in Londiani, Kenya.');
-$siteBase = rtrim((string) (defined('BASE_URL') ? BASE_URL : $appBase), '/');
+$siteBase = public_site_base();
 $publicRouteKeys = array_keys((require __DIR__ . '/facade_routes.php')['public'] ?? []);
 // Canonical URL: one crawlable URL per page. Listing pages use their clean
 // path (/about); detail pages (article, event, vacancy, product) set
@@ -47,7 +47,7 @@ if (!isset($canonicalUrl)) {
 $robotsNoindex = !empty($robotsNoindex)
   || $activePage === 'login'
   || (isset($canonicalRouteKey) && $detailId <= 0);
-$socialImage = $siteBase . '/uploads/school_assets/official_school_logo.png?v=' . asset_version('school_assets/official_school_logo.png');
+$socialImage = $siteBase . '/uploads/school_assets/official_school_logo.png?v=' . asset_version('uploads/school_assets/official_school_logo.png');
 $pageImage = (string) ($socialImageOverride ?? $socialImage);
 $organizationData = [
   '@context' => 'https://schema.org',
@@ -62,9 +62,10 @@ $organizationData = [
   'email' => 'info@kingswaypreparatoryschool.sc.ke',
   'telephone' => '+254720113030',
   'areaServed' => ['Londiani', 'Kericho County', 'Kenya'],
+  // Use verified profile URLs only. The Instagram link in the footer is a
+  // post, not a profile, so it is deliberately not used as a sameAs identity.
   'sameAs' => [
     'https://www.facebook.com/profile.php/?id=100066942647437',
-    'https://www.instagram.com/p/DE7jLBkIEjS/',
   ],
   'address' => [
     '@type' => 'PostalAddress',
@@ -75,6 +76,52 @@ $organizationData = [
     'addressCountry' => 'KE',
   ],
 ];
+// Site-level and breadcrumb structured data. One canonical site identity is
+// linked from every page via @id, so Search can connect pages into one site.
+$websiteData = [
+  '@context' => 'https://schema.org',
+  '@type' => 'WebSite',
+  '@id' => $siteBase . '/#website',
+  'url' => $siteBase . '/',
+  'name' => 'Kingsway Preparatory School',
+  'inLanguage' => 'en-KE',
+  'publisher' => ['@id' => $siteBase . '/#school'],
+];
+$breadcrumbLabels = [
+  'about' => 'About Us', 'admissions' => 'Admissions', 'news' => 'News & Updates',
+  'news-article' => 'News', 'events' => 'Events', 'event-detail' => 'Events',
+  'careers' => 'Careers', 'job-detail' => 'Careers', 'contact' => 'Contact Us',
+  'downloads' => 'Downloads', 'gallery' => 'Gallery',
+  'uniform-catalog' => 'Uniform Store', 'product-details' => 'Uniform Store',
+  'privacy-policy' => 'Privacy Policy', 'terms-of-use' => 'Terms of Use',
+  'cookie-policy' => 'Cookie Policy',
+];
+$breadcrumbKey = $canonicalRouteKey ?? ($activePage === 'uniforms' ? 'uniform-catalog' : $activePage);
+$breadcrumbData = null;
+if (!$robotsNoindex && isset($breadcrumbLabels[$breadcrumbKey])) {
+  $breadcrumbItems = [
+    ['@type' => 'ListItem', 'position' => 1, 'name' => 'Home', 'item' => $siteBase . '/'],
+  ];
+  $breadcrumbParents = [
+    'news-article' => 'news', 'event-detail' => 'events',
+    'job-detail' => 'careers', 'product-details' => 'uniform-catalog',
+  ];
+  $parentKey = $breadcrumbParents[$breadcrumbKey] ?? null;
+  $position = 2;
+  if ($parentKey !== null && isset($breadcrumbLabels[$parentKey])) {
+    $breadcrumbItems[] = [
+      '@type' => 'ListItem', 'position' => $position++, 'name' => $breadcrumbLabels[$parentKey],
+      'item' => $siteBase . '/' . public_clean_url($parentKey),
+    ];
+  }
+  $breadcrumbItems[] = ['@type' => 'ListItem', 'position' => $position, 'name' => $pageTitle, 'item' => $canonicalUrl];
+  $breadcrumbData = [
+    '@context' => 'https://schema.org',
+    '@type' => 'BreadcrumbList',
+    'itemListElement' => $breadcrumbItems,
+  ];
+}
+$jsonLdFlags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -92,8 +139,23 @@ $organizationData = [
   <title><?= htmlspecialchars($pageTitle) ?> | Kingsway Preparatory School</title>
   <meta name="description" content="<?= htmlspecialchars($pageDescription, ENT_QUOTES, 'UTF-8') ?>">
   <link rel="canonical" href="<?= htmlspecialchars($canonicalUrl, ENT_QUOTES, 'UTF-8') ?>">
+  <?php if (!$robotsNoindex): ?>
+  <link rel="alternate" hreflang="en-KE" href="<?= htmlspecialchars($canonicalUrl, ENT_QUOTES, 'UTF-8') ?>">
+  <link rel="alternate" hreflang="x-default" href="<?= htmlspecialchars($canonicalUrl, ENT_QUOTES, 'UTF-8') ?>">
+  <?php endif; ?>
   <?php if ($robotsNoindex): ?>
-  <meta name="robots" content="noindex, follow">
+  <meta name="robots" content="noindex, nofollow">
+  <?php endif; ?>
+  <?php $siteVerification = trim((string) getenv('GOOGLE_SITE_VERIFICATION')); ?>
+  <?php if ($siteVerification !== ''): ?>
+  <meta name="google-site-verification" content="<?= htmlspecialchars($siteVerification, ENT_QUOTES, 'UTF-8') ?>">
+  <?php endif; ?>
+  <meta name="theme-color" content="#178a50">
+  <link rel="manifest" href="<?= $appBase ?>/manifest.webmanifest">
+  <?php if ($canonicalPageKey === 'home'): ?>
+  <!-- The first hero image is a CSS custom property; preload it so the
+       preload scanner can start the LCP request before CSS is parsed. -->
+  <link rel="preload" as="image" type="image/webp" href="<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_classroom_v2.webp?v=<?= asset_version('uploads/school_assets/bg_images/school_hero_classroom_v2.webp') ?>" fetchpriority="high">
   <?php endif; ?>
   <meta property="og:type" content="<?= isset($canonicalRouteKey) && $canonicalRouteKey === 'news-article' ? 'article' : 'website' ?>">
   <meta property="og:locale" content="en_KE">
@@ -102,13 +164,23 @@ $organizationData = [
   <meta property="og:description" content="<?= htmlspecialchars($pageDescription, ENT_QUOTES, 'UTF-8') ?>">
   <meta property="og:url" content="<?= htmlspecialchars($canonicalUrl, ENT_QUOTES, 'UTF-8') ?>">
   <meta property="og:image" content="<?= htmlspecialchars($pageImage, ENT_QUOTES, 'UTF-8') ?>">
+  <?php if ($pageImage === $socialImage): ?>
+  <meta property="og:image:width" content="1254">
+  <meta property="og:image:height" content="1254">
+  <?php endif; ?>
+  <meta property="og:image:alt" content="Kingsway Preparatory School, Londiani, Kenya">
   <meta name="twitter:card" content="<?= $pageImage !== $socialImage ? 'summary_large_image' : 'summary' ?>">
   <meta name="twitter:title" content="<?= htmlspecialchars($pageTitle . ' | Kingsway Preparatory School', ENT_QUOTES, 'UTF-8') ?>">
   <meta name="twitter:description" content="<?= htmlspecialchars($pageDescription, ENT_QUOTES, 'UTF-8') ?>">
   <meta name="twitter:image" content="<?= htmlspecialchars($pageImage, ENT_QUOTES, 'UTF-8') ?>">
-  <script nonce="<?= csp_nonce() ?>" type="application/ld+json"><?= json_encode($organizationData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+  <?php if ($canonicalPageKey === 'home'): ?>
+  <script nonce="<?= csp_nonce() ?>" type="application/ld+json"><?= json_encode([$organizationData, $websiteData], $jsonLdFlags) ?></script>
+  <?php endif; ?>
+  <?php if (!empty($breadcrumbData)): ?>
+  <script nonce="<?= csp_nonce() ?>" type="application/ld+json"><?= json_encode($breadcrumbData, $jsonLdFlags) ?></script>
+  <?php endif; ?>
   <?php if (!empty($pageStructuredData) && is_array($pageStructuredData)): ?>
-  <script nonce="<?= csp_nonce() ?>" type="application/ld+json"><?= json_encode($pageStructuredData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+  <script nonce="<?= csp_nonce() ?>" type="application/ld+json"><?= json_encode($pageStructuredData, $jsonLdFlags) ?></script>
   <?php endif; ?>
 
   <!-- Favicons -->
@@ -123,7 +195,7 @@ $organizationData = [
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 
   <!-- CSS -->
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+  <link href="<?= $appBase ?>/public/vendor/bootstrap/css/bootstrap.min.css?v=<?= asset_version('public/vendor/bootstrap/css/bootstrap.min.css') ?>" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link rel="stylesheet" href="<?= $appBase ?>/css/public.css?v=<?= asset_version('css/public.css') ?>">
   <noscript><link rel="stylesheet" href="<?= $appBase ?>/css/no-script.css?v=<?= asset_version('css/no-script.css') ?>"></noscript>
@@ -149,8 +221,8 @@ window.PUBLIC_ROUTE_MAP = <?= json_encode(public_route_map()) ?>;
 <nav class="site-nav navbar navbar-expand-lg">
   <div class="container-fluid site-nav-inner">
 
-    <a class="navbar-brand" href="<?= $appBase ?>/index.php">
-      <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png?v=<?= asset_version('school_assets/official_school_logo.png') ?>" alt="Kingsway Logo" class="school-logo" data-kw-onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
+    <a class="navbar-brand" href="<?= $appBase ?>/">
+      <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png?v=<?= asset_version('uploads/school_assets/official_school_logo.png') ?>" alt="Kingsway Preparatory School" class="school-logo" data-kw-onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
       <span class="school-name">Kingsway Preparatory School</span>
     </a>
 
@@ -162,7 +234,7 @@ window.PUBLIC_ROUTE_MAP = <?= json_encode(public_route_map()) ?>;
       <ul class="navbar-nav ms-auto align-items-lg-center gap-1">
 
         <li class="nav-item">
-          <a class="nav-link <?= $activePage==='home'?'active':'' ?>" href="<?= $appBase ?>/index.php">Home</a>
+          <a class="nav-link <?= $activePage==='home'?'active':'' ?>" href="<?= $appBase ?>/">Home</a>
         </li>
 
         <li class="nav-item dropdown">
@@ -215,12 +287,12 @@ window.PUBLIC_ROUTE_MAP = <?= json_encode(public_route_map()) ?>;
             
             <li><a class="dropdown-item" href="<?= $appBase ?>/uniform-catalog"><i class="bi bi-bag-heart me-2 text-success"></i>Uniform Store</a></li>
             <li><a class="dropdown-item" href="<?= $appBase ?>/contact"><i class="bi bi-envelope me-2 text-success"></i>Contact Us</a></li>
-            <li><a class="dropdown-item" href="<?= $appBase ?>/parent_portal.php"><i class="bi bi-people me-2 text-success"></i>Parent Portal</a></li>
+            <li><a class="dropdown-item" href="<?= $appBase ?>/parent_portal.php" rel="nofollow"><i class="bi bi-people me-2 text-success"></i>Parent Portal</a></li>
           </ul>
         </li>
 
         <li class="nav-item">
-          <a class="nav-link btn-login" href="<?= $appBase ?>/index.php?route=r6d394ab20b0b">
+          <a class="nav-link btn-login" href="<?= $appBase ?>/login" rel="nofollow">
             <i class="bi bi-box-arrow-in-right me-1"></i>Login
           </a>
         </li>

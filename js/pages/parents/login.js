@@ -95,7 +95,7 @@
           var staffBtn = document.getElementById('btnEmailLogin');
           if (staffBtn) staffBtn.disabled = true;
           setTimeout(function () {
-            window.location.replace(d.staff_login_url || (window.APP_BASE || '') + '/index.php?route=r6d394ab20b0b');
+            window.location.replace(d.staff_login_url || (window.APP_BASE || '') + '/login');
           }, 1800);
           return;
         }

@@ -7,13 +7,14 @@ $pageScript = 'careers';
 // Jobs, benefits, staff headcount and the careers stat cards are rendered by
 // js/pages/public/careers.js via /api/website/{jobs,benefits,departments,stats,settings}.
 require_once __DIR__ . '/public/layout/public_data.php';
+require_once __DIR__ . '/public/layout/listing_seo.php';
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
 <div class="page-header">
   <div class="container position-relative" style="z-index:1">
     <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2">
-      <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php">Home</a></li>
+      <li class="breadcrumb-item"><a href="<?= $appBase ?>/">Home</a></li>
       <li class="breadcrumb-item active">Careers</li>
     </ol></nav>
     <h1 class="page-title">Careers at Kingsway</h1>
@@ -52,6 +53,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
     </div>
 
     <div class="row g-4" id="careers-jobs">
+      <?php kw_public_seo_cards('jobs', false); ?>
     </div>
 
     <!-- General Application -->

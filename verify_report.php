@@ -4,6 +4,7 @@
  * UI shell only: js/pages/public/verify_report.js calls
  * GET /api/public/report-verification?code=... and shows the result.
  */
+header('X-Robots-Tag: noindex, nofollow');
 require_once __DIR__ . '/config/asset_helpers.php';
 $appBase = function_exists('app_base_path') ? app_base_path() : '';
 ?>

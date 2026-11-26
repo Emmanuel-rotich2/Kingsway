@@ -3,6 +3,7 @@ require_once __DIR__ . '/vendor/autoload.php';
 
 
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('X-Robots-Tag: noindex, nofollow');
 
 // SCHOOL_PHONE / SCHOOL_EMAIL back the "Contact the system administrator"
 // modal below. The constants are only defined by loadSchoolIdentity(), which
@@ -29,7 +30,8 @@ try {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="theme-color" content="#0b5d3b">
-    <meta name="robots" content="noindex, follow">
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="canonical" href="<?= htmlspecialchars(public_site_base() . '/login.php', ENT_QUOTES, 'UTF-8') ?>">
     <title>Secure sign in · Kingsway Preparatory School</title>
     <link rel="icon" href="<?= htmlspecialchars($appBase) ?>/images/favicon/favicon-96x96.png">
     <link rel="stylesheet" href="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/css/bootstrap.min.css?v=<?= asset_version('public/vendor/bootstrap/css/bootstrap.min.css') ?>">
@@ -52,7 +54,7 @@ try {
                 <div class="alert alert-danger d-none" id="authError" role="alert"></div>
                 <form id="authLoginForm">
                     <label class="form-label" for="authIdentifier">Username, email, or phone</label><div class="input-group mb-3"><span class="input-group-text"><i class="bi bi-person"></i></span><input class="form-control" id="authIdentifier" placeholder="Enter username, email, or phone" required autocomplete="username"></div>
-                    <div class="d-flex justify-content-between"><label class="form-label" for="authPassword">Password</label><a href="<?= htmlspecialchars($appBase) ?>/index.php?route=r8f1bc67a3eb2">Forgot password?</a></div><div class="input-group mb-3"><span class="input-group-text"><i class="bi bi-key"></i></span><input type="password" class="form-control" id="authPassword" placeholder="Enter your password" required autocomplete="current-password"><button class="btn auth-password-toggle" type="button" id="authTogglePassword" aria-label="Show password"><i class="bi bi-eye"></i></button></div>
+                    <div class="d-flex justify-content-between"><label class="form-label" for="authPassword">Password</label><a href="<?= htmlspecialchars($appBase) ?>/forgot_password.php">Forgot password?</a></div><div class="input-group mb-3"><span class="input-group-text"><i class="bi bi-key"></i></span><input type="password" class="form-control" id="authPassword" placeholder="Enter your password" required autocomplete="current-password"><button class="btn auth-password-toggle" type="button" id="authTogglePassword" aria-label="Show password"><i class="bi bi-eye"></i></button></div>
                     <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="authRemember"><label class="form-check-label" for="authRemember">Keep me signed in on this device</label></div>
                     <button class="btn btn-warning w-100 auth-submit" id="authSubmit" type="submit"><span>Sign in</span><span class="spinner-border spinner-border-sm d-none"></span></button>
                 </form>

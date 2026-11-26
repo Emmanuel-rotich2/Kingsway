@@ -4,8 +4,8 @@
  *
  * The page bodies are still rendered by their JS controllers, but search
  * engines and link previews read the <head>, so it must carry the item's own
- * title, description, image and structured data (NewsArticle, Event,
- * JobPosting) on first byte. Included by news-article.php, event-detail.php
+ * title, description, image and structured data (NewsArticle, WebPage for
+ * school events, JobPosting) on first byte. Included by news-article.php, event-detail.php
  * and job-detail.php after they set $canonicalRouteKey; sets $pageTitle,
  * $pageDescription, $socialImageOverride and $pageStructuredData for
  * header.php. Only published/open items are read (anonymous visitor rules).
@@ -21,7 +21,7 @@ declare(strict_types=1);
     }
     try {
         \App\Config\Config::init();
-        $siteBase = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/');
+        $siteBase = public_site_base();
         $canonical = $siteBase . '/index.php?route=' . $routeKey . '&id=' . $id;
         $school = ['@type' => 'School', '@id' => $siteBase . '/#school', 'name' => 'Kingsway Preparatory School'];
         $address = [
@@ -93,22 +93,18 @@ declare(strict_types=1);
             $when = ($ts = strtotime((string) ($row['start_at'] ?? ''))) ? date('j F Y', $ts) : '';
             $summary = $text($row['description'] ?? '', 120);
             $GLOBALS['pageDescription'] = $text(trim(($when !== '' ? $when . ' at Kingsway Preparatory School, Londiani. ' : '') . $summary));
-            $status = strtolower((string) ($row['status'] ?? ''));
+            // Google's Event rich results require a general-public event;
+            // on-campus school events involving minors are ineligible. Keep a
+            // valid WebPage node (plus the shared BreadcrumbList) instead of
+            // marking up an ineligible Event.
             $GLOBALS['pageStructuredData'] = array_filter([
                 '@context' => 'https://schema.org',
-                '@type' => 'Event',
+                '@type' => 'WebPage',
                 'name' => (string) $row['title'],
-                'description' => $summary !== '' ? $summary : null,
-                'startDate' => $iso($row['start_at'] ?? null),
-                'endDate' => $iso($row['end_at'] ?? null),
-                'eventStatus' => $status === 'cancelled' ? 'https://schema.org/EventCancelled' : 'https://schema.org/EventScheduled',
-                'eventAttendanceMode' => 'https://schema.org/OfflineEventAttendanceMode',
-                'location' => [
-                    '@type' => 'Place',
-                    'name' => trim((string) ($row['location'] ?? '')) !== '' ? (string) $row['location'] : 'Kingsway Preparatory School',
-                    'address' => $address,
-                ],
-                'organizer' => $school + ['url' => $siteBase . '/'],
+                'description' => $GLOBALS['pageDescription'],
+                'url' => $canonical,
+                'inLanguage' => 'en-KE',
+                'isPartOf' => ['@id' => $siteBase . '/#website'],
             ], static fn ($v) => $v !== null && $v !== '');
             return;
         }
