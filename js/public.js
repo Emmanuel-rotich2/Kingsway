@@ -10,10 +10,15 @@ window.PublicUI = (() => {
   'use strict';
 
   function observeReveals(root) {
+    const targets = (root || document).querySelectorAll('.reveal:not(.visible)');
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      targets.forEach(el => el.classList.add('visible'));
+      return;
+    }
     const io = new IntersectionObserver((entries) => {
       entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); } });
     }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
-    (root || document).querySelectorAll('.reveal').forEach(el => io.observe(el));
+    targets.forEach(el => io.observe(el));
   }
 
   function observeCounters(root) {
@@ -41,6 +46,11 @@ window.PublicUI = (() => {
 
   return { observeReveals, observeCounters };
 })();
+
+// Page controllers render their cards after load; the legacy helper name is
+// kept so freshly injected .reveal elements get observed instead of staying
+// invisible while the ticker (which renders directly) keeps working.
+window.revealOnScroll = () => window.PublicUI.observeReveals(document);
 
 document.addEventListener('DOMContentLoaded', () => {
 
