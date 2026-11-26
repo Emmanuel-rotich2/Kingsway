@@ -6,9 +6,8 @@ $activePage = 'events';
 $canonicalRouteKey = 'event-detail';
 $pageScript = 'event-detail';
 $eventId = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
-if ($eventId && defined('BASE_URL')) {
-  $canonicalUrl = rtrim((string) BASE_URL, '/') . '/' . public_route_url('event-detail', ['id' => $eventId]);
-}
+// The canonical is built in public/layout/header.php from $canonicalRouteKey
+// and ?id, and is also used by the sitemap and detail SEO data.
 // Event detail, related events, share links and the academic-terms sidebar are
 // rendered by js/pages/public/event-detail.js via GET /api/website/events/<id>
 // (plus the events list + terms). A missing/invalid id is redirected to
@@ -21,11 +20,11 @@ require_once __DIR__ . '/public/layout/public_data.php';
 <div class="page-header">
   <div class="container position-relative" style="z-index:1">
     <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2">
-      <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php">Home</a></li>
-      <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php?route=r78213fd42e2d">Events</a></li>
+      <li class="breadcrumb-item"><a href="<?= $appBase ?>/">Home</a></li>
+      <li class="breadcrumb-item"><a href="<?= $appBase ?>/events">Events</a></li>
       <li class="breadcrumb-item active" id="ed-crumb">Event</li>
     </ol></nav>
-    <h1 class="page-title" style="font-size:clamp(1.4rem,3vw,2rem)" id="ed-title">Loading&hellip;</h1>
+    <h1 class="page-title" style="font-size:clamp(1.4rem,3vw,2rem)" id="ed-title"><?= htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8') ?></h1>
   </div>
 </div>
 
@@ -68,7 +67,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
         <div class="d-flex align-items-center gap-3 flex-wrap mb-4" id="ed-share">
         </div>
 
-        <a href="<?= $appBase ?>/index.php?route=r78213fd42e2d" class="btn-kw-outline">
+        <a href="<?= $appBase ?>/events" class="btn-kw-outline">
           <i class="bi bi-arrow-left"></i>All Events
         </a>
       </div>

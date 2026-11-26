@@ -7,13 +7,14 @@ $pageScript = 'downloads';
 // Document categories are rendered by js/pages/public/downloads.js via
 // GET /api/website/downloads (grouped by category in the browser).
 require_once __DIR__ . '/public/layout/public_data.php';
+require_once __DIR__ . '/public/layout/listing_seo.php';
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
 <div class="page-header">
   <div class="container position-relative" style="z-index:1">
     <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2">
-      <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php">Home</a></li>
+      <li class="breadcrumb-item"><a href="<?= $appBase ?>/">Home</a></li>
       <li class="breadcrumb-item active">Downloads</li>
     </ol></nav>
     <h1 class="page-title">Downloads &amp; Resources</h1>
@@ -43,7 +44,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
       </div>
     </div>
 
-    <div id="dl-categories"></div>
+    <div id="dl-categories"><?php kw_public_seo_cards('downloads'); ?></div>
 
     <!-- Note -->
     <div class="p-4 rounded-4 reveal" style="background:#fff8e1;border-left:4px solid var(--gold)">

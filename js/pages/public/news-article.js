@@ -48,7 +48,7 @@
   const articlePage = {
     async init() {
       if (!articleId) {
-        location.replace(`${base}/index.php?route=rcbd4a4c91922`);
+        location.replace(`${base}/news`);
         return;
       }
       let resp;
@@ -62,7 +62,7 @@
       }
       const article = resp?.data || resp;
       if (!article || !article.id) {
-        location.replace(`${base}/index.php?route=rcbd4a4c91922`);
+        location.replace(`${base}/news`);
         return;
       }
 
@@ -74,7 +74,7 @@
     },
 
     articleUrl(id) {
-      return `${base}/index.php?route=rfcb132e4845b&id=${encodeURIComponent(id)}`;
+      return `${base}/index.php?route=news-article&id=${encodeURIComponent(id)}`;
     },
 
     renderArticle(a) {
@@ -113,7 +113,7 @@
             </div>
           </div>
           <div class="mt-4">
-            <a href="${base}/index.php?route=rcbd4a4c91922" class="btn-kw-outline"><i class="bi bi-arrow-left"></i>Back to All News</a>
+            <a href="${base}/news" class="btn-kw-outline"><i class="bi bi-arrow-left"></i>Back to All News</a>
           </div>`;
       }
     },
@@ -161,7 +161,7 @@
       wrap.innerHTML = CATEGORIES.map((c) => {
         const col = CATEGORY_COLORS[c];
         return `
-          <a href="${base}/index.php?route=rcbd4a4c91922&cat=${encodeURIComponent(c)}"
+          <a href="${base}/news?cat=${encodeURIComponent(c)}"
              class="d-flex align-items-center gap-2 py-2 border-bottom text-decoration-none text-dark">
             <span class="rounded-2 px-2 py-1" style="background:${col}22;color:${col};font-size:.72rem;font-weight:700">${S(c)}</span>
           </a>`;

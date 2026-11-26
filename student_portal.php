@@ -13,6 +13,7 @@
  * — a browser user can never widen their own sections.
  */
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
+header('X-Robots-Tag: noindex, nofollow');
 require_once __DIR__ . '/config/asset_helpers.php';
 ?>
 <!DOCTYPE html>

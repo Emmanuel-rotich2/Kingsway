@@ -78,6 +78,30 @@ function public_clean_url(string $routeKey, array $query = [], string $fragment 
     return $fragment !== '' ? $url . '#' . $fragment : $url;
 }
 
+/**
+ * Public origin used in canonical URLs, hreflang, structured data and sitemaps.
+ *
+ * BASE_URL is a routing setting and legitimately points at the local dev host.
+ * Search-facing URLs must instead use the one production origin advertised in
+ * robots.txt, so an explicit PUBLIC_SITE_URL overrides it. Invalid or empty
+ * values fall back to BASE_URL to keep local development self-consistent.
+ */
+function public_site_base(): string
+{
+    if (!defined('BASE_URL') && class_exists(\App\Config\Config::class)) {
+        \App\Config\Config::init();
+    }
+    $configured = trim((string) (getenv('PUBLIC_SITE_URL') ?: ($_ENV['PUBLIC_SITE_URL'] ?? '')));
+    if ($configured !== '') {
+        $parts = parse_url($configured);
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        if (!empty($parts['host']) && in_array($scheme, ['https', 'http'], true)) {
+            return rtrim($configured, '/');
+        }
+    }
+    return rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/');
+}
+
 function public_route_map(): array
 {
     static $map = null;

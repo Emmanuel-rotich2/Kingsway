@@ -13,6 +13,17 @@ require_once __DIR__ . '/public/layout/public_data.php';
 \App\Config\Config::init();
 $appBase = app_base_path();
 
+// One URL for the homepage: /index.php (with no route) is not a second page.
+// Do this here rather than in .htaccess because the Apache backend rewrites
+// REQUEST_URI before per-directory rules see it, losing the alias prefix.
+if (empty($_GET['route']) && preg_match('#/index\.php(?:[?]|$)#', (string) ($_SERVER['REQUEST_URI'] ?? ''))) {
+    $host = (string) ($_SERVER['HTTP_HOST'] ?? '');
+    if ($host !== '') {
+        header('Location: https://' . $host . rtrim($appBase, '/') . '/', true, 301);
+        exit;
+    }
+}
+
 $route = trim((string)($_GET['route'] ?? ''));
 // Tolerate hand-typed URLs that chain extra params with a '?' instead of a '&'
 // (e.g. ?route=contact?ref=x). Split the embedded query off the route key and
@@ -29,6 +40,37 @@ if ($route !== '' && strpos($route, '?') !== false) {
         exit;
     }
     unset($embedded, $embeddedQuery);
+}
+// Direct index.php?route=... URLs are duplicates of the clean public URLs and
+// of the opaque tokens previously emailed to parents. 301 them to one stable
+// URL. Internal rewrites (REQUEST_URI still /about, /news, …) are excluded so
+// this cannot loop with .htaccess.
+if ($route !== '' && $route !== 'home'
+    && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
+    && preg_match('#/index\.php[?]#', (string) ($_SERVER['REQUEST_URI'] ?? ''))
+) {
+    $resolvedPublicKey = public_route_key_for_token($route) ?? $route;
+    $host = (string) ($_SERVER['HTTP_HOST'] ?? '');
+    if ($host !== '') {
+        $query = $_GET;
+        unset($query['route']);
+        $prefix = 'https://' . $host . rtrim($appBase, '/');
+        if (in_array($resolvedPublicKey, public_clean_route_keys(), true)) {
+            header('Location: ' . $prefix . '/' . public_clean_url($resolvedPublicKey, $query), true, 301);
+            exit;
+        }
+        // Readable keys are already the canonical detail URL; only opaque
+        // tokens need consolidating, otherwise this would redirect to itself.
+        if ($resolvedPublicKey !== $route && in_array($resolvedPublicKey, ['news-article', 'event-detail', 'job-detail', 'product-details'], true)) {
+            $target = $prefix . '/index.php?route=' . rawurlencode($resolvedPublicKey);
+            if ($query !== []) {
+                $target .= '&' . http_build_query($query);
+            }
+            header('Location: ' . $target, true, 301);
+            exit;
+        }
+    }
+    unset($resolvedPublicKey, $query, $prefix, $host);
 }
 if ($route !== '' && $route !== 'home') {
     require_once __DIR__ . '/public/layout/public_data.php';
@@ -74,7 +116,7 @@ $showCookieConsent = true;
       <button type="button" data-bs-target="#schoolHeroCarousel" data-bs-slide-to="2" aria-label="Practical education"></button>
     </div>
     <div class="carousel-inner">
-      <div class="carousel-item active hero-slide hero-slide--founding" style="--hero-image:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_classroom_v2.png?v=<?= asset_version('school_assets/bg_images/school_hero_classroom_v2.png') ?>')">
+      <div class="carousel-item active hero-slide hero-slide--founding" style="--hero-image-fallback:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_classroom_v2.png?v=<?= asset_version('uploads/school_assets/bg_images/school_hero_classroom_v2.png') ?>');--hero-image:image-set(url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_classroom_v2.webp?v=<?= asset_version('uploads/school_assets/bg_images/school_hero_classroom_v2.webp') ?>') type('image/webp'),url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_classroom_v2.png?v=<?= asset_version('uploads/school_assets/bg_images/school_hero_classroom_v2.png') ?>') type('image/png'))">
         <div class="container hero-content">
           <div class="row align-items-center g-5">
             <div class="col-lg-7">
@@ -88,7 +130,7 @@ $showCookieConsent = true;
           </div>
         </div>
       </div>
-      <div class="carousel-item hero-slide hero-slide--school" style="--hero-image:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_section_2.jpeg?v=<?= asset_version('school_assets/bg_images/school_hero_section_2.jpeg') ?>')">
+      <div class="carousel-item hero-slide hero-slide--school" style="--hero-image:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_section_2.jpeg?v=<?= asset_version('uploads/school_assets/bg_images/school_hero_section_2.jpeg') ?>')">
         <div class="container hero-content"><div class="row align-items-center"><div class="col-lg-7"><div class="hero-copy-panel">
           <div class="hero-badge"><i class="bi bi-heart-fill"></i>In God We Soar</div>
           <h2 class="hero-title">Growing Minds.<br><span class="highlight">Grounded in Christ.</span></h2>
@@ -96,7 +138,7 @@ $showCookieConsent = true;
           <div class="hero-actions"><a href="<?= $appBase ?>/about#programs" class="btn-kw-gold"><i class="bi bi-mortarboard"></i>Explore Learning</a><a href="<?= $appBase ?>/about" class="btn-kw-outline"><i class="bi bi-compass"></i>Discover Kingsway</a></div>
         </div></div></div></div>
       </div>
-      <div class="carousel-item hero-slide hero-slide--community" style="--hero-image:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_section_3.png?v=<?= asset_version('school_assets/bg_images/school_hero_section_3.png') ?>')">
+      <div class="carousel-item hero-slide hero-slide--community" style="--hero-image-fallback:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_section_3.png?v=<?= asset_version('uploads/school_assets/bg_images/school_hero_section_3.png') ?>');--hero-image:image-set(url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_section_3.webp?v=<?= asset_version('uploads/school_assets/bg_images/school_hero_section_3.webp') ?>') type('image/webp'),url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_section_3.png?v=<?= asset_version('uploads/school_assets/bg_images/school_hero_section_3.png') ?>') type('image/png'))">
         <div class="container hero-content"><div class="row align-items-center"><div class="col-lg-7"><div class="hero-copy-panel">
           <div class="hero-badge"><i class="bi bi-tree-fill"></i>Learning, Work & Service</div>
           <h2 class="hero-title">Learning Beyond<br><span class="highlight">The Classroom</span></h2>
@@ -179,9 +221,13 @@ $showCookieConsent = true;
     <div class="row align-items-center g-5">
       <div class="col-lg-6 reveal reveal-left">
         <div class="position-relative">
-          <img src="<?= $appBase ?>/uploads/school_assets/bg_images/kingsway-about-campus-v1.jpeg?v=<?= asset_version('school_assets/bg_images/kingsway-about-campus-v1.jpeg') ?>"
-               alt="Kingsway Preparatory School pupils walking toward the school campus"
-               class="img-fluid rounded-4 shadow-lg about-school-image">
+          <picture>
+            <source type="image/webp" srcset="<?= $appBase ?>/uploads/school_assets/bg_images/kingsway-about-campus-v1.webp?v=<?= asset_version('uploads/school_assets/bg_images/kingsway-about-campus-v1.webp') ?>">
+            <img src="<?= $appBase ?>/uploads/school_assets/bg_images/kingsway-about-campus-v1.jpeg?v=<?= asset_version('uploads/school_assets/bg_images/kingsway-about-campus-v1.jpeg') ?>"
+                 width="1280" height="960" loading="lazy"
+                 alt="Kingsway Preparatory School pupils walking toward the school campus"
+                 class="img-fluid rounded-4 shadow-lg about-school-image">
+          </picture>
           <div class="position-absolute bottom-0 start-0 m-3 bg-white rounded-3 p-3 shadow-sm d-flex align-items-center gap-2">
             <div class="bg-success rounded-2 p-2 text-white"><i class="bi bi-shield-check fs-5"></i></div>
             <div><div class="fw-bold small text-dark">TSC Accredited</div><div class="text-muted" style="font-size:.75rem">Ministry of Education Kenya</div></div>
