@@ -56,7 +56,9 @@ class AcademicContextService
      */
     public function getCurrentContext()
     {
-        $cacheKey = 'academic_context';
+        // Bumped when the payload shape changed so a warm 5-minute cache entry
+        // cannot hide the academic-year dates from dashboards.
+        $cacheKey = 'academic_context_v2';
 
         // Node-spanning shared cache: every LB node reads one warmed copy off
         // disk instead of each re-querying the lone MySQL. A cold miss computes
@@ -84,6 +86,12 @@ class AcademicContextService
                         )
                         : null,
                     'academic_year_id' => $currentYear ? $currentYear['id'] : null,
+                    // The school year's own window (not a calendar year), so
+                    // dashboards can default "This Year" to the academic year.
+                    'academic_year_start_date' => ($currentYear && $currentYear['start_date'])
+                        ? substr((string) $currentYear['start_date'], 0, 10) : null,
+                    'academic_year_end_date' => ($currentYear && $currentYear['end_date'])
+                        ? substr((string) $currentYear['end_date'], 0, 10) : null,
                     // The term of the current year in session, or during a
                     // holiday the term that has just closed (records, reports
                     // and marks default to it). term_in_session tells which.
@@ -117,6 +125,8 @@ class AcademicContextService
             return [
                 'current_year' => null,
                 'academic_year_id' => null,
+                'academic_year_start_date' => null,
+                'academic_year_end_date' => null,
                 'current_term' => null,
                 'term_id' => null,
                 'term_start_date' => null,

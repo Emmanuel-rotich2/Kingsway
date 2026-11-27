@@ -65,6 +65,12 @@ window.DashboardBaseController = {
                     return this;
                 }
 
+                // Term and academic-year scopes need the school's own dates, not
+                // the browser's calendar. Context may not be preloaded on /dashboard.
+                if ((this.period === 'term' || this.period === 'year') && window.AcademicContext?.init) {
+                    await window.AcademicContext.init();
+                }
+
                 if (typeof this.apiMethod !== 'function') {
                     throw new Error(
                         `${this.controllerName} API method is unavailable.`
@@ -311,7 +317,19 @@ window.DashboardBaseController = {
                 } else if (period === 'month') {
                     from.setDate(1);
                 } else if (period === 'year') {
-                    from.setMonth(0, 1);
+                    const context = window.AcademicContext?.state || {};
+                    const startValue = context.academicYearStartDate;
+                    const endValue = context.academicYearEndDate;
+                    const start = startValue ? new Date(`${startValue}T00:00:00`) : null;
+                    const end = endValue ? new Date(`${endValue}T00:00:00`) : null;
+                    if (start && !Number.isNaN(start.getTime())) {
+                        from.setTime(start.getTime());
+                    } else {
+                        from.setMonth(0, 1);
+                    }
+                    if (end && !Number.isNaN(end.getTime())) {
+                        to.setTime(end.getTime());
+                    }
                 } else if (period === 'term') {
                     const context = window.AcademicContext?.state || {};
                     const startValue = context.termStartDate;

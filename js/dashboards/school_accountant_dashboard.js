@@ -23,6 +23,7 @@
         stateId: 'accountantDashboardState',
         scopeId: 'accountantDashboardScope',
         lastUpdatedId: 'accountantDashboardLastUpdated',
+        defaultPeriod: 'year',
 
         viewSpec: { entity: 'dashboards', view: 'school-accountant-references', input: (filters) => filters },
 
@@ -63,10 +64,9 @@
                 { label: 'KES 20,000+', min: 20000, max: Infinity }
             ];
 
-            // The default scope is the CURRENT TERM (the school's operating
-            // period), not a rolling week/month — the term is what an
-            // accountant reconciles against.
-            const periodKey = period || 'term';
+            // The default scope is the CURRENT ACADEMIC YEAR, not a rolling
+            // week/month or a calendar year — that is the accountant's year.
+            const periodKey = period || 'year';
             const collectedByPeriod = {
                 today: Number(collections.today_total || 0),
                 week: Number(collections.week_total || 0),
@@ -84,10 +84,11 @@
 
             return {
                 meta: {
-                    scope_label: fees.current_term_name
-                        || (financial.academic_year
+                    scope_label: period === 'year'
+                        ? (financial.academic_year
                             ? `Academic year ${financial.academic_year}`
-                            : 'Finance')
+                            : 'Current academic year')
+                        : (fees.current_term_name || 'Finance')
                 },
                 cards: {
                     current_term_collected: collectedByPeriod[periodKey] ?? collectedByPeriod.month,
