@@ -78,6 +78,10 @@ class ReportingManager extends FileLifecycleBase
             $yearDates = $this->db->prepare('SELECT start_date, end_date FROM academic_years WHERE id = ? LIMIT 1');
             $yearDates->execute([$year['id']]);
             $dates = $yearDates->fetch(PDO::FETCH_ASSOC) ?: ['start_date' => date('Y') . '-01-01', 'end_date' => date('Y') . '-12-31'];
+            // expenses.academic_year / budget_utilization.academic_year are
+            // YEAR(4) columns, not the stored "2026/2027" code. Derive the
+            // opening calendar year from the year's own start date.
+            $calendarYear = (int) substr((string) $dates['start_date'], 0, 4) ?: (int) date('Y');
             $filterStart = $filters['date_from'] ?? substr((string) $dates['start_date'], 0, 10);
             $filterEnd = $filters['date_to'] ?? substr((string) $dates['end_date'], 0, 10);
 
@@ -268,18 +272,24 @@ class ReportingManager extends FileLifecycleBase
                 SELECT COUNT(*) as unmatched_count, COALESCE(SUM(mt.amount),0) as unmatched_total
                 FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions_payments") . " mt
                 WHERE mt.payment_id IS NULL
-                  AND (mt.status IS NULL OR mt.status NOT IN ('reconciled', 'matched'))
+                  AND COALESCE(mt.matching_status, 'unmatched') IN ('unmatched', 'needs_review')
                   AND mt.transaction_date BETWEEN ? AND ?
             ");
             $stmt->execute([$startDate, $endDate]);
             $um = $stmt->fetch(PDO::FETCH_ASSOC);
 
+            // A rate needs a denominator. Reporting "0% reconciled" when no
+            // confirmed payment exists in the period is an artifact, not a
+            // position — return null and let the UI say why it cannot score.
             $totalCompleted = array_sum(array_column($paymentMethods, 'transaction_count'));
-            $reconciliationRate = 0;
+            $reconciliationRate = null;
+            $reconciliationStatus = 'no_confirmed_payments';
             if ($totalCompleted > 0) {
                 $reconciliationRate = (1 - ($um['unmatched_count'] / $totalCompleted)) * 100;
-                if ($reconciliationRate < 0)
+                if ($reconciliationRate < 0) {
                     $reconciliationRate = 0;
+                }
+                $reconciliationStatus = $reconciliationRate >= 100 ? 'current' : 'needs_attention';
             }
 
             // Get expense summary
@@ -291,7 +301,7 @@ class ReportingManager extends FileLifecycleBase
                 FROM expenses
                 WHERE YEAR(expense_date) = ? AND deleted_at IS NULL
             ");
-            $stmt->execute([$academicYear]);
+            $stmt->execute([$calendarYear]);
             $expenseData = $stmt->fetch(PDO::FETCH_ASSOC);
 
             // Get budget utilization (optional - table may not exist in some environments)
@@ -301,9 +311,9 @@ class ReportingManager extends FileLifecycleBase
                         COALESCE(SUM(v.total_allocated), 0) as total_budget,
                         COALESCE(SUM(v.total_spent), 0) as total_spent
                     FROM " . ReadReplicaService::qualifiedRef('budget_utilization') . " v
-                    WHERE v.academic_year = ? AND v.budget_status = 'approved'
+                    WHERE v.academic_year = ? AND v.budget_status IN ('approved', 'active')
                 ");
-                $stmt->execute([$academicYear]);
+                $stmt->execute([$calendarYear]);
                 $budgetData = $stmt->fetch(PDO::FETCH_ASSOC);
             } catch (\Exception $e) {
                 // Budgets table may be missing in light-weight or test DBs. Use safe defaults and continue.
@@ -365,6 +375,32 @@ class ReportingManager extends FileLifecycleBase
                     'defaulters_count' => (int) ($defaulters['count'] ?? 0),
                     'full_payment_count' => $fullPaymentCount
                 ],
+                // One place for the accountant's five numbers. Everything here
+                // is the selected academic year; the old mixed-scope counts
+                // remain under `collections` for the shorter period buttons.
+                'position' => [
+                    'billed' => $totalDue,
+                    'allocated' => $totalAllocated,
+                    'cash_received' => $totalCashCollected,
+                    'outstanding' => $totalOutstanding,
+                    'credit_balance' => $creditBalance,
+                    'collection_rate' => round($collectionRate, 2),
+                    'term_billed' => (float) ($termFees['total_due'] ?? 0),
+                    'term_allocated' => (float) ($termFees['total_collected'] ?? 0),
+                    'term_outstanding' => (float) ($termFees['outstanding'] ?? 0),
+                    'term_collection_rate' => round($termCollectionRate, 2),
+                    'term_name' => $currentTermName,
+                    'scope' => 'academic_year',
+                    'scope_label' => 'Academic year ' . $academicYear,
+                    'as_of' => date('Y-m-d H:i:s'),
+                    'posting_gap' => round($totalAllocated - $totalCashCollected, 2),
+                    'bases' => [
+                        'billed' => 'Fee obligations on the learner ledgers for this academic year',
+                        'allocated' => 'Cash/credits applied to those obligations',
+                        'cash_received' => 'Confirmed payments dated inside the academic year',
+                        'outstanding' => 'Billed less paid, waived and credited',
+                    ],
+                ],
                 'collections' => [
                     // Today
                     'today_total' => (float) ($todayCollections['total'] ?? 0),
@@ -388,7 +424,8 @@ class ReportingManager extends FileLifecycleBase
                     'avg_amount' => (float) ($avgRow['avg_amount'] ?? 0),
                     'unreconciled_count' => (int) ($um['unmatched_count'] ?? 0),
                     'unreconciled_total' => (float) ($um['unmatched_total'] ?? 0),
-                    'reconciliation_rate' => round($reconciliationRate, 2)
+                    'reconciliation_rate' => $reconciliationRate === null ? null : round($reconciliationRate, 2),
+                    'reconciliation_status' => $reconciliationStatus
                 ],
                 'expenses' => [
                     'total_count' => (int) ($expenseData['total_expenses'] ?? 0),
@@ -401,7 +438,16 @@ class ReportingManager extends FileLifecycleBase
                     'utilization_rate' => round($budgetUtilization, 2)
                 ],
                 'academic_year' => $academicYear,
-                'current_term_id' => $currentTermId
+                'current_term_id' => $currentTermId,
+                'data_sources' => [
+                    'ledger' => ReadReplicaService::qualifiedRef('student_fee_balances'),
+                    'payments' => 'payments (confirmed)',
+                    'mpesa' => ReadReplicaService::qualifiedRef('mpesa_transactions_payments'),
+                    'expenses' => 'expenses (not deleted)',
+                    'budget' => ReadReplicaService::qualifiedRef('budget_utilization'),
+                ],
+                'as_of' => date('Y-m-d H:i:s'),
+                'scope_label' => 'Academic year ' . $academicYear . ' (' . $filterStart . ' to ' . $filterEnd . ')'
             ]);
 
         } catch (Exception $e) {
@@ -527,6 +573,87 @@ return formatResponse(false, null, 'An internal error occurred.');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Receivables ageing for the accountant workbench.
+     *
+     * Returns both the four standard buckets and a class/stream breakdown so
+     * the dashboard can answer "who is overdue and where do they sit?" without
+     * sending the accountant back to a flat defaulter list.
+     *
+     * @param int|string|null $academicYear
+     * @param int|null $termId
+     * @return array
+     */
+    public function getAccountantArrearsAgeing($academicYear = null, $termId = null)
+    {
+        try {
+            $year = $this->resolveYear($academicYear);
+            $code = $year['code'];
+            $days = 'COALESCE(f.days_overdue, DATEDIFF(NOW(), f.latest_due_date), 0)';
+            $bucket = "CASE
+                WHEN $days <= 30 THEN '0-30 days'
+                WHEN $days <= 60 THEN '31-60 days'
+                WHEN $days <= 90 THEN '61-90 days'
+                ELSE 'Over 90 days'
+            END";
+
+            $stmt = $this->db->prepare(
+                "SELECT $bucket AS bucket,
+                        COUNT(DISTINCT f.student_id) AS student_count,
+                        COALESCE(SUM(f.balance), 0) AS outstanding
+                 FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . " f
+                 WHERE f.academic_year = ? AND f.balance > 0
+                 GROUP BY bucket
+                 ORDER BY FIELD(bucket, '0-30 days', '31-60 days', '61-90 days', 'Over 90 days')"
+            );
+            $stmt->execute([$code]);
+            $buckets = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $classSql = "SELECT
+                    c.name AS class_name,
+                    COALESCE(st.name, 'No stream') AS stream_name,
+                    COUNT(DISTINCT f.student_id) AS student_count,
+                    COALESCE(SUM(f.balance), 0) AS outstanding,
+                    COALESCE(MAX($days), 0) AS max_days_overdue
+                 FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . " f
+                 JOIN " . ReadReplicaService::qualifiedRef('student_academic_enrollments') . " sae
+                   ON f.student_academic_enrollment_id = sae.id
+                 JOIN " . ReadReplicaService::qualifiedRef('academic_year_class_streams') . " aycs
+                   ON sae.academic_year_class_stream_id = aycs.id
+                 JOIN " . ReadReplicaService::qualifiedRef('academic_year_classes') . " ayc
+                   ON aycs.academic_year_class_id = ayc.id
+                 JOIN " . ReadReplicaService::qualifiedRef('classes') . " c
+                   ON ayc.class_id = c.id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef('streams') . " st
+                   ON aycs.stream_id = st.id
+                 WHERE f.academic_year = ? AND f.balance > 0
+                   AND sae.enrollment_status IN ('active', 'completed', 'graduated')";
+            $params = [$code];
+            if ($termId) {
+                $classSql .= ' AND f.academic_year_term_id = ?';
+                $params[] = (int) $termId;
+            }
+            $classSql .= ' GROUP BY c.id, c.name, st.id, st.name
+                           ORDER BY outstanding DESC
+                           LIMIT 50';
+            $stmt = $this->db->prepare($classSql);
+            $stmt->execute($params);
+            $byClass = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, [
+                'arrears_ageing' => [
+                    'buckets' => $buckets,
+                    'by_class' => $byClass,
+                    'academic_year' => $code,
+                    'as_of' => date('Y-m-d H:i:s'),
+                ],
+            ]);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 

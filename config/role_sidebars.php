@@ -486,6 +486,7 @@ return [
             'icon' => 'fas fa-coins',
             'subitems' => [
                 ['label' => 'Fee Structure', 'url' => 'manage_fee_structure'],       // review (not draft — that's accountant)
+                ['label' => 'Finance Approvals', 'url' => 'finance_approvals'],       // authorize expenses, budgets and payroll
                 ['label' => 'Extra Charges', 'url' => 'manage_extra_charges'],
                 ['label' => 'Transport Fees', 'url' => 'transport_fees'],
                 ['label' => 'Student Fee Accounts', 'url' => 'student_fees'],

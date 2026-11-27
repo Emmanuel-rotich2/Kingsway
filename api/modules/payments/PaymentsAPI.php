@@ -2446,7 +2446,8 @@ class PaymentsAPI extends BaseAPI
                 "SELECT mt.*
                  FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions_payments") . " mt
                  WHERE mt.payment_id IS NULL
-                   AND (mt.status IS NULL OR mt.status NOT IN ('reconciled', 'processed', 'matched'))
+                   AND COALESCE(mt.matching_status, 'unmatched') IN ('unmatched', 'needs_review')
+                   AND (mt.status IS NULL OR mt.status NOT IN ('reconciled', 'failed'))
                  ORDER BY mt.transaction_date DESC
                  LIMIT 200"
             )->fetchAll(\PDO::FETCH_ASSOC);
@@ -2641,6 +2642,48 @@ class PaymentsAPI extends BaseAPI
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * Triage an M-Pesa exception without allocating money. Used by the
+     * accountant dashboard's Assign/Reject actions; the reason is written to
+     * the JSON-lines journal, never to a database log table.
+     */
+    public function resolveMpesaException($mpesaId, string $status, string $reason, $userId = null)
+    {
+        $allowed = ['needs_review', 'duplicate', 'conflict', 'reversed'];
+        if (!in_array($status, $allowed, true)) {
+            return $this->errorResponse('A valid exception status is required.', 422);
+        }
+        if (trim($reason) === '') {
+            return $this->errorResponse('A reason is required.', 422);
+        }
+
+        try {
+            $stmt = $this->db->prepare(
+                "UPDATE mpesa_transactions
+                 SET matching_status = ?, status = CASE WHEN ? = 'reversed' THEN 'failed' ELSE status END
+                 WHERE id = ? AND payment_id IS NULL
+                    AND COALESCE(matching_status, 'unmatched') NOT IN ('matched', 'reconciled')"
+            );
+            $stmt->execute([$status, $status, $mpesaId]);
+            if ($stmt->rowCount() < 1) {
+                return $this->errorResponse('Transaction not found or already resolved.', 409);
+            }
+
+            \App\API\Includes\FileLogger::write('payments', [
+                'event' => 'mpesa_exception_resolved',
+                'mpesa_id' => (int) $mpesaId,
+                'matching_status' => $status,
+                'reason' => mb_substr(trim($reason), 0, 300),
+                'user_id' => $userId,
+            ]);
+
+            return $this->successResponse(['id' => (int) $mpesaId, 'matching_status' => $status], 'M-Pesa exception recorded.');
+        } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }

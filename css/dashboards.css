@@ -1594,3 +1594,223 @@
     background: #f3f8f5;
 }
 .kw-export-actions .btn:disabled { opacity: .5; }
+
+/* ==========================================================================
+   SCHOOL ACCOUNTANT FINANCE WORKBENCH
+   Scoped to #accountantDashboard; the numbers, their sources, and the open
+   work queue are more important here than decoration.
+   ========================================================================== */
+
+.dashboard-finance {
+    --finance-ink: #1f2d27;
+    --finance-muted: #5f6b66;
+    --finance-border: #dde4e0;
+    --finance-surface: #ffffff;
+    --finance-soft: #f6f9f7;
+}
+
+.finance-meta-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .35rem 1rem;
+    margin-bottom: 1rem;
+    padding: .65rem .85rem;
+    background: var(--finance-surface);
+    border: 1px solid var(--finance-border);
+    border-radius: 10px;
+    font-size: .8rem;
+    color: var(--finance-muted);
+}
+.finance-meta-bar strong { color: var(--finance-ink); }
+.finance-meta-source {
+    flex: 1 1 22rem;
+    min-width: 0;
+    line-height: 1.4;
+}
+.finance-meta-updated { line-height: 1.4; }
+
+.finance-attention {
+    background: var(--finance-surface);
+    border: 1px solid var(--finance-border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+.finance-attention-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem 1rem;
+    padding: .8rem 1rem;
+    border-bottom: 1px solid #edf1ee;
+}
+.finance-attention-grid { display: flex; flex-direction: column; }
+.finance-attention-card {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .8rem 1rem;
+    border-bottom: 1px solid #edf1ee;
+}
+.finance-attention-card:last-child { border-bottom: 0; }
+.finance-attention-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 2.1rem;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 50%;
+    background: var(--finance-soft);
+    color: #14532d;
+}
+.finance-attention-card.is-warning .finance-attention-icon { background: #fff7e6; color: #92400e; }
+.finance-attention-card.is-danger .finance-attention-icon { background: #fff1f2; color: #9f1239; }
+.finance-attention-card.is-info .finance-attention-icon { background: #eff6ff; color: #1d4ed8; }
+.finance-attention-card.is-success .finance-attention-icon { background: #ecfdf3; color: #047857; }
+.finance-attention-copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+.finance-attention-copy strong {
+    font-size: .9rem;
+    color: var(--finance-ink);
+}
+.finance-attention-copy span {
+    font-size: .8rem;
+    color: var(--finance-muted);
+    line-height: 1.4;
+}
+.finance-attention-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+    flex: 0 0 auto;
+}
+
+.finance-definition-note {
+    margin: -.5rem 0 1rem;
+    font-size: .78rem;
+    line-height: 1.5;
+    color: var(--finance-muted);
+}
+.finance-chart-note {
+    position: absolute;
+    left: 1rem;
+    right: 1rem;
+    bottom: .1rem;
+    font-size: .72rem;
+    line-height: 1.35;
+    color: var(--finance-muted);
+}
+
+.finance-table-search { min-width: 11rem; max-width: 16rem; }
+.finance-table-search .form-control { min-width: 11rem; }
+
+.finance-table th[aria-sort="none"] [data-sort-key]::after { content: ''; }
+.finance-table [data-sort-key] {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    color: var(--finance-ink);
+    font-size: inherit;
+    font-weight: 600;
+    text-decoration: none;
+}
+.finance-table th[aria-sort] [data-sort-key]::after {
+    content: '↕';
+    color: #94a3b8;
+    font-size: .75rem;
+}
+.finance-table th[aria-sort="ascending"] [data-sort-key]::after { content: '↑'; color: #14532d; }
+.finance-table th[aria-sort="descending"] [data-sort-key]::after { content: '↓'; color: #14532d; }
+.finance-table td { vertical-align: middle; }
+.finance-table tbody tr[hidden] { display: none; }
+.finance-action-stack { display: flex; flex-wrap: wrap; gap: .25rem; }
+
+.dashboard-finance :focus-visible {
+    outline: 3px solid rgba(20, 83, 45, .55);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.finance-widget-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: .5rem .9rem;
+}
+.finance-widget-value {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--finance-ink);
+    font-variant-numeric: tabular-nums;
+}
+.finance-widget-meta,
+.finance-widget-note {
+    font-size: .78rem;
+    line-height: 1.45;
+    color: var(--finance-muted);
+}
+.finance-widget-warning {
+    margin-top: .6rem;
+    padding: .4rem .55rem;
+    border-left: 3px solid #d97706;
+    border-radius: 4px;
+    background: #fffbeb;
+    color: #92400e;
+    font-size: .78rem;
+    line-height: 1.45;
+}
+.finance-widget-pairs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .35rem .9rem;
+    margin-top: .65rem;
+    font-size: .78rem;
+    color: var(--finance-muted);
+}
+.finance-widget-pairs strong {
+    color: var(--finance-ink);
+    font-variant-numeric: tabular-nums;
+}
+.finance-progress {
+    height: .6rem;
+    margin-top: .65rem;
+    background: #e8eeea;
+    border-radius: 99px;
+    overflow: hidden;
+}
+
+@media (max-width: 991.98px) {
+    .finance-meta-bar { align-items: flex-start; }
+    .finance-meta-source { flex-basis: 100%; }
+    .finance-attention-card { align-items: flex-start; flex-wrap: wrap; }
+    .finance-attention-actions { margin-left: 2.85rem; }
+}
+
+@page { size: A4 landscape; margin: 10mm; }
+@media print {
+    .dashboard-finance { padding: 0 !important; }
+    .dashboard-finance .dashboard-action-strip,
+    .dashboard-finance #accountantDashboardRefresh,
+    .dashboard-finance .finance-table-search,
+    .dashboard-finance .finance-attention-actions,
+    .dashboard-finance [data-remind-student],
+    .dashboard-finance [data-mpesa-id] { display: none !important; }
+    .dashboard-finance .dash-card {
+        border: 1px solid #cbd5d0 !important;
+        box-shadow: none !important;
+        break-inside: avoid;
+    }
+    .dashboard-finance .card-body[style*="height"] { height: auto !important; }
+    .dashboard-finance .table-responsive { overflow: visible !important; }
+    .dashboard-finance .finance-table { font-size: 8.5pt; }
+    .dashboard-finance thead { display: table-header-group; }
+    .dashboard-finance tr,
+    .dashboard-finance .finance-attention-card { break-inside: avoid; }
+}
