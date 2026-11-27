@@ -6730,6 +6730,8 @@ window.API = {
       apiCall("/finance/payments-send-notification", "POST", data),
 
     // Expenses approvals
+    listExpenses: async (params = {}) =>
+      apiCall("/finance/expenses", "GET", null, params),
     approveExpense: async (expenseId, notes = "") =>
       apiCall("/finance/expenses-approve", "POST", {
         expense_id: expenseId,

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\API\Controllers;
 
+use App\API\Services\PermissionContract;
 use App\API\Services\StaffMigrationService;
 use RuntimeException;
 use Throwable;
@@ -276,20 +277,70 @@ return $this->serverError('An internal error occurred.');
             fn($role) => strtolower(str_replace(' ', '_', $this->roleName($role))),
             (array)($this->user['roles'] ?? [$this->user['role'] ?? ''])
         );
-        $permissions = (array)($this->user['permissions'] ?? []);
-        $required = (array)$permission;
+        $required = array_values(array_filter(
+            array_map('strval', (array)$permission),
+            static fn(string $code): bool => $code !== ''
+        ));
 
+        // School administration is allowed to prepare staff records, but every
+        // other role must carry an effective permission. Read the canonical
+        // RBAC claim: the JWT has no `permissions` claim, and RBACMiddleware
+        // resolves codes into `effective_permissions` on every request.
+        $roleIds = array_map('intval', (array)($this->user['role_ids'] ?? []));
         if (
-            !array_intersect($roles, ['school_administrator', 'school_admin', 'admin'])
-            && !array_intersect($required, $permissions)
+            array_intersect($roles, ['school_administrator', 'school_admin', 'admin'])
+            || in_array(4, $roleIds, true)
         ) {
-            throw new RuntimeException(
-                count($required) === 1
-                    ? sprintf('%s permission is required.', $required[0])
-                    : sprintf('One of these permissions is required: %s.', implode(', ', $required)),
-                403
-            );
+            return;
         }
+
+        foreach ($required as $code) {
+            if ($this->hasEffectivePermission($code)) {
+                return;
+            }
+        }
+
+        throw new RuntimeException(
+            count($required) === 1
+                ? sprintf('%s permission is required.', $required[0])
+                : sprintf('One of these permissions is required: %s.', implode(', ', $required)),
+            403
+        );
+    }
+
+    /**
+     * Match both canonical permission codes and legacy dotted aliases without
+     * trusting a client-supplied `permissions` claim.
+     */
+    private function hasEffectivePermission(string $code): bool
+    {
+        $normalized = str_replace('.', '_', trim($code));
+        if ($normalized === '') {
+            return false;
+        }
+
+        $parts = explode('_', $normalized, 2);
+        if (count($parts) === 2
+            && PermissionContract::userCan($this->user ?? [], $parts[0], $parts[1])) {
+            return true;
+        }
+
+        $granted = array_merge(
+            (array)($this->user['effective_permissions'] ?? []),
+            (array)($this->user['permissions'] ?? [])
+        );
+        foreach ($granted as $value) {
+            if (is_array($value)) {
+                $value = $value['permission_code'] ?? $value['code'] ?? $value['name'] ?? '';
+            } elseif (is_object($value)) {
+                $value = $value->permission_code ?? $value->code ?? $value->name ?? '';
+            }
+            if (is_string($value) && str_replace('.', '_', $value) === $normalized) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function roleName(mixed $role): string

@@ -47,12 +47,26 @@ class DepartmentBudgetManager
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    // Approve or reject a proposal
-    public function updateProposalStatus($proposalId, $status, $reviewedBy)
+    // Approve or reject a proposal, keeping the reviewer's reason on the record.
+    public function updateProposalStatus($proposalId, $status, $reviewedBy, $notes = null)
     {
-        $sql = "UPDATE budgets SET status = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?";
+        $normalizedStatus = strtolower(trim((string) $status));
+        $notes = trim((string) ($notes ?? ''));
+        $notes = $notes === '' ? null : $notes;
+
+        $sql = "UPDATE budgets SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = COALESCE(?, review_notes)";
+        $params = [$this->mapProposalStatus($normalizedStatus), $reviewedBy, $notes];
+
+        if (in_array($normalizedStatus, ['approved', 'active'], true)) {
+            $sql .= ", approval_notes = COALESCE(?, approval_notes), approved_by = ?, approved_at = NOW()";
+            array_push($params, $notes, $reviewedBy);
+        }
+
+        $sql .= " WHERE id = ?";
+        $params[] = $proposalId;
+
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$this->mapProposalStatus($status), $reviewedBy, $proposalId]);
+        $stmt->execute($params);
         return $stmt->rowCount();
     }
 
