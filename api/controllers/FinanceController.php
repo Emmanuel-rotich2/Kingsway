@@ -983,7 +983,11 @@ class FinanceController extends BaseController
      */
     private function requireApprovalAccess(string $action = 'perform this approval'): ?array
     {
-        if (in_array('accountant', $this->staffAccess->roles(), true)) {
+        // Accountants prepare and report on finances; they never approve or
+        // reject them. Check the immutable role id as well as the role name so
+        // a renamed/aliased role cannot quietly gain one-click approval.
+        if (in_array(10, $this->getUserRoleIds(), true)
+            || in_array('accountant', $this->staffAccess->roles(), true)) {
             return $this->forbidden("Accountants prepare payroll; they cannot $action");
         }
         if ($this->staffAccess->allows('staff.payroll.approve', ['director', 'school administrator', 'headteacher', 'system administrator']) ||

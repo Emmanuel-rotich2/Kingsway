@@ -2249,7 +2249,7 @@ class DashboardController extends BaseController
             $reporting = $financeService->getReportingManager();
 
             // Check if pivot parameter is provided
-            $allowedPivots = ['pivot-class', 'pivot-type', 'pivot-method', 'pivot-fee-type', 'pivot-daily', 'top-defaulters'];
+            $allowedPivots = ['pivot-class', 'pivot-type', 'pivot-method', 'pivot-fee-type', 'pivot-daily', 'top-defaulters', 'arrears-ageing'];
             $pivotType = isset($filters['pivot']) && in_array($filters['pivot'], $allowedPivots, true) ? $filters['pivot'] : null;
 
             if ($pivotType) {
@@ -2279,6 +2279,9 @@ class DashboardController extends BaseController
                         $limit = isset($filters['limit']) ? (int) $filters['limit'] : 20;
                         $result = $reporting->getTopDefaulters($limit, $academicYear);
                         break;
+                    case 'arrears-ageing':
+                        $result = $reporting->getAccountantArrearsAgeing($academicYear, $termId);
+                        break;
                     default:
                         return $this->badRequest("Invalid pivot type: $pivotType");
                 }
@@ -2298,6 +2301,9 @@ class DashboardController extends BaseController
             // the view stores "2026/2027".
             $safeFilters = [];
             $safeFilters['academic_year'] = trim((string) ($filters['academic_year'] ?? ''));
+            if (!empty($filters['academic_year_id'])) {
+                $safeFilters['academic_year_id'] = $filters['academic_year_id'];
+            }
             foreach (['date_from', 'date_to'] as $dateKey) {
                 if (!empty($filters[$dateKey]) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $filters[$dateKey])) {
                     $safeFilters[$dateKey] = $filters[$dateKey];
@@ -2365,6 +2371,44 @@ class DashboardController extends BaseController
             \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
 
             return $this->serverError('Failed to fetch accountant payments data: ');
+        }
+    }
+
+    /**
+     * GET /api/dashboard/accountant/cash-position
+     * Accountant-only: posted bank/cash/M-Pesa position. Balances are marked
+     * unknown where an account has no ledger link, so an absent posting is
+     * never presented as a real zero.
+     */
+    public function getAccountantCashPosition($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasRoleId(10)) {
+            return $this->forbidden('Accountant access only');
+        }
+        try {
+            $service = $this->contract('App\API\Services\AccountantFinanceService');
+            return $this->success($service->getCashPosition(), 'Cash position retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
+            return $this->serverError('Failed to fetch cash position');
+        }
+    }
+
+    /**
+     * GET /api/dashboard/accountant/payroll-summary
+     * Accountant-only: current-month payroll cost and statutory deductions.
+     */
+    public function getAccountantPayrollSummary($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasRoleId(10)) {
+            return $this->forbidden('Accountant access only');
+        }
+        try {
+            $service = $this->contract('App\API\Services\AccountantFinanceService');
+            return $this->success($service->getPayrollSnapshot(), 'Payroll snapshot retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
+            return $this->serverError('Failed to fetch payroll snapshot');
         }
     }
 
