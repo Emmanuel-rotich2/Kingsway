@@ -6730,6 +6730,8 @@ window.API = {
       apiCall("/finance/payments-send-notification", "POST", data),
 
     // Expenses approvals
+    listExpenses: async (params = {}) =>
+      apiCall("/finance/expenses", "GET", null, params),
     approveExpense: async (expenseId, notes = "") =>
       apiCall("/finance/expenses-approve", "POST", {
         expense_id: expenseId,
@@ -8343,6 +8345,13 @@ window.API = {
         student_id: studentId,
       }),
 
+    resolveMpesaException: async (mpesaId, matchingStatus, reason) =>
+      apiCall("/payments/mpesa-exception", "POST", {
+        mpesa_id: mpesaId,
+        matching_status: matchingStatus,
+        reason: reason,
+      }),
+
     // Get M-Pesa reconciliation history
     getMpesaReconcileHistory: async (mpesaId) =>
       apiCall(
@@ -9231,6 +9240,28 @@ window.API = {
         null,
         params,
       );
+    },
+
+    getAccountantCashPosition: async () => {
+      return await apiCall("/dashboard/accountant/cash-position", "GET");
+    },
+
+    getAccountantPayrollSummary: async () => {
+      return await apiCall("/dashboard/accountant/payroll-summary", "GET");
+    },
+
+    sendAccountantFeeReminder: async (studentId) => {
+      return await apiCall("/communications/send-reminder", "POST", {
+        student_id: studentId,
+        type: "fee_reminder",
+      });
+    },
+
+    getAccountantPendingExpenses: async (params = {}) => {
+      return await apiCall("/finance/expenses", "GET", null, {
+        status: "pending_approval",
+        ...params,
+      });
     },
 
     /**

@@ -22,6 +22,7 @@ if (
     function_exists('public_clean_route_keys') &&
     (
         in_array($route, public_clean_route_keys(), true) ||
+        (function_exists('public_auth_clean_route_keys') && in_array($route, public_auth_clean_route_keys(), true)) ||
         $route === 'verify-report'
     )
 ) {

@@ -983,7 +983,11 @@ class FinanceController extends BaseController
      */
     private function requireApprovalAccess(string $action = 'perform this approval'): ?array
     {
-        if (in_array('accountant', $this->staffAccess->roles(), true)) {
+        // Accountants prepare and report on finances; they never approve or
+        // reject them. Check the immutable role id as well as the role name so
+        // a renamed/aliased role cannot quietly gain one-click approval.
+        if (in_array(10, $this->getUserRoleIds(), true)
+            || in_array('accountant', $this->staffAccess->roles(), true)) {
             return $this->forbidden("Accountants prepare payroll; they cannot $action");
         }
         if ($this->staffAccess->allows('staff.payroll.approve', ['director', 'school administrator', 'headteacher', 'system administrator']) ||
@@ -993,6 +997,32 @@ class FinanceController extends BaseController
             return null;
         }
         return $this->forbidden("Insufficient permissions to $action");
+    }
+
+    /**
+     * Payroll runs have no decision-note column, so a reason supplied by the
+     * approval workbench is written to the JSON-lines audit journal. Logs stay
+     * files; no database log table is introduced.
+     */
+    private function logPayrollDecisionReason(string $action, $payrollId, string $reason): void
+    {
+        $reason = trim($reason);
+        if ($reason === '') return;
+        \App\API\Includes\FileLogger::write('audit', [
+            'type' => 'audit',
+            'action' => $action,
+            'entity' => 'payroll_run',
+            'entity_id' => (string) $payrollId,
+            'user_id' => $this->getUserId(),
+            'details' => ['reason' => mb_substr($reason, 0, 500)],
+            'status' => 'success',
+        ]);
+    }
+
+    private function responseSucceeded(array $result): bool
+    {
+        $code = (int) ($result['code'] ?? 500);
+        return $code >= 200 && $code < 300;
     }
 
     /** Only the director/school-administration control layer may alter fee relief. */
@@ -1042,9 +1072,15 @@ class FinanceController extends BaseController
         if (!$proposalId) {
             return $this->badRequest('proposal_id (or budget_id) is required');
         }
-        $status     = $data['status']      ?? 'approved';
+        $status     = $data['status']       ?? 'approved';
         $reviewedBy = $data['reviewed_by'] ?? $this->getUserId();
-        $result = $this->api->updateDepartmentBudgetProposalStatus($proposalId, $status, $reviewedBy);
+        $notes      = trim((string) ($data['notes'] ?? $data['reason'] ?? $data['comments'] ?? ''));
+        $result = $this->api->updateDepartmentBudgetProposalStatus(
+            $proposalId,
+            $status,
+            $reviewedBy,
+            $notes !== '' ? $notes : null
+        );
         return $this->handleResponse($result);
     }
 
@@ -1444,9 +1480,13 @@ class FinanceController extends BaseController
     {
         if ($denied = $this->requireApprovalAccess('approve payroll')) return $denied;
         $payrollId = $data['payroll_id'] ?? $data['id'] ?? $id;
+        $reason = trim((string) ($data['comments'] ?? $data['notes'] ?? $data['reason'] ?? ''));
         // The approver is always the signed-in user. Taking it from the
         // request let any caller record someone else as the approver.
         $result = $this->api->approvePayroll($payrollId, $this->getUserId());
+        if ($this->responseSucceeded($result)) {
+            $this->logPayrollDecisionReason('payroll_approved_with_reason', $payrollId, $reason);
+        }
         return $this->handleResponse($result);
     }
 
@@ -1457,7 +1497,11 @@ class FinanceController extends BaseController
     {
         if ($denied = $this->requireApprovalAccess('reject payroll')) return $denied;
         $data['user_id'] = $data['user_id'] ?? $this->getUserId();
+        $reason = trim((string) ($data['reason'] ?? ''));
         $result = $this->api->rejectPayroll($data);
+        if ($this->responseSucceeded($result)) {
+            $this->logPayrollDecisionReason('payroll_rejected_with_reason', $data['payroll_id'] ?? null, $reason);
+        }
         return $this->handleResponse($result);
     }
 
@@ -1657,7 +1701,11 @@ class FinanceController extends BaseController
             return $this->badRequest('Payroll ID required');
         }
         // The approver is always the signed-in user, never a request field.
+        $reason = trim((string) ($payload['comments'] ?? $payload['notes'] ?? $payload['reason'] ?? ''));
         $result = $this->api->approvePayroll($payrollId, $this->getUserId());
+        if ($this->responseSucceeded($result)) {
+            $this->logPayrollDecisionReason('payroll_approved_with_reason', $payrollId, $reason);
+        }
         return $this->handleResponse($result);
     }
 

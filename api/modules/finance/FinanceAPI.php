@@ -333,10 +333,10 @@ class FinanceAPI extends BaseAPI
     /**
      * Department Budget: Approve/Reject proposal
      */
-    public function updateDepartmentBudgetProposalStatus($proposalId, $status, $reviewedBy)
+    public function updateDepartmentBudgetProposalStatus($proposalId, $status, $reviewedBy, $notes = null)
     {
         try {
-            $result = $this->departmentBudgetManager->updateProposalStatus($proposalId, $status, $reviewedBy);
+            $result = $this->departmentBudgetManager->updateProposalStatus($proposalId, $status, $reviewedBy, $notes);
             return formatResponse(true, ['rows_affected' => $result], 'Proposal status updated');
         } catch (Exception $e) {
             return $this->handleException($e);

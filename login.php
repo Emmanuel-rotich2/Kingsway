@@ -31,7 +31,7 @@ try {
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="theme-color" content="#0b5d3b">
     <meta name="robots" content="noindex, nofollow">
-    <link rel="canonical" href="<?= htmlspecialchars(public_site_base() . '/login.php', ENT_QUOTES, 'UTF-8') ?>">
+    <link rel="canonical" href="<?= htmlspecialchars(public_site_base() . '/login', ENT_QUOTES, 'UTF-8') ?>">
     <title>Secure sign in · Kingsway Preparatory School</title>
     <link rel="icon" href="<?= htmlspecialchars($appBase) ?>/images/favicon/favicon-96x96.png">
     <link rel="stylesheet" href="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/css/bootstrap.min.css?v=<?= asset_version('public/vendor/bootstrap/css/bootstrap.min.css') ?>">

@@ -62,6 +62,18 @@ function public_clean_route_keys(): array
     ];
 }
 
+/**
+ * Non-indexable facade routes that also have clean URLs (/login, …).
+ *
+ * home.php must hand these to the public facade too when a host's rewrite
+ * rules are stale. They stay out of public_clean_route_keys() so canonicals,
+ * hreflang and the sitemap never advertise auth pages as public content.
+ */
+function public_auth_clean_route_keys(): array
+{
+    return ['login', 'forgot-password', 'reset-password', 'reset-default-password'];
+}
+
 /** Relative clean URL for an indexable page; other routes keep their token URL. */
 function public_clean_url(string $routeKey, array $query = [], string $fragment = ''): string
 {

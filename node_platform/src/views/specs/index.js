@@ -1603,11 +1603,22 @@ viewSpecs.set('dashboards/school-accountant-references', {
   view: 'dashboards/school-accountant-references',
   service: 'php',
   permissions: [],
+  // A finance workbench must not serve five-minute-old balances after a
+  // manual refresh. The dashboard reads the authoritative PHP endpoints on
+  // every load; Node still pools the fan-out.
+  cacheTtlSeconds: 0,
   queries: [
     { key: 'financial', endpoint: '/api/dashboard/accountant/financial' },
     { key: 'payments', endpoint: '/api/dashboard/accountant/payments', staticParams: { limit: 15 } },
     { key: 'defaulters', endpoint: '/api/dashboard/accountant/financial', staticParams: { pivot: 'top-defaulters', limit: 10 } },
     { key: 'unmatched', endpoint: '/api/payments/unmatched-mpesa', staticParams: { limit: 20 } },
+    { key: 'ageing', endpoint: '/api/dashboard/accountant/financial', staticParams: { pivot: 'arrears-ageing' } },
+    { key: 'classCollection', endpoint: '/api/dashboard/accountant/financial', staticParams: { pivot: 'pivot-class' } },
+    { key: 'feeTypes', endpoint: '/api/dashboard/accountant/financial', staticParams: { pivot: 'pivot-fee-type' } },
+    { key: 'daily', endpoint: '/api/dashboard/accountant/financial', staticParams: { pivot: 'pivot-daily' } },
+    { key: 'cash', endpoint: '/api/dashboard/accountant/cash-position' },
+    { key: 'payroll', endpoint: '/api/dashboard/accountant/payroll-summary' },
+    { key: 'pendingExpenses', endpoint: '/api/finance/expenses', staticParams: { status: 'pending_approval', limit: 10 } },
   ],
   aggregations: {},
 });
