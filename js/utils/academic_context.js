@@ -20,6 +20,8 @@
             currentAcademicYear: null,
             currentTerm: null,
             academicYearId: null,
+            academicYearStartDate: null,
+            academicYearEndDate: null,
             termId: null,
             termStartDate: null,
             termEndDate: null,
@@ -95,6 +97,8 @@
                     this.state.currentAcademicYear = response.current_year;
                     this.state.currentTerm = response.current_term;
                     this.state.academicYearId = response.academic_year_id;
+                    this.state.academicYearStartDate = response.academic_year_start_date || null;
+                    this.state.academicYearEndDate = response.academic_year_end_date || null;
                     this.state.termId = response.term_id;
                     this.state.termStartDate = response.term_start_date || null;
                     this.state.termEndDate = response.term_end_date || null;

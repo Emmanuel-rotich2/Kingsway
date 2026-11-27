@@ -1,5 +1,15 @@
 
-<?php $rootId = 'accountantDashboard'; ?>
+<?php
+$rootId = 'accountantDashboard';
+$periods = [
+    ['key' => 'today', 'label' => 'Today'],
+    ['key' => 'week', 'label' => 'This Week'],
+    ['key' => 'month', 'label' => 'This Month'],
+    ['key' => 'term', 'label' => 'This Term'],
+    ['key' => 'year', 'label' => 'Current Academic Year'],
+];
+$default = 'year';
+?>
 <div class="container-fluid py-4 role-dashboard dashboard-surface dashboard-finance" id="accountantDashboard" data-dashboard-layout="finance-classic-workbench">
 
     <?php require __DIR__ . '/partials/period_selector.php'; ?>
