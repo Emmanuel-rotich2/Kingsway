@@ -1,111 +1,68 @@
-const foodLowStockController = {
-  state: { items: [], referenceCache: null },
+/** Reorder list: what to buy, grouped by supplier (from /api/catering/store). */
+(() => {
+  'use strict';
+  const root = document.getElementById('reorderPage');
+  if (!root) return;
+  const O = window.OpsCommon;
+  const F = window.FoodStore;
+  const { esc, num, kes } = O;
+  const $ = (id) => document.getElementById(id);
 
-  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+  /** Enough for three weeks at the usual rate, and at least twice the reorder level. */
+  const suggest = (i) => Math.max(0, Math.max(i.reorder_level * 2, Math.ceil(i.daily_use * 21)) - i.on_hand);
+  const need = () => F.active().filter((i) => i.level !== 'ok' || (i.days_left !== null && i.days_left <= 7))
+    .map((i) => ({ ...i, order: Math.max(suggest(i), 1) }))
+    .sort((a, b) => ({ out: 0, low: 1, ok: 2 }[a.level] - { out: 0, low: 1, ok: 2 }[b.level]) || (a.days_left ?? 999) - (b.days_left ?? 999));
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); },
+  function render() {
+    const list = need();
+    const cost = list.reduce((s, i) => s + i.order * i.unit_cost, 0);
+    $('roFacts').innerHTML = [
+      [list.some((i) => i.level === 'out') ? 'is-stop' : '', num(list.filter((i) => i.level === 'out').length), 'out of stock'],
+      [list.length ? 'is-warn' : 'is-ok', num(list.length), 'items to order'],
+      ['', kes(cost), 'estimated cost, at the last price'],
+    ].map(([t, v, l]) => `<li class="${t}"><span class="ops-fact__v">${esc(v)}</span><span class="ops-fact__l">${esc(l)}</span></li>`).join('');
+    if (!list.length) { $('roGroups').innerHTML = '<div class="ops-panel"><p class="ops-empty mb-0">Nothing needs ordering. Every item is above its reorder level and lasts more than a week.</p></div>'; return; }
 
-  norm(r) { return Array.isArray(r) ? r : (r?.data || r?.items || r || []); },
+    const groups = new Map();
+    list.forEach((i) => { const k = i.supplier || ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(i); });
+    const m = F.state.canManage;
+    $('roGroups').innerHTML = [...groups].sort(([a], [b]) => (a ? 0 : 1) - (b ? 0 : 1) || a.localeCompare(b)).map(([sup, rows]) => `
+      <section class="ops-panel mb-3" aria-label="${esc(sup || 'No usual supplier')}">
+        <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-2 mb-2">
+          <h2 class="mb-0">${esc(sup || 'No usual supplier set')}</h2>
+          <span class="small text-muted">${esc(kes(rows.reduce((s, i) => s + i.order * i.unit_cost, 0)))}</span>
+        </div>
+        <div class="table-responsive" tabindex="0" role="region" aria-label="${esc(sup || 'No usual supplier')}">
+          <table class="table align-middle mb-0">
+            <thead><tr><th scope="col">Item</th><th scope="col">In the store</th><th scope="col">Lasts</th><th scope="col">Order</th><th scope="col">Estimated cost</th><th scope="col" class="d-print-none"><span class="visually-hidden">Actions</span></th></tr></thead>
+            <tbody>${rows.map((i) => `<tr>
+              <td><span class="fw-bold">${esc(i.name)}</span> ${i.level === 'ok' ? '<span class="ops-tag is-warn">Runs out this week</span>' : F.levelTag(i)}<div class="small text-muted">${esc(i.category)}</div></td>
+              <td>${F.gauge(i)}</td>
+              <td>${F.lasts(i)}</td>
+              <td class="fw-bold text-nowrap">${esc(num(i.order))} ${esc(i.unit)}</td>
+              <td class="text-nowrap">${esc(kes(i.order * i.unit_cost))}</td>
+              <td class="d-print-none text-end">${m ? `<button type="button" class="btn btn-sm btn-outline-secondary" data-receive="${i.id}" data-qty="${i.order}">It has come</button>` : ''}</td></tr>`).join('')}</tbody>
+          </table>
+        </div>
+      </section>`).join('');
+  }
 
-  fmtDate(v) {
-    if (!v) return '\u2014';
-    const dt = new Date(String(v).replace(' ', 'T'));
-    if (isNaN(dt)) return this.esc(v);
-    return dt.toLocaleDateString();
-  },
-
-  stockBadge(s) {
-    const status = String(s || '').toUpperCase();
-    if (status === 'OUT OF STOCK') return 'bg-danger';
-    if (status === 'REORDER' || status === 'LOW STOCK') return 'bg-warning text-dark';
-    return 'bg-success';
-  },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("inventory", "food-low-stock-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Food Low Stock Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
-    }
-  },
-
-  async load() {
-    const body = document.getElementById('flsBody');
-    if (!body) return;
-    body.innerHTML = '<tr><td colspan="9" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
-    try {
-      const cache = this.state.referenceCache;
-      const r = cache?.items !== undefined ? cache.items : await this.API('GET', '/catering/food-stock', null, { low_stock: '1', limit: 200 });
-      this.state.items = this.norm(r);
-      this.render();
-    } catch (e) { if (body.isConnected) body.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
-  },
-
-  render() {
-    const items = this.state.items;
-    const stats = document.getElementById('flsStats');
-    const out = items.filter(i => String(i.stock_status || '').toUpperCase() === 'OUT OF STOCK').length;
-    const reorder = items.filter(i => String(i.stock_status || '').toUpperCase() === 'REORDER').length;
-    const low = items.filter(i => String(i.stock_status || '').toUpperCase() === 'LOW STOCK').length;
-    const expiring = items.filter(i => i.expiry_status && String(i.expiry_status).toUpperCase() !== 'OK').length;
-    if (stats) stats.innerHTML = [
-      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Out of Stock</div><div class="fs-4 fw-bold text-danger">${this.esc(out)}</div></div></div>`,
-      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Reorder</div><div class="fs-4 fw-bold text-warning">${this.esc(reorder)}</div></div></div>`,
-      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Low Stock</div><div class="fs-4 fw-bold">${this.esc(low)}</div></div></div>`,
-      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Expiring</div><div class="fs-4 fw-bold text-danger">${this.esc(expiring)}</div></div></div>`,
-    ].join('');
-
-    const body = document.getElementById('flsBody');
-    if (!body) return;
-    if (!items.length) { body.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-muted">No low-stock food items found.</td></tr>'; return; }
-    body.innerHTML = items.map(i => {
-      const expiryWarn = i.expiry_status && String(i.expiry_status).toUpperCase() !== 'OK';
-      return `<tr>
-        <td class="small fw-semibold">${this.esc(i.name || `#${i.id}`)}<div class="text-muted fw-normal">${this.esc(i.code || '')}</div></td>
-        <td class="small text-muted">${this.esc(i.category || '\u2014')}</td>
-        <td class="small text-muted">${this.esc(i.location || '\u2014')}</td>
-        <td class="small fw-semibold">${this.esc(i.current_quantity ?? 0)}</td>
-        <td class="small">${this.esc(i.minimum_quantity ?? 0)}</td>
-        <td class="small">${this.esc(i.reorder_level ?? 0)}</td>
-        <td><span class="badge ${this.stockBadge(i.stock_status)}">${this.esc(i.stock_status || '\u2014')}</span></td>
-        <td class="small ${expiryWarn ? 'text-danger fw-semibold' : 'text-muted'}">${this.fmtDate(i.expiry_date)}${expiryWarn ? ` (${this.esc(i.expiry_status)})` : ''}</td>
-        <td class="small">KES ${Number(i.inventory_value ?? 0).toLocaleString()}</td>
-      </tr>`;
-    }).join('');
-  },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("inventory", "food-low-stock-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Food Low Stock Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
-    }
-  },
-
-  async init() {
-    if (window.AuthContext?.ready) await window.AuthContext.ready();
-    await this.loadReferencesComposed();
-    await this.load();
-    window.APIRealtime?.register?.("food_low_stock", {
-      refresh: async () => {
-        this.state.referenceCache = null;
-        await this.loadReferencesComposed();
-        await this.load();
-      }
-    }, ["inventory", "catering"]);
-  },
-};
-
-const foodLowStockControllerInstance = foodLowStockController;
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => foodLowStockControllerInstance.init().catch(() => {}));
-} else {
-  foodLowStockControllerInstance.init().catch(() => {});
-}
-
-window.foodLowStockController = foodLowStockControllerInstance;
+  async function init() {
+    await window.AuthContext?.ready?.();
+    F.wire();
+    F.onChange(render);
+    $('roGroups').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-receive]');
+      if (b) F.openReceive([{ item_id: Number(b.dataset.receive), quantity: Number(b.dataset.qty) }]);
+    });
+    $('roPrint').addEventListener('click', () => window.print());
+    $('roCsv').addEventListener('click', () => O.exportCsv(`food_reorder_${O.today()}.csv`, ['Supplier', 'Item', 'Category', 'In the store', 'Unit', 'Order more at', 'Days left', 'Order', 'Cost of one', 'Estimated cost'],
+      need().map((i) => [i.supplier, i.name, i.category, i.on_hand, i.unit, i.reorder_level, i.days_left ?? '', i.order, i.unit_cost, i.order * i.unit_cost])));
+    if (!O.canExport()) $('roCsv').hidden = true;
+    window.APIRealtime?.register?.('food_low_stock', { refresh: async () => { await F.load(); render(); } }, ['inventory', 'catering']);
+    try { await F.load(); render(); }
+    catch (e) { $('roGroups').innerHTML = `<div class="ops-panel text-muted">${esc(e.message || 'The food store could not be loaded.')}</div>`; }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();

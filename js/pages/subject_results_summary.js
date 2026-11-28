@@ -1,350 +1,152 @@
 /**
- * Subject Results Summary Controller - Subject Teacher Specific Results Viewing
- * Role: Subject Teacher (8)
- * Shows only results for the teacher's assigned subjects
- * Integrates with AcademicContext for academic year awareness
+ * Subject Results Summary — summative results for the teacher's own class
+ * streams and learning areas. academic/results is scoped on the server for
+ * anyone outside academic leadership. Grades come from the school's grading
+ * scale (GradingScale), never hard-coded bands.
  */
-
 const subjectResultsController = (() => {
-    const state = {
-        results: [],
-        classes: [],
-        subjects: [],
-        years: [],
-        terms: [],
-        currentAcademicYear: null,
-        currentTerm: null
-    };
-    let referenceCache = null;
+  const state = { results: [], yearId: null, termId: null };
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c]));
+  const rowsOf = (r) => (Array.isArray(r) ? r : Array.isArray(r?.data) ? r.data : []);
+  const scopeOf = (r) => `${r.class_name || ""}|${r.subject_name || ""}`;
+  const grade = (pct) => (Number.isFinite(pct) ? (window.GradingScale?.grade?.(pct) || "") : "");
+  const bandClass = (code) => {
+    const band = window.GradingScale?.band?.(code) || String(code || "").replace(/\d+$/, "");
+    return band === "EE" ? "bg-success" : band === "ME" ? "bg-primary" : band === "AE" ? "bg-warning text-dark" : band === "BE" ? "bg-danger" : "bg-secondary";
+  };
 
-    // Aggregate the context-free filter references through one authorized Node
-    // view; subjects (teacher-scoped) and results (filtered) stay direct.
-    async function loadReferencesComposed() {
-        try {
-            const response = await window.API.nodeViews.resolve('academic', 'subject-results-references');
-            referenceCache = response?.data?.sources || response?.sources || {};
-        } catch (error) {
-            console.warn('Subject results reference Node view failed; using direct reads:', error);
-            referenceCache = null;
-        }
+  async function loadResults() {
+    if (!state.yearId) return;
+    $("resultsTableBody").innerHTML = '<tr><td class="text-center text-muted py-4">Loading results…</td></tr>';
+    try {
+      const params = { year_id: state.yearId, subject_teacher_only: true };
+      if (state.termId) params.term_id = state.termId;
+      const res = await window.API.apiCall("academic/results", "GET", null, params, { checkPermission: false });
+      state.results = rowsOf(res).map((r) => ({ ...r, pct: r.marks === null || r.marks === undefined ? NaN : Number(r.marks) }));
+      fillScope();
+      render();
+    } catch (e) {
+      $("resultsTableBody").innerHTML = `<tr><td class="text-center text-danger py-4">${esc(e.message || "Results could not be loaded.")}</td></tr>`;
     }
+  }
 
-    function toast(msg, type = 'info') {
-        const el = document.getElementById('resultsToast');
-        if (!el) {
-            const toast = document.createElement('div');
-            toast.id = 'resultsToast';
-            toast.className = `toast align-items-center text-bg-${type} border-0 position-fixed top-0 end-0 m-3`;
-            toast.style.zIndex = '9999';
-            toast.innerHTML = `
-                <div class="d-flex">
-                    <div class="toast-body">${msg}</div>
-                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-                </div>
-            `;
-            document.body.appendChild(toast);
-            new bootstrap.Toast(toast, { delay: 3000 }).show();
-        } else {
-            el.className = `toast align-items-center text-bg-${type} border-0 position-fixed top-0 end-0 m-3`;
-            el.querySelector('.toast-body').textContent = msg;
-            new bootstrap.Toast(el, { delay: 3000 }).show();
-        }
+  function fillScope() {
+    const sel = $("scopeFilter");
+    const current = sel.value;
+    const opts = [...new Set(state.results.map(scopeOf))].sort();
+    sel.innerHTML = '<option value="">All my classes and learning areas</option>' + opts.map((k) => `<option value="${esc(k)}">${esc(k.replace("|", " · "))}</option>`).join("");
+    if (opts.includes(current)) sel.value = current;
+  }
+
+  function filtered() {
+    const scope = $("scopeFilter").value;
+    const q = $("searchFilter").value.trim().toLowerCase();
+    return state.results.filter((r) => (!scope || scopeOf(r) === scope)
+      && (!q || `${r.student_name || ""} ${r.admission_no || ""}`.toLowerCase().includes(q)));
+  }
+
+  /** One row per learner per class and learning area, averaged over exams. */
+  function summaryRows(rows) {
+    const map = new Map();
+    rows.forEach((r) => {
+      const k = `${r.admission_no}|${scopeOf(r)}`;
+      if (!map.has(k)) map.set(k, { student_name: r.student_name, admission_no: r.admission_no, class_name: r.class_name, subject_name: r.subject_name, scores: [] });
+      if (Number.isFinite(r.pct)) map.get(k).scores.push(r.pct);
+    });
+    return [...map.values()].map((x) => {
+      const avg = x.scores.length ? x.scores.reduce((a, b) => a + b, 0) / x.scores.length : NaN;
+      return { ...x, exams: x.scores.length, pct: avg, best: x.scores.length ? Math.max(...x.scores) : NaN, lowest: x.scores.length ? Math.min(...x.scores) : NaN };
+    }).sort((a, b) => String(a.class_name).localeCompare(String(b.class_name)) || String(a.subject_name).localeCompare(String(b.subject_name)) || (b.pct || 0) - (a.pct || 0));
+  }
+
+  function current() {
+    const rows = filtered();
+    return $("viewFilter").value === "detail" ? rows : summaryRows(rows);
+  }
+
+  function render() {
+    const detail = $("viewFilter").value === "detail";
+    const rows = current();
+    const scored = rows.filter((r) => Number.isFinite(r.pct));
+    const avg = scored.length ? scored.reduce((a, r) => a + r.pct, 0) / scored.length : NaN;
+    const learners = new Set(filtered().map((r) => r.admission_no)).size;
+    $("totalStudents").textContent = learners;
+    $("totalExams").textContent = new Set(filtered().map((r) => `${r.assessment_title}|${r.assessment_date}|${scopeOf(r)}`)).size;
+    $("averageScore").textContent = Number.isFinite(avg) ? `${avg.toFixed(1)}%` : "—";
+    $("aboveAverage").textContent = Number.isFinite(avg) ? scored.filter((r) => r.pct >= avg).length : 0;
+    $("belowExpectation").textContent = scored.filter((r) => (window.GradingScale?.band?.(grade(r.pct)) || "") === "BE").length;
+
+    const dist = new Map();
+    scored.forEach((r) => { const g = grade(r.pct) || "—"; dist.set(g, (dist.get(g) || 0) + 1); });
+    $("levelDistribution").innerHTML = dist.size
+      ? `<div class="small text-muted mb-1">Performance levels</div>` + [...dist].sort((a, b) => String(a[0]).localeCompare(String(b[0]))).map(([g, n]) => `<span class="badge ${bandClass(g)} me-1">${esc(g)}: ${n}</span>`).join("")
+      : "";
+
+    $("resultsHead").innerHTML = detail
+      ? "<th>#</th><th>Learner</th><th>Adm No</th><th>Class</th><th>Learning area</th><th>Exam</th><th>Date</th><th>Marks</th><th>%</th><th>Level</th>"
+      : "<th>#</th><th>Learner</th><th>Adm No</th><th>Class</th><th>Learning area</th><th>Exams</th><th>Average</th><th>Best</th><th>Lowest</th><th>Level</th>";
+    const cols = 10;
+    if (!rows.length) {
+      $("resultsTableBody").innerHTML = `<tr><td colspan="${cols}" class="text-center text-muted py-4">${state.results.length ? "No results match these filters." : "No summative results recorded for your classes in this period."}</td></tr>`;
+      return;
     }
+    const pctCell = (v) => (Number.isFinite(v) ? `${v.toFixed(1)}%` : "—");
+    $("resultsTableBody").innerHTML = rows.map((r, i) => {
+      const g = grade(r.pct);
+      const level = g ? `<span class="badge ${bandClass(g)}">${esc(g)}</span>` : "—";
+      return detail
+        ? `<tr><td>${i + 1}</td><td><strong>${esc(r.student_name || "—")}</strong></td><td>${esc(r.admission_no || "—")}</td><td>${esc(r.class_name || "—")}</td><td>${esc(r.subject_name || "—")}</td><td>${esc(r.assessment_title || "—")}</td><td>${esc(r.assessment_date || "—")}</td><td>${r.marks_obtained === null || r.marks_obtained === undefined ? "—" : `${Number(r.marks_obtained)} / ${Number(r.max_marks)}`}</td><td>${pctCell(r.pct)}</td><td>${level}</td></tr>`
+        : `<tr><td>${i + 1}</td><td><strong>${esc(r.student_name || "—")}</strong></td><td>${esc(r.admission_no || "—")}</td><td>${esc(r.class_name || "—")}</td><td>${esc(r.subject_name || "—")}</td><td>${r.exams}</td><td><strong>${pctCell(r.pct)}</strong></td><td>${pctCell(r.best)}</td><td>${pctCell(r.lowest)}</td><td>${level}</td></tr>`;
+    }).join("");
+  }
 
-    async function apiCall(endpoint, method = 'GET', data = null) {
-        try {
-            return await window.API.apiCall(endpoint, method, data, null, { checkPermission: false });
-        } catch (error) {
-            console.error('API call failed:', error);
-            throw error;
-        }
+  async function exportResults() {
+    const detail = $("viewFilter").value === "detail";
+    const rows = current();
+    if (!rows.length) { window.showNotification?.("No results to export.", "warning"); return; }
+    const cell = (v) => { const t = String(v ?? ""); return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+    const fmt = (v) => (Number.isFinite(v) ? v.toFixed(1) : "");
+    const head = detail
+      ? ["Learner", "Admission No", "Class", "Learning area", "Exam", "Date", "Marks", "Out of", "Percent", "Level"]
+      : ["Learner", "Admission No", "Class", "Learning area", "Exams", "Average %", "Best %", "Lowest %", "Level"];
+    const lines = [head.join(",")].concat(rows.map((r) => (detail
+      ? [r.student_name, r.admission_no, r.class_name, r.subject_name, r.assessment_title, r.assessment_date, r.marks_obtained, r.max_marks, fmt(r.pct), grade(r.pct)]
+      : [r.student_name, r.admission_no, r.class_name, r.subject_name, r.exams, fmt(r.pct), fmt(r.best), fmt(r.lowest), grade(r.pct)]).map(cell).join(",")));
+    try {
+      await window.KingswayFileLifecycle.exportText(`﻿${lines.join("\r\n")}`, `subject_results_${new Date().toISOString().slice(0, 10)}.csv`, "text/csv;charset=utf-8");
+    } catch (e) {
+      window.showNotification?.(e.message || "Export failed", "danger");
     }
+  }
 
-    function cbcGrade(score) {
-        const n = Number(score);
-        if (!Number.isFinite(n)) return null;
-        return GradingScale.grade(n) || null;
+  async function init() {
+    await window.AuthContext?.ready?.();
+    if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
+      window.location.href = (window.APP_BASE || "") + "/index.php";
+      return;
     }
+    await window.GradingScale?.preload?.();
+    $("scopeFilter")?.addEventListener("change", render);
+    $("viewFilter")?.addEventListener("change", render);
+    let t = null;
+    $("searchFilter")?.addEventListener("input", () => { clearTimeout(t); t = setTimeout(render, 250); });
+    $("exportBtn")?.addEventListener("click", exportResults);
+    $("printBtn")?.addEventListener("click", () => window.print());
+    await window.AcademicYearFilter?.mount($("yearFilter"), {
+      termSelect: $("termFilter"),
+      allTermsLabel: "All terms",
+      onChange: (yearId, year, termId) => {
+        state.yearId = yearId;
+        state.termId = termId;
+        loadResults();
+      },
+    });
+    window.APIRealtime?.register?.("subject_results_summary", { refresh: loadResults }, ["academic", "assessment_result"]);
+  }
 
-    const _esc = (s) => {
-        const d = document.createElement('div');
-        d.textContent = String(s ?? '');
-        return d.innerHTML;
-    };
-
-    async function loadSubjects() {
-        try {
-            // Load only subjects assigned to this teacher
-            const response = await apiCall('academic/subjects-list', 'GET', null, {
-                subject_teacher_only: true
-            });
-            state.subjects = response || [];
-            const select = document.getElementById('subjectFilter');
-            if (select) {
-                select.innerHTML = '<option value="">All Subjects</option>';
-                state.subjects.forEach(subject => {
-                    const option = document.createElement('option');
-                    option.value = subject.id;
-                    option.textContent = subject.name || subject.subject_name;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load subjects:', error);
-        }
-    }
-
-    async function loadClasses() {
-        try {
-            const response = referenceCache?.classes ?? (await apiCall('academic/classes-list'));
-            state.classes = response || [];
-            const select = document.getElementById('classFilter');
-            if (select) {
-                select.innerHTML = '<option value="">All Classes</option>';
-                state.classes.forEach(cls => {
-                    const option = document.createElement('option');
-                    option.value = cls.id;
-                    option.textContent = cls.name || cls.class_name;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load classes:', error);
-        }
-    }
-
-    async function loadResults() {
-        try {
-            const yearId = document.getElementById('yearFilter')?.value || '';
-            const termId = document.getElementById('termFilter')?.value || '';
-            const subjectId = document.getElementById('subjectFilter')?.value || '';
-            const classId = document.getElementById('classFilter')?.value || '';
-
-            const response = await apiCall('academic/results', 'GET', null, {
-                year_id: yearId,
-                term_id: termId,
-                subject_id: subjectId,
-                class_id: classId,
-                subject_teacher_only: true // Only show results for this teacher's subjects
-            });
-
-            state.results = response || [];
-            renderResults();
-            updateStats();
-        } catch (error) {
-            console.error('Failed to load results:', error);
-            toast('Failed to load results', 'error');
-        }
-    }
-
-    function renderResults() {
-        const tbody = document.getElementById('resultsTableBody');
-        if (!tbody) return;
-
-        if (!state.results.length) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="8" class="text-center text-muted py-4">
-                        No results found for your subjects
-                    </td>
-                </tr>
-            `;
-            return;
-        }
-
-        tbody.innerHTML = state.results.map((result, index) => {
-            const grade = cbcGrade(result.marks);
-            const gradeColor = grade === 'EE' ? 'success' : grade === 'ME' ? 'primary' : grade === 'AE' ? 'warning' : 'danger';
-            const remarks = grade === 'EE' ? 'Excellent' : grade === 'ME' ? 'Meeting Expectations' : grade === 'AE' ? 'Approaching Expectations' : 'Below Expectations';
-
-            return `
-                <tr>
-                    <td>
-                        <strong>${_esc(result.student_name) || 'Unknown'}</strong>
-                    </td>
-                    <td>${_esc(result.admission_no) || '—'}</td>
-                    <td>${_esc(result.class_name) || '—'}</td>
-                    <td>${_esc(result.subject_name) || '—'}</td>
-                    <td><strong>${Number(result.marks) || 0}%</strong></td>
-                    <td><span class="badge bg-${gradeColor}">${_esc(grade) || '—'}</span></td>
-                    <td><span class="text-muted small">${_esc(remarks) || '—'}</span></td>
-                </tr>
-            `;
-        }).join('');
-    }
-
-    function updateStats() {
-        const total = state.results.length;
-        const marks = state.results.map(r => parseFloat(r.marks) || 0);
-        const average = marks.length > 0 ? (marks.reduce((a, b) => a + b, 0) / marks.length).toFixed(1) : '0.0';
-        const aboveAverage = marks.filter(m => m >= parseFloat(average)).length;
-
-        document.getElementById('totalStudents').textContent = total;
-        document.getElementById('averageScore').textContent = `${average}%`;
-        document.getElementById('aboveAverage').textContent = aboveAverage;
-    }
-
-    async function exportResults() {
-        if (!state.results.length) {
-            toast('No results to export', 'warning');
-            return;
-        }
-
-        // Use PrintManager for CSV export if available
-        if (window.PrintManager) {
-            const columns = [
-                { key: 'student_name', label: 'Student Name', width: '23%', cellClassName: 'print-cell-strong' },
-                { key: 'admission_no', label: 'Admission No.', width: '13%', cellClassName: 'print-cell-code' },
-                { key: 'class_name', label: 'Class', width: '10%' },
-                { key: 'subject_name', label: 'Learning Area', width: '18%' },
-                { key: 'marks', label: 'Score', type: 'percentage', width: '10%', formatter: value => `${Number(value || 0).toFixed(1)}%` },
-                { key: 'grade', label: 'Grade', width: '9%', cellClassName: 'print-cell-grade' },
-                { key: 'remarks', label: 'Remarks', width: '17%' }
-            ];
-
-            const rows = state.results.map(result => {
-                const grade = cbcGrade(result.marks);
-                const remarks = grade === 'EE' ? 'Excellent' : grade === 'ME' ? 'Meeting Expectations' : grade === 'AE' ? 'Approaching Expectations' : 'Below Expectations';
-
-                return {
-                    student_name: result.student_name || 'Unknown',
-                    admission_no: result.admission_no || '—',
-                    class_name: result.class_name || '—',
-                    subject_name: result.subject_name || '—',
-                    marks: result.marks || 0,
-                    grade: grade || '—',
-                    remarks: remarks || '—'
-                };
-            });
-
-            window.PrintManager.exportToCSV({
-                filename: `subject_results_${new Date().toISOString().slice(0,10)}.csv`,
-                columns: columns,
-                rows: rows
-            });
-        } else {
-            toast('PrintManager not available', 'error');
-        }
-    }
-
-    function printResults() {
-        if (!state.results.length) {
-            toast('No results to print', 'warning');
-            return;
-        }
-
-        // Use PrintManager for printing if available
-        if (window.PrintManager) {
-            const columns = [
-                { key: 'student_name', label: 'Student Name' },
-                { key: 'admission_no', label: 'Adm No' },
-                { key: 'class_name', label: 'Class' },
-                { key: 'subject_name', label: 'Subject' },
-                { key: 'marks', label: 'Marks' },
-                { key: 'grade', label: 'Grade' },
-                { key: 'remarks', label: 'Remarks' }
-            ];
-
-            const rows = state.results.map(result => {
-                const grade = cbcGrade(result.marks);
-                const remarks = grade === 'EE' ? 'Excellent' : grade === 'ME' ? 'Meeting Expectations' : grade === 'AE' ? 'Approaching Expectations' : 'Below Expectations';
-
-                return {
-                    student_name: result.student_name || 'Unknown',
-                    admission_no: result.admission_no || '—',
-                    class_name: result.class_name || '—',
-                    subject_name: result.subject_name || '—',
-                    marks: result.marks || 0,
-                    grade: grade || '—',
-                    remarks: remarks || '—'
-                };
-            });
-
-            const yearText = document.getElementById('yearFilter')?.options[document.getElementById('yearFilter').selectedIndex]?.text || 'All Years';
-            const termText = document.getElementById('termFilter')?.options[document.getElementById('termFilter').selectedIndex]?.text || 'All Terms';
-            const subjectText = document.getElementById('subjectFilter')?.options[document.getElementById('subjectFilter').selectedIndex]?.text || 'All Subjects';
-
-            window.PrintManager.printTable({
-                title: 'Subject Results Summary',
-                subtitle: `Results for ${subjectText} — ${yearText}, ${termText}`,
-                description: 'Official assessment results report.',
-                columns,
-                rows,
-                summary: {
-                    'Students Assessed': state.results.length,
-                    'Average Score': document.getElementById('averageScore').textContent,
-                    'Above Average': document.getElementById('aboveAverage').textContent
-                },
-                filters: {
-                    'Academic Year': yearText,
-                    'Term': termText,
-                    'Learning Area': subjectText
-                },
-                orientation: 'landscape',
-                paperSize: 'A4',
-                filename: `subject_results_${new Date().toISOString().slice(0, 10)}`,
-                reportCode: 'SR-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
-                signatureSection: [
-                    { label: 'Subject Teacher', dateLine: true },
-                    { label: 'Headteacher', dateLine: true }
-                ]
-            });
-        } else {
-            toast('PrintManager not available', 'error');
-        }
-    }
-
-    function bindEvents() {
-        document.getElementById('loadResultsBtn')?.addEventListener('click', loadResults);
-        document.getElementById('exportBtn')?.addEventListener('click', exportResults);
-        document.getElementById('printBtn')?.addEventListener('click', printResults);
-        
-        document.getElementById('subjectFilter')?.addEventListener('change', () => {
-            if (document.getElementById('classFilter').value) {
-                loadResults();
-            }
-        });
-        document.getElementById('classFilter')?.addEventListener('change', () => {
-            if (document.getElementById('subjectFilter').value) {
-                loadResults();
-            }
-        });
-    }
-
-    async function init() {
-        await window.AuthContext?.ready();
-        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
-            window.location.href = (window.APP_BASE || '') + '/index.php';
-            return;
-        }
-
-        await GradingScale.preload();
-
-        document.getElementById('resultsLoading').style.display = 'none';
-        document.getElementById('resultsContent').style.display = 'block';
-
-        await loadReferencesComposed();
-        await Promise.all([loadSubjects(), loadClasses()]);
-        bindEvents();
-        // Year and term: the shared filter (current year, all terms by
-        // default, kept in the URL). Results load once a subject and class
-        // are chosen.
-        const yearSelect = document.getElementById('yearFilter');
-        if (window.AcademicYearFilter && yearSelect) {
-            await window.AcademicYearFilter.mount(yearSelect, {
-                termSelect: document.getElementById('termFilter'),
-                allTermsLabel: 'All terms',
-                onChange: () => {
-                    if (document.getElementById('subjectFilter')?.value && document.getElementById('classFilter')?.value) loadResults();
-                },
-            });
-        }
-        window.APIRealtime?.register?.('subject_results_summary', { refresh: async () => { await loadReferencesComposed(); await Promise.all([loadSubjects(), loadClasses()]); } }, ['academic']);
-    }
-
-    return { init };
+  return { init, refresh: () => loadResults() };
 })();
 
-document.addEventListener('DOMContentLoaded', subjectResultsController.init);
-
+document.addEventListener("DOMContentLoaded", subjectResultsController.init);
 window.subjectResultsController = subjectResultsController;

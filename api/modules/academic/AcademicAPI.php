@@ -1965,8 +1965,13 @@ SELECT
             // browser hidden field.
             $required = ['title', 'date'];
             $missing = $this->validateRequired($normalized, $required);
-            if (empty($data['scheme_of_work_id'])) {
-                $missing[] = 'scheme_of_work_id';
+            // A lesson plan is its own document: it is planned from the
+            // teacher's stream + learning area + sub-strand. A scheme of work
+            // (the MoE record of the term's teaching) is optional context.
+            $fromScheme = !empty($data['scheme_of_work_id']);
+            if (!$fromScheme) {
+                if (empty($data['stream_learning_area_id'])) $missing[] = 'stream_learning_area_id';
+                if (empty($data['sub_strand_id'])) $missing[] = 'sub_strand_id';
             }
             if (!empty($missing)) {
                 return errorResponse([
@@ -1981,15 +1986,25 @@ SELECT
             // Lesson plans are delivery records for an approved weekly scheme.
             // Resolve the entire academic context from that row; do not trust
             // class/subject/date values supplied by the browser.
-            $schemeContext = $this->resolveApprovedSchemeLessonContext(
-                (int) $data['scheme_of_work_id'],
-                (string) $normalized['date'],
-                (int) ($data['teacher_id'] ?? $this->getCurrentStaffId()),
-                $this->isAcademicLeader()
-            );
+            $schemeContext = $fromScheme
+                ? $this->resolveApprovedSchemeLessonContext(
+                    (int) $data['scheme_of_work_id'],
+                    (string) $normalized['date'],
+                    (int) ($data['teacher_id'] ?? $this->getCurrentStaffId()),
+                    $this->isAcademicLeader()
+                )
+                : $this->resolveDirectLessonContext(
+                    (int) $data['stream_learning_area_id'],
+                    (int) $data['sub_strand_id'],
+                    (string) $normalized['date'],
+                    (int) ($data['teacher_id'] ?? $this->getCurrentStaffId()),
+                    $this->isAcademicLeader()
+                );
             if (!$schemeContext) {
                 $this->db->rollBack();
-                return errorResponse('Select an approved scheme row and a calendar day within that scheme week', 400);
+                return errorResponse($fromScheme
+                    ? 'Select an approved scheme row and a calendar day within that scheme week'
+                    : 'Choose one of your class streams and learning areas, a sub-strand of that learning area, and a school day in an open term', 400);
             }
             $normalized['class_id'] = (int) $schemeContext['class_id'];
             $normalized['learning_area_id'] = (int) $schemeContext['learning_area_id'];
@@ -2099,7 +2114,7 @@ SELECT
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $templateId,
-                (int) $data['scheme_of_work_id'],
+                $fromScheme ? (int) $data['scheme_of_work_id'] : null,
                 $ayclaId,
                 $streamLearningAreaId,
                 $calendarDayId,
@@ -3445,18 +3460,7 @@ return errorResponse($e->getMessage(), 400);
             if (!$scheme) return errorResponse('Approved scheme row not found', 404);
             if (!$this->isAcademicLeader() && (int)$scheme['teacher_id'] !== (int)$this->getCurrentStaffId()) return errorResponse('You are not assigned to this scheme row', 403);
             $sub = (int)$scheme['sub_strand_id'];
-            $out = $this->db->prepare('SELECT id, outcome AS text FROM learning_outcomes WHERE sub_strand_id=? ORDER BY id'); $out->execute([$sub]);
-            $exp = $this->db->prepare('SELECT id, experience AS text FROM sub_strand_suggested_experiences WHERE sub_strand_id=? ORDER BY sort_order,id'); $exp->execute([$sub]);
-            $q = $this->db->prepare('SELECT id, question AS text FROM sub_strand_key_inquiry_questions WHERE sub_strand_id=? ORDER BY sort_order,id'); $q->execute([$sub]);
-            $res = $this->db->prepare("SELECT id, resource_name AS name, resource_type AS type, resource_url AS url, description FROM sub_strand_resources WHERE sub_strand_id=? AND status='active' ORDER BY id"); $res->execute([$sub]);
-            $comp = $this->db->prepare("SELECT cc.id,cc.code,cc.name,ssc.weight FROM " . ReadReplicaService::qualifiedRef("sub_strand_competencies") . " ssc JOIN " . ReadReplicaService::qualifiedRef("core_competencies") . " cc ON cc.id=ssc.competency_id WHERE ssc.sub_strand_id=? AND cc.status='active' ORDER BY cc.sort_order,cc.id"); $comp->execute([$sub]);
-            $rub = $this->db->prepare('SELECT id,level_number,level_label,descriptor FROM sub_strand_rubrics WHERE sub_strand_id=? ORDER BY sort_order,level_number'); $rub->execute([$sub]);
-            $tools = $this->db->prepare("SELECT DISTINCT at.id,at.tool_name AS name,at.tool_code,at.description,NULL AS assessment_type_classification_id FROM " . ReadReplicaService::qualifiedRef("assessment_tools") . " at WHERE at.status='active' AND (at.learning_area_id=? OR EXISTS (SELECT 1 FROM assessment_tool_learning_areas atla WHERE atla.assessment_tool_id=at.id AND atla.learning_area_id=?)) ORDER BY at.tool_name"); $tools->execute([(int)$scheme['learning_area_id'], (int)$scheme['learning_area_id']]);
-            $days = $this->db->prepare('SELECT id,date,title FROM academic_year_calendar_days WHERE academic_year_calendar_id=? ORDER BY date'); $days->execute([(int)$scheme['calendar_week_id']]);
-            $toolRows = $tools->fetchAll(PDO::FETCH_ASSOC);
-            $toolIds = array_values(array_filter(array_map('intval', array_column($toolRows, 'id'))));
-            $assessmentRubrics = [];
-            if ($toolIds) { $in = implode(',', array_fill(0, count($toolIds), '?')); $ar = $this->db->prepare("SELECT id,tool_id,criteria_name,level_1_descriptor,level_2_descriptor,level_3_descriptor,level_4_descriptor FROM assessment_rubrics WHERE tool_id IN ($in) ORDER BY tool_id,sort_order,id"); $ar->execute($toolIds); $assessmentRubrics = $ar->fetchAll(PDO::FETCH_ASSOC); }
+            $choices = $this->subStrandLessonChoices($sub, (int)$scheme['learning_area_id'], (int)$scheme['calendar_week_id']);
             // A scheme row may have been created from a workbook item. Return
             // the exact choices saved on that item so lesson-plan creation
             // opens with the teacher's scheme selections already checked.
@@ -3489,9 +3493,152 @@ return errorResponse($e->getMessage(), 400);
                 }
             }
             $scheme['selected'] = $selected;
-            $scheme['choices'] = ['outcomes'=>$out->fetchAll(PDO::FETCH_ASSOC),'experiences'=>$exp->fetchAll(PDO::FETCH_ASSOC),'inquiry_questions'=>$q->fetchAll(PDO::FETCH_ASSOC),'resources'=>$res->fetchAll(PDO::FETCH_ASSOC),'competencies'=>$comp->fetchAll(PDO::FETCH_ASSOC),'rubrics'=>$rub->fetchAll(PDO::FETCH_ASSOC),'assessment_tools'=>$toolRows,'assessment_rubrics'=>$assessmentRubrics,'calendar_days'=>$days->fetchAll(PDO::FETCH_ASSOC)];
+            $scheme['choices'] = $choices;
             return successResponse($scheme);
         } catch (Exception $e) { return $this->handleException($e); }
+    }
+
+
+    /**
+     * GET lesson-planning-options: the teacher's own stream x learning-area
+     * assignments for a term, plus that term's calendar days. A lesson plan is
+     * planned from these, not from a scheme of work.
+     */
+    public function getLessonPlanningOptions(array $query = [])
+    {
+        try {
+            $staffId = (int) $this->getCurrentStaffId();
+            if ($staffId < 1) return errorResponse('Staff account not found', 404);
+            $termId = (int) ($query['academic_year_term_id'] ?? 0);
+            if ($termId < 1) $termId = (int) ($this->planningTermId() ?? 0);
+            if ($termId < 1) {
+                return successResponse(['academic_year_term_id' => null, 'assignments' => [], 'days' => []]);
+            }
+            $assign = $this->db->prepare(
+                "SELECT DISTINCT ts.academic_year_class_stream_learning_area_id AS stream_learning_area_id,
+                        ts.academic_year_class_stream_id, ts.learning_area_id, ts.academic_year_id,
+                        csd.class_id, csd.class_name, csd.stream_name, c.grade_level, la.name AS learning_area_name
+                   FROM vw_teacher_effective_stream_learning_areas ts
+                   JOIN " . ReadReplicaService::qualifiedRef('class_stream_directory') . " csd ON csd.academic_year_class_stream_id = ts.academic_year_class_stream_id
+                   JOIN " . ReadReplicaService::qualifiedRef('classes') . " c ON c.id = csd.class_id
+                   JOIN " . ReadReplicaService::qualifiedRef('learning_areas') . " la ON la.id = ts.learning_area_id
+                  WHERE ts.staff_id = ? AND ts.academic_year_term_id = ?
+                  ORDER BY csd.class_name, csd.stream_name, la.name"
+            );
+            $assign->execute([$staffId, $termId]);
+            $days = $this->db->prepare(
+                "SELECT d.id, d.date, d.title
+                   FROM " . ReadReplicaService::qualifiedRef('academic_year_calendar_days') . " d
+                   JOIN " . ReadReplicaService::qualifiedRef('academic_year_calendar') . " w ON w.id = d.academic_year_calendar_id
+                  WHERE w.academic_year_term_id = ?
+                  ORDER BY d.date"
+            );
+            $days->execute([$termId]);
+            return successResponse([
+                'academic_year_term_id' => $termId,
+                'assignments' => $assign->fetchAll(PDO::FETCH_ASSOC) ?: [],
+                'days' => $days->fetchAll(PDO::FETCH_ASSOC) ?: [],
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /** GET lesson-planning-choices?stream_learning_area_id=&sub_strand_id= */
+    public function getLessonPlanningChoices(array $query = [])
+    {
+        try {
+            $slaId = (int) ($query['stream_learning_area_id'] ?? 0);
+            $subId = (int) ($query['sub_strand_id'] ?? 0);
+            $context = $this->resolveDirectLessonContext($slaId, $subId, '', (int) $this->getCurrentStaffId(), $this->isAcademicLeader());
+            if (!$context) return errorResponse('Choose one of your own class streams, learning areas and a sub-strand of that learning area.', 403);
+            $context['choices'] = $this->subStrandLessonChoices($subId, (int) $context['learning_area_id']);
+            return successResponse($context);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Resolve a lesson's authoritative context from the teacher's own
+     * stream-learning-area assignment and a sub-strand of that learning area.
+     * When a date is given it must be a calendar day of an open term in the
+     * stream's academic year. Returns the same shape as the scheme resolver.
+     */
+    private function resolveDirectLessonContext(int $slaId, int $subStrandId, string $date, int $teacherId, bool $leader = false): ?array
+    {
+        if ($slaId < 1 || $subStrandId < 1 || $teacherId < 1) return null;
+        $stmt = $this->db->prepare(
+            "SELECT aysla.id AS stream_learning_area_id, aysla.academic_year_class_stream_id,
+                    aycs.stream_id, ayc.class_id, ayc.academic_year_id, cla.learning_area_id
+               FROM " . ReadReplicaService::qualifiedRef('academic_year_class_stream_learning_areas') . " aysla
+               JOIN " . ReadReplicaService::qualifiedRef('academic_year_class_streams') . " aycs ON aycs.id = aysla.academic_year_class_stream_id
+               JOIN " . ReadReplicaService::qualifiedRef('academic_year_classes') . " ayc ON ayc.id = aycs.academic_year_class_id
+               JOIN " . ReadReplicaService::qualifiedRef('academic_year_class_learning_areas') . " cla ON cla.id = aysla.academic_year_class_learning_area_id
+              WHERE aysla.id = ? AND aysla.status <> 'skipped' AND aycs.status IN ('planning','active')
+              LIMIT 1"
+        );
+        $stmt->execute([$slaId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+        if (!$leader && !$this->teacherCanUseStreamLearningArea($slaId, $teacherId)) return null;
+
+        $sub = $this->db->prepare(
+            "SELECT ss.id AS sub_strand_id, ss.strand_id, s.learning_area_id
+               FROM " . ReadReplicaService::qualifiedRef('sub_strands') . " ss
+               JOIN " . ReadReplicaService::qualifiedRef('strands') . " s ON s.id = ss.strand_id
+              WHERE ss.id = ? LIMIT 1"
+        );
+        $sub->execute([$subStrandId]);
+        $subRow = $sub->fetch(PDO::FETCH_ASSOC);
+        if (!$subRow || (int) $subRow['learning_area_id'] !== (int) $row['learning_area_id']) return null;
+
+        $row['strand_id'] = (int) $subRow['strand_id'];
+        $row['sub_strand_id'] = (int) $subRow['sub_strand_id'];
+        $row['calendar_day_id'] = 0;
+        if ($date !== '') {
+            $day = $this->db->prepare(
+                "SELECT d.id, ayt.status
+                   FROM " . ReadReplicaService::qualifiedRef('academic_year_calendar_days') . " d
+                   JOIN " . ReadReplicaService::qualifiedRef('academic_year_calendar') . " w ON w.id = d.academic_year_calendar_id
+                   JOIN " . ReadReplicaService::qualifiedRef('academic_year_terms') . " ayt ON ayt.id = w.academic_year_term_id
+                  WHERE d.date = ? AND ayt.academic_year_id = ?
+                  ORDER BY d.id DESC LIMIT 1"
+            );
+            $day->execute([$date, (int) $row['academic_year_id']]);
+            $dayRow = $day->fetch(PDO::FETCH_ASSOC);
+            if (!$dayRow) return null;
+            // Teachers plan for the running term or one still to come.
+            if (!$leader && !in_array((string) $dayRow['status'], ['current', 'upcoming'], true)) return null;
+            $row['calendar_day_id'] = (int) $dayRow['id'];
+        }
+        foreach (['stream_learning_area_id', 'academic_year_class_stream_id', 'stream_id', 'class_id', 'academic_year_id', 'learning_area_id'] as $key) {
+            $row[$key] = (int) $row[$key];
+        }
+        return $row;
+    }
+
+    /**
+     * Curriculum choices for one sub-strand: outcomes, experiences, inquiry
+     * questions, resources, competencies, rubrics and assessment tools. These
+     * come from the curriculum itself, so a lesson plan does not need a
+     * scheme of work to be planned.
+     */
+    private function subStrandLessonChoices(int $sub, int $learningAreaId, int $calendarWeekId = 0): array
+    {
+        $out = $this->db->prepare('SELECT id, outcome AS text FROM learning_outcomes WHERE sub_strand_id=? ORDER BY id'); $out->execute([$sub]);
+        $exp = $this->db->prepare('SELECT id, experience AS text FROM sub_strand_suggested_experiences WHERE sub_strand_id=? ORDER BY sort_order,id'); $exp->execute([$sub]);
+        $q = $this->db->prepare('SELECT id, question AS text FROM sub_strand_key_inquiry_questions WHERE sub_strand_id=? ORDER BY sort_order,id'); $q->execute([$sub]);
+        $res = $this->db->prepare("SELECT id, resource_name AS name, resource_type AS type, resource_url AS url, description FROM sub_strand_resources WHERE sub_strand_id=? AND status='active' ORDER BY id"); $res->execute([$sub]);
+        $comp = $this->db->prepare("SELECT cc.id,cc.code,cc.name,ssc.weight FROM " . ReadReplicaService::qualifiedRef("sub_strand_competencies") . " ssc JOIN " . ReadReplicaService::qualifiedRef("core_competencies") . " cc ON cc.id=ssc.competency_id WHERE ssc.sub_strand_id=? AND cc.status='active' ORDER BY cc.sort_order,cc.id"); $comp->execute([$sub]);
+        $rub = $this->db->prepare('SELECT id,level_number,level_label,descriptor FROM sub_strand_rubrics WHERE sub_strand_id=? ORDER BY sort_order,level_number'); $rub->execute([$sub]);
+        $tools = $this->db->prepare("SELECT DISTINCT at.id,at.tool_name AS name,at.tool_code,at.description,NULL AS assessment_type_classification_id FROM " . ReadReplicaService::qualifiedRef("assessment_tools") . " at WHERE at.status='active' AND (at.learning_area_id=? OR EXISTS (SELECT 1 FROM assessment_tool_learning_areas atla WHERE atla.assessment_tool_id=at.id AND atla.learning_area_id=?)) ORDER BY at.tool_name"); $tools->execute([$learningAreaId, $learningAreaId]);
+        $days = $this->db->prepare('SELECT id,date,title FROM academic_year_calendar_days WHERE academic_year_calendar_id=? ORDER BY date'); $days->execute([$calendarWeekId]);
+        $toolRows = $tools->fetchAll(PDO::FETCH_ASSOC);
+        $toolIds = array_values(array_filter(array_map('intval', array_column($toolRows, 'id'))));
+        $assessmentRubrics = [];
+        if ($toolIds) { $in = implode(',', array_fill(0, count($toolIds), '?')); $ar = $this->db->prepare("SELECT id,tool_id,criteria_name,level_1_descriptor,level_2_descriptor,level_3_descriptor,level_4_descriptor FROM assessment_rubrics WHERE tool_id IN ($in) ORDER BY tool_id,sort_order,id"); $ar->execute($toolIds); $assessmentRubrics = $ar->fetchAll(PDO::FETCH_ASSOC); }
+        return ['outcomes'=>$out->fetchAll(PDO::FETCH_ASSOC),'experiences'=>$exp->fetchAll(PDO::FETCH_ASSOC),'inquiry_questions'=>$q->fetchAll(PDO::FETCH_ASSOC),'resources'=>$res->fetchAll(PDO::FETCH_ASSOC),'competencies'=>$comp->fetchAll(PDO::FETCH_ASSOC),'rubrics'=>$rub->fetchAll(PDO::FETCH_ASSOC),'assessment_tools'=>$toolRows,'assessment_rubrics'=>$assessmentRubrics,'calendar_days'=>$calendarWeekId ? $days->fetchAll(PDO::FETCH_ASSOC) : []];
     }
 
     /** Administrative queue for legacy content that cannot be safely guessed. */
@@ -5764,6 +5911,12 @@ return errorResponse($e->getMessage(), 400);
                 SELECT 
                     lpc.lesson_plan_id AS id,
                     lpc.scheme_of_work_id,
+                    lpc.teacher_id,
+                    lpc.lesson_plan_status AS status,
+                    lpc.academic_year_class_stream_learning_area_id,
+                    lpc.strand_id,
+                    lpc.sub_strand_id,
+                    lpc.stream_name,
                     lpc.lesson_title AS title,
                     lpc.topic,
                     lpc.template_learning_area_id AS learning_area_id,
@@ -5908,14 +6061,15 @@ return errorResponse($e->getMessage(), 400);
             if (!$plan) {
                 return errorResponse('Lesson plan not found');
             }
-            if (empty($plan['scheme_of_work_id'])) {
-                return errorResponse('This legacy lesson plan has no scheme-of-work link and must be reconciled before editing', 409);
-            }
             if ((int) $plan['teacher_id'] !== (int) $this->getCurrentStaffId()) {
+                $this->db->rollBack();
                 return errorResponse('Only the assigned teacher can edit this lesson plan', 403);
             }
-            if (!in_array((string) $plan['status'], ['draft'], true)) {
-                return errorResponse('This lesson plan is with the academic heads or already published. Ask the heads to return it if it needs changes.', 409);
+            // A lesson plan stays a working document: its author may refine it
+            // while it is with the heads and after it is approved or published.
+            if ((string) $plan['status'] === 'archived') {
+                $this->db->rollBack();
+                return errorResponse('This lesson plan is archived.', 409);
             }
 
             // Lesson plans are author-published delivery records, not reviewed
@@ -5927,10 +6081,22 @@ return errorResponse($e->getMessage(), 400);
             $classId = $data['class_id'] ?? null;
             $date = $data['date'] ?? $data['lesson_date'] ?? null;
 
-            if ($date !== null) {
-                if (!$this->resolveApprovedSchemeLessonContext((int) $plan['scheme_of_work_id'], (string) $date, (int) $plan['teacher_id'], $this->isAcademicLeader())) {
-                    return errorResponse('The lesson date must remain inside the approved scheme week', 400);
+            $resolvedDayId = 0;
+            if ($date !== null && $date !== '') {
+                $tpl = $this->db->prepare('SELECT sub_strand_id FROM lesson_templates WHERE id = ?');
+                $tpl->execute([(int) $plan['lesson_template_id']]);
+                $dateContext = $this->resolveDirectLessonContext(
+                    (int) $plan['academic_year_class_stream_learning_area_id'],
+                    (int) $tpl->fetchColumn(),
+                    (string) $date,
+                    (int) $plan['teacher_id'],
+                    $this->isAcademicLeader()
+                );
+                if (!$dateContext || empty($dateContext['calendar_day_id'])) {
+                    $this->db->rollBack();
+                    return errorResponse('The lesson date must be a school day in an open term of this class\'s academic year', 400);
                 }
+                $resolvedDayId = (int) $dateContext['calendar_day_id'];
             }
 
             // Update the linked lesson template (content)
@@ -5991,8 +6157,8 @@ return errorResponse($e->getMessage(), 400);
                     $planParams[] = $streamLearningAreaId;
                 }
             }
-            if ($date !== null) {
-                $calendarDayId = $this->resolveCalendarDayId($date);
+            if ($resolvedDayId) {
+                $calendarDayId = $resolvedDayId;
                 if ($calendarDayId) {
                     $planUpdates[] = 'academic_year_calendar_day_id = ?';
                     $planParams[] = $calendarDayId;

@@ -13,8 +13,9 @@ const lessonPlansController = (() => {
     curriculumUnits = [],
     teachers = [];
   let currentStaffId = null;
-  let approvedSchemes = [];
-  let activeSchemeContext = null;
+  let planningOptions = { assignments: [], days: [], academic_year_term_id: null };
+  let activeChoices = null;
+  let aiPoll = null;
   let userRoles = [];
   let isTeacherUser = false;
   let isAcademicLeader = false;
@@ -116,14 +117,6 @@ const lessonPlansController = (() => {
         classes = classes.filter((item) => classIds.has(Number(item.id)));
         learningAreas = learningAreas.filter((item) => areaIds.has(Number(item.id)));
         teachers = teachers.filter((item) => Number(item.id) === Number(currentStaffId));
-        const schemeResponse = await API.academic.getSchemeOfWork({
-          status: "approved",
-          teacher_id: currentStaffId,
-        }).catch(() => ({ data: { schemes: [] } }));
-        const schemePayload = schemeResponse?.data?.data || schemeResponse?.data || schemeResponse || {};
-        approvedSchemes = Array.isArray(schemePayload)
-          ? schemePayload
-          : (schemePayload.schemes || []);
         const header = document.querySelector(".academic-header h2");
         const subtitle = document.querySelector(".academic-header small");
         if (header) header.innerHTML = '<i class="bi bi-journal-text me-2"></i>My Lesson Plans';
@@ -246,7 +239,7 @@ const lessonPlansController = (() => {
                 <td>
                     <div class="btn-group btn-group-sm">
                         <button class="btn btn-outline-primary" data-kw-onclick="lessonPlansController.viewPlan(${Number(p.id) || 0})" title="View"><i class="bi bi-eye"></i></button>
-                        ${personalMode && p.status === "draft" ? `<button class="btn btn-outline-warning" data-kw-onclick="lessonPlansController.editPlan(${Number(p.id) || 0})" title="Edit" data-year-write><i class="bi bi-pencil"></i></button>` : ""}
+                        ${personalMode && p.status !== "archived" ? `<button class="btn btn-outline-warning" data-kw-onclick="lessonPlansController.editPlan(${Number(p.id) || 0})" title="Edit (stays editable after submitting and publishing)" data-year-write><i class="bi bi-pencil"></i></button>` : ""}
                         ${personalMode && p.status === "draft" ? `<button class="btn btn-outline-success" data-kw-onclick="lessonPlansController.submitPlan(${Number(p.id) || 0})" title="Submit to the academic heads" data-year-write><i class="bi bi-send"></i></button>` : ""}
                         ${personalMode && p.status === "draft" ? `<button class="btn btn-outline-danger" data-kw-onclick="lessonPlansController.deletePlan(${Number(p.id) || 0})" title="Archive" data-year-write><i class="bi bi-trash"></i></button>` : ""}
                         ${personalMode ? `<button class="btn btn-outline-secondary" data-kw-onclick="lessonPlansController.duplicatePlan(${Number(p.id) || 0})" title="Duplicate" data-year-write><i class="bi bi-files"></i></button>` : ""}
@@ -306,127 +299,271 @@ const lessonPlansController = (() => {
     }
   }
 
-  function showFormModal(plan = null) {
-    const isEdit = !!plan;
-    const currentTeacherId = currentStaffId || "";
+  function planningTermId() {
+    const fromUrl = Number(new URLSearchParams(window.location.search).get("academic_year_term_id")) || 0;
+    return fromUrl || Number(window.AcademicContext?.getPlanningTermId?.()) || 0;
+  }
 
-    const schemeOpts = approvedSchemes.map((s) => `<option value="${Number(s.id)}" ${plan?.scheme_of_work_id == s.id ? "selected" : ""}>Week ${esc(s.week_number || "-")} · ${esc(s.class_name)} ${esc(s.stream_name)} · ${esc(s.learning_area_name || s.subject_name)} · ${esc(s.strand_name)} / ${esc(s.sub_strand_name)}</option>`).join("");
+  async function loadPlanningOptions() {
+    const termId = planningTermId();
+    const res = await API.academic.getLessonPlanningOptions(termId ? { academic_year_term_id: termId } : {});
+    const data = res?.data?.data || res?.data || res || {};
+    planningOptions = {
+      academic_year_term_id: data.academic_year_term_id || null,
+      assignments: Array.isArray(data.assignments) ? data.assignments : [],
+      days: Array.isArray(data.days) ? data.days : [],
+    };
+    return planningOptions;
+  }
+
+  const planDateMissing = (plan) => {
+    const date = plan?.date || plan?.lesson_date;
+    return Boolean(date) && !planningOptions.days.some((d) => d.date === date);
+  };
+
+  const weekday = (date) => {
+    const d = new Date(`${date}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { weekday: "short" });
+  };
+
+  // A lesson plan is its own document, planned for delivery in class. It is
+  // not created from a scheme of work (the scheme is the MoE record of the
+  // term's teaching). The assistant drafts it; the teacher reviews and edits.
+  async function showFormModal(plan = null) {
+    const isEdit = !!plan?.id;
+    try { await loadPlanningOptions(); } catch (e) { planningOptions = { assignments: [], days: [] }; }
+    const planSla = Number(plan?.academic_year_class_stream_learning_area_id) || 0;
+    if (planSla && !planningOptions.assignments.some((a) => Number(a.stream_learning_area_id) === planSla)) {
+      // A plan from another term keeps its own class and learning area.
+      planningOptions.assignments.push({
+        stream_learning_area_id: planSla, class_id: plan.class_id, class_name: plan.class_name || "",
+        stream_name: plan.stream_name || "", learning_area_id: plan.learning_area_id,
+        learning_area_name: plan.subject_name || plan.learning_area_name || "", grade_level: "",
+      });
+    }
+    if (planDateMissing(plan)) planningOptions.days.unshift({ date: plan.date || plan.lesson_date, title: "" });
+    const assignments = planningOptions.assignments;
+    const today = new Date().toISOString().slice(0, 10);
+    const planDate = plan?.date || plan?.lesson_date || "";
+    const defaultDate = planDate || (planningOptions.days.find((d) => d.date >= today)?.date || "");
+    const assignmentOpts = assignments.map((a) => `<option value="${Number(a.stream_learning_area_id)}" ${Number(plan?.academic_year_class_stream_learning_area_id) === Number(a.stream_learning_area_id) ? "selected" : ""}>${esc(a.class_name)} ${esc(a.stream_name || "")} · ${esc(a.learning_area_name)}</option>`).join("");
+    const dayOpts = planningOptions.days.map((d) => `<option value="${esc(d.date)}" ${defaultDate === d.date ? "selected" : ""}>${esc(weekday(d.date))} ${esc(d.date)}${d.title ? " · " + esc(d.title) : ""}</option>`).join("");
+    const publishedNote = isEdit && ["submitted", "approved", "published"].includes(String(plan.status))
+      ? `<div class="alert alert-info py-2 small mb-0"><i class="bi bi-info-circle me-1"></i>This plan is ${esc(String(plan.status))}. You can still edit it; your changes are saved to the same plan.</div>` : "";
 
     const m = document.createElement("div");
-    m.innerHTML = `<div class="modal fade" id="lessonFormModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
-            <div class="modal-header"><h5 class="modal-title">${isEdit ? "Edit" : "Create"} Lesson Plan from Approved Scheme</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    m.innerHTML = `<div class="modal fade" id="lessonFormModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-xl"><div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">${isEdit ? "Edit Lesson Plan" : "New Lesson Plan"}</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
                 <form id="lessonPlanForm">
                     <div class="row g-3">
-                        <div class="col-12">
-                            <label class="form-label fw-semibold">Approved Scheme of Work *</label>
-                            <select class="form-select" name="scheme_of_work_id" id="lpFormScheme" ${isEdit ? "disabled" : "required"}>
-                                <option value="">Select an approved scheme week</option>${schemeOpts}
-                            </select>
-                            ${isEdit ? `<input type="hidden" name="scheme_of_work_id" value="${Number(plan.scheme_of_work_id) || ""}">` : ""}
-                            <div class="form-text">The scheme supplies the authorised stream, learning area, strand, sub-strand and teaching week.</div>
-                        </div>
-                        <div class="col-12"><div id="lpSchemeContext" class="alert alert-light border mb-0">Select a scheme row to load its curriculum choices and calendar days.</div></div>
-                        <div class="col-md-6"><label class="form-label">Topic *</label><input class="form-control" name="topic" value="${esc(plan?.topic)}" required></div>
-                        <div class="col-md-6"><label class="form-label">Subtopic</label><input class="form-control" name="subtopic" value="${esc(plan?.subtopic)}"></div>
-                        <div class="col-md-4"><label class="form-label">Lesson Date *</label><select class="form-select" name="lesson_date" id="lpFormDate" required><option value="">Select calendar day</option></select></div>
-                        <div class="col-md-4"><label class="form-label">Duration (minutes) *</label><input type="number" class="form-control" name="duration" value="${Number(plan?.duration) || "40"}" min="1" required></div>
-                        <div class="col-12"><label class="form-label">Specific learning outcomes *</label><div id="lpSchemeOutcomes" class="row g-2"><div class="text-muted">Load a scheme first.</div></div></div>
-                        <div class="col-12"><label class="form-label">Learning experiences *</label><div id="lpSchemeExperiences" class="row g-2"><div class="text-muted">Load a scheme first.</div></div></div>
-                        <div class="col-12"><label class="form-label">Key inquiry questions</label><div id="lpSchemeQuestions" class="row g-2"><div class="text-muted">Load a scheme first.</div></div></div>
-                        <div class="col-12"><label class="form-label">Activities *</label><textarea class="form-control" name="activities" rows="3" required>${esc(plan?.activities)}</textarea></div>
-                        <div class="col-12"><label class="form-label">Resources, competencies, tools and rubrics</label><div id="lpSchemeAssessment" class="row g-2"><div class="text-muted">Load a scheme first.</div></div></div>
-                        <div class="col-12"><label class="form-label">Homework</label><textarea class="form-control" name="homework" rows="2">${esc(plan?.homework)}</textarea></div>
-                        <input type="hidden" name="teacher_id" value="${Number(currentTeacherId) || ""}">
-                        <input type="hidden" name="learning_area_id" value="${Number(plan?.learning_area_id) || ""}">
-                        <input type="hidden" name="class_id" value="${Number(plan?.class_id) || ""}">
+                        ${publishedNote ? `<div class="col-12">${publishedNote}</div>` : ""}
+                        <div class="col-md-6"><label class="form-label fw-semibold" for="lpFormAssignment">Class stream &amp; learning area *</label>
+                            <select class="form-select" id="lpFormAssignment" name="stream_learning_area_id" ${isEdit ? "disabled" : ""} required><option value="">${assignments.length ? "Select one of your classes" : "No teaching assignment for this term"}</option>${assignmentOpts}</select></div>
+                        <div class="col-md-3"><label class="form-label fw-semibold" for="lpFormDate">Lesson date *</label>
+                            <select class="form-select" name="lesson_date" id="lpFormDate" required><option value="">Select school day</option>${dayOpts}</select></div>
+                        <div class="col-md-3"><label class="form-label" for="lpFormDuration">Duration (minutes) *</label><input type="number" class="form-control" id="lpFormDuration" name="duration" value="${Number(plan?.duration) || 40}" min="10" max="240" required></div>
+                        <div class="col-md-6"><label class="form-label fw-semibold" for="lpFormStrand">Strand *</label><select class="form-select" id="lpFormStrand" ${isEdit ? "disabled" : ""}><option value="">Select the class and learning area first</option></select></div>
+                        <div class="col-md-6"><label class="form-label fw-semibold" for="lpFormSubStrand">Sub-strand *</label><select class="form-select" id="lpFormSubStrand" ${isEdit ? "disabled" : ""}><option value="">Select a strand first</option></select></div>
+                        <div class="col-12"><div id="lpAiState" class="d-flex flex-wrap align-items-center gap-2 small text-muted">
+                            <span id="lpAiStateText">${isEdit ? "Edit the plan below, or ask the assistant for a fresh draft." : "Choose the class, date and sub-strand. The assistant then drafts the whole lesson for you to review."}</span>
+                            <button type="button" class="btn btn-sm btn-outline-primary ms-auto" id="lpAiRedraft" ${isEdit ? "" : "disabled"}><i class="bi bi-stars me-1"></i>${isEdit ? "Redraft with assistant" : "Draft with assistant"}</button>
+                        </div></div>
+                        <div class="col-md-6"><label class="form-label" for="lpFormTopic">Lesson topic *</label><input class="form-control" id="lpFormTopic" name="topic" value="${esc(plan?.topic || plan?.title || "")}" required></div>
+                        <div class="col-md-6"><label class="form-label" for="lpFormSubtopic">Subtopic</label><input class="form-control" id="lpFormSubtopic" name="subtopic" value="${esc(plan?.subtopic || "")}"></div>
+                        <div class="col-12"><label class="form-label" for="lpFormActivities">Lesson steps (introduction, development, conclusion) *</label><textarea class="form-control" id="lpFormActivities" name="activities" rows="9" required>${esc(plan?.activities || plan?.content || "")}</textarea></div>
+                        <div class="col-12"><label class="form-label">Specific learning outcomes *</label><div id="lpOutcomes" class="row g-1"><div class="text-muted small">Choose a sub-strand.</div></div></div>
+                        <div class="col-12"><label class="form-label">Learning experiences *</label><div id="lpExperiences" class="row g-1"><div class="text-muted small">Choose a sub-strand.</div></div></div>
+                        <div class="col-12"><label class="form-label">Key inquiry questions</label><div id="lpQuestions" class="row g-1"><div class="text-muted small">Choose a sub-strand.</div></div></div>
+                        <div class="col-12"><label class="form-label">Resources, competencies, assessment tools and rubrics</label><div id="lpAssessment" class="row g-1"><div class="text-muted small">Choose a sub-strand.</div></div></div>
+                        <div class="col-12"><label class="form-label" for="lpFormHomework">Homework</label><textarea class="form-control" id="lpFormHomework" name="homework" rows="2">${esc(plan?.homework || "")}</textarea></div>
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-outline-primary" data-kw-onclick="lessonPlansController.savePlan(${Number(plan?.id) || "null"}, 'draft')" data-year-write><i class="bi bi-save"></i> Save Draft</button>
-                <button class="btn btn-primary" data-kw-onclick="lessonPlansController.savePlan(${Number(plan?.id) || "null"}, 'submitted')" data-year-write><i class="bi bi-send"></i> ${isEdit ? "Save and submit to the academic heads" : "Submit to the academic heads"}</button>
+                <button class="btn btn-outline-primary" data-kw-onclick="lessonPlansController.savePlan(${isEdit ? Number(plan.id) : "null"}, 'draft')" data-year-write><i class="bi bi-save"></i> Save</button>
+                ${!isEdit || plan.status === "draft" ? `<button class="btn btn-primary" data-kw-onclick="lessonPlansController.savePlan(${isEdit ? Number(plan.id) : "null"}, 'submitted')" data-year-write><i class="bi bi-send"></i> Save and submit for approval</button>` : ""}
             </div>
         </div></div></div>`;
     document.body.appendChild(m);
 
-    const schemeSelect = document.getElementById("lpFormScheme");
-    if (schemeSelect) {
-      schemeSelect.addEventListener("change", () => loadSchemeContext(schemeSelect.value, plan));
-      if (schemeSelect.value) loadSchemeContext(schemeSelect.value, plan);
-    }
+    const assignmentSel = document.getElementById("lpFormAssignment");
+    const strandSel = document.getElementById("lpFormStrand");
+    const subSel = document.getElementById("lpFormSubStrand");
+    const redraft = document.getElementById("lpAiRedraft");
+    assignmentSel?.addEventListener("change", () => loadStrands());
+    strandSel?.addEventListener("change", () => loadSubStrands());
+    subSel?.addEventListener("change", async () => {
+      await loadChoices(null);
+      if (subSel.value) queueAiDraft();
+    });
+    redraft?.addEventListener("click", () => queueAiDraft());
 
     bootstrap.Modal.getOrCreateInstance(document.getElementById("lessonFormModal")).show();
-    document
-      .getElementById("lessonFormModal")
-      .addEventListener("hidden.bs.modal", () => m.remove());
+    document.getElementById("lessonFormModal").addEventListener("hidden.bs.modal", () => {
+      clearTimeout(aiPoll); aiPoll = null; m.remove();
+    });
+
+    if (plan?.academic_year_class_stream_learning_area_id) {
+      await loadStrands(plan.strand_id || plan.unit_id);
+      await loadSubStrands(plan.sub_strand_id || plan.topic_id);
+      await loadChoices(plan);
+    } else if (assignments.length === 1) {
+      assignmentSel.value = String(assignments[0].stream_learning_area_id);
+      await loadStrands();
+    }
   }
 
-  async function loadSchemeContext(schemeId, plan = null) {
-    const contextBox = document.getElementById("lpSchemeContext");
-    if (!schemeId) return;
-    if (contextBox) contextBox.innerHTML = "Loading approved scheme context…";
+  function selectedAssignment() {
+    const id = Number(document.getElementById("lpFormAssignment")?.value) || 0;
+    return planningOptions.assignments.find((a) => Number(a.stream_learning_area_id) === id) || null;
+  }
+
+  async function loadStrands(selectedId = null) {
+    const strandSel = document.getElementById("lpFormStrand");
+    const subSel = document.getElementById("lpFormSubStrand");
+    const a = selectedAssignment();
+    if (!strandSel) return;
+    subSel.innerHTML = '<option value="">Select a strand first</option>';
+    if (!a) { strandSel.innerHTML = '<option value="">Select the class and learning area first</option>'; return; }
+    const res = await window.API.apiCall("/academic/strands", "GET", null, { learning_area_id: a.learning_area_id, grade_level: a.grade_level || "" }).catch(() => []);
+    const rows = Array.isArray(res) ? res : (res?.data || []);
+    strandSel.innerHTML = `<option value="">${rows.length ? "Select strand" : "No strands configured for this learning area"}</option>` + rows.map((r) => `<option value="${Number(r.id)}" ${Number(selectedId) === Number(r.id) ? "selected" : ""}>${esc((r.code ? r.code + " · " : "") + r.name)}</option>`).join("");
+    if (selectedId) strandSel.value = String(selectedId);
+  }
+
+  async function loadSubStrands(selectedId = null) {
+    const strandSel = document.getElementById("lpFormStrand");
+    const subSel = document.getElementById("lpFormSubStrand");
+    if (!subSel) return;
+    if (!strandSel?.value) { subSel.innerHTML = '<option value="">Select a strand first</option>'; return; }
+    const res = await window.API.apiCall("/academic/sub-strands", "GET", null, { strand_id: strandSel.value }).catch(() => []);
+    const rows = Array.isArray(res) ? res : (res?.data || []);
+    subSel.innerHTML = `<option value="">${rows.length ? "Select sub-strand" : "No sub-strands configured"}</option>` + rows.map((r) => `<option value="${Number(r.id)}">${esc((r.code ? r.code + " · " : "") + r.name)}</option>`).join("");
+    if (selectedId) subSel.value = String(selectedId);
+  }
+
+  // Load the curriculum choices for the sub-strand. For a new plan every
+  // outcome and experience starts ticked: the assistant has drafted against
+  // all of them and the teacher unticks what this lesson will not cover.
+  async function loadChoices(plan = null) {
+    const slaId = Number(document.getElementById("lpFormAssignment")?.value) || 0;
+    const subId = Number(document.getElementById("lpFormSubStrand")?.value) || 0;
+    const redraft = document.getElementById("lpAiRedraft");
+    if (redraft) redraft.disabled = !(slaId && subId);
+    if (!slaId || !subId) { activeChoices = null; return; }
     try {
-      const response = await API.academic.getLessonPlanningContext(schemeId);
-      activeSchemeContext = response?.data?.data || response?.data || response || null;
-      const choices = activeSchemeContext?.choices || {};
-      const dateSelect = document.getElementById("lpFormDate");
-      const calendarDays = choices.calendar_days || [];
-      const today = new Date().toISOString().slice(0, 10);
-      const defaultDate = plan?.lesson_date || (calendarDays.some((d) => d.date === today) ? today : (calendarDays[0]?.date || ""));
-      if (dateSelect) dateSelect.innerHTML = '<option value="">Select calendar day</option>' + calendarDays.map((d) => `<option value="${esc(d.date)}" ${defaultDate === d.date ? "selected" : ""}>${esc(d.date)}${d.title ? " · " + esc(d.title) : ""}</option>`).join("");
-      if (contextBox) contextBox.innerHTML = `<strong>${esc(activeSchemeContext.learning_area_name || "Learning area")}</strong> · ${esc(activeSchemeContext.class_name)} ${esc(activeSchemeContext.stream_name)}<br><span class="small">Week ${esc(activeSchemeContext.week_number || "-")}: ${esc(activeSchemeContext.week_start)} to ${esc(activeSchemeContext.week_end)} · ${esc(activeSchemeContext.strand_name)} / ${esc(activeSchemeContext.sub_strand_name)}</span>`;
-      const selected = activeSchemeContext?.selected || {};
-      const checked = new Set((plan?.atomic_content?.outcomes || []).map((x) => String(x.id)));
-      const expChecked = new Set((plan?.atomic_content?.experiences || []).map((x) => String(x.id)));
-      if (!plan) {
-        (selected.outcome_ids || []).forEach((id) => checked.add(String(id)));
-        (selected.experience_ids || []).forEach((id) => expChecked.add(String(id)));
-      }
-      const makeChecks = (items, name, selected) => (items || []).map((item) => `<div class="col-md-6"><label class="form-check"><input class="form-check-input" type="checkbox" name="${name}" value="${Number(item.id) || 0}" data-text="${esc(item.text || item.name)}" ${selected.has(String(item.id)) ? "checked" : ""}><span class="form-check-label small">${esc(item.text || item.name)}</span></label></div>`).join("") || '<div class="text-muted small">No suggested choices configured for this scheme row.</div>';
-      document.getElementById("lpSchemeOutcomes").innerHTML = makeChecks(choices.outcomes, "learning_outcome_ids", checked);
-      const experiences = [...(choices.experiences || [])];
-      (selected.experiences || []).forEach((item) => {
-        const id = Number(item.id || 0);
-        if (id && experiences.some((choice) => Number(choice.id) === id)) return;
-        experiences.push({ id, text: item.text || "" });
-        if (!id) expChecked.add("0");
+      const res = await API.academic.getLessonPlanningChoices({ stream_learning_area_id: slaId, sub_strand_id: subId });
+      activeChoices = res?.data?.data || res?.data || res || null;
+    } catch (e) {
+      activeChoices = null;
+      window.showNotification?.(e.message || "The curriculum for this sub-strand could not be loaded.", "danger");
+      return;
+    }
+    const choices = activeChoices?.choices || {};
+    const saved = plan?.atomic_content || null;
+    const pick = (list, key) => saved ? new Set((saved[key] || []).map((x) => String(x.id))) : new Set((list || []).map((x) => String(x.id)));
+    const makeChecks = (items, name, selected, kind = "") => (items || []).map((item) => {
+      const label = item.criteria_name || item.text || item.name || item.code || "";
+      return `<div class="col-md-6"><label class="form-check"><input class="form-check-input" type="checkbox" name="${name}" value="${Number(item.id) || 0}" data-text="${esc(label)}" ${selected.has(String(item.id)) ? "checked" : ""}><span class="form-check-label small">${kind ? `<span class="badge text-bg-light me-1">${esc(kind)}</span>` : ""}${esc(label)}</span></label></div>`;
+    }).join("");
+    const none = '<div class="text-muted small">None configured for this sub-strand.</div>';
+    document.getElementById("lpOutcomes").innerHTML = makeChecks(choices.outcomes, "learning_outcome_ids", pick(choices.outcomes, "outcomes")) || none;
+    document.getElementById("lpExperiences").innerHTML = makeChecks(choices.experiences, "experience_ids", pick(choices.experiences, "experiences")) || none;
+    document.getElementById("lpQuestions").innerHTML = makeChecks(choices.inquiry_questions, "inquiry_question_ids", saved ? new Set() : pick(choices.inquiry_questions)) || none;
+    const sel = (key, list) => saved ? new Set((saved[key] || []).map((x) => String(x.id))) : new Set((list || []).map((x) => String(x.id)));
+    document.getElementById("lpAssessment").innerHTML = [
+      makeChecks(choices.resources, "scheme_resource_ids", sel("resources", choices.resources), "resource"),
+      makeChecks(choices.competencies, "scheme_competency_ids", sel("competencies", choices.competencies), "competency"),
+      makeChecks(choices.assessment_tools, "scheme_tool_ids", sel("assessment_tools", []), "tool"),
+      makeChecks(choices.rubrics, "scheme_rubric_ids", sel("rubrics", choices.rubrics), "rubric"),
+      makeChecks(choices.assessment_rubrics, "scheme_assessment_rubric_ids", sel("assessment_rubrics", []), "criterion"),
+    ].join("") || none;
+  }
+
+  function setAiState(text, kind = "muted") {
+    const node = document.getElementById("lpAiStateText");
+    if (!node) return;
+    node.className = kind === "danger" ? "text-danger" : kind === "success" ? "text-success" : "text-muted";
+    node.innerHTML = text;
+  }
+
+  // Queue the assistant, then poll for the draft and fill the form with it.
+  async function queueAiDraft() {
+    const a = selectedAssignment();
+    const strandSel = document.getElementById("lpFormStrand");
+    const subSel = document.getElementById("lpFormSubStrand");
+    if (!a || !subSel?.value) return;
+    const redraft = document.getElementById("lpAiRedraft");
+    if (redraft) redraft.disabled = true;
+    setAiState('<span class="spinner-border spinner-border-sm me-1"></span>The assistant is drafting this lesson…');
+    try {
+      const queued = await API.academic.queueAiLessonPlanDraft({
+        stream_learning_area_id: a.stream_learning_area_id,
+        sub_strand_id: Number(subSel.value),
+        learning_area_name: a.learning_area_name,
+        strand_name: strandSel?.selectedOptions?.[0]?.textContent || "",
+        sub_strand_name: subSel.selectedOptions?.[0]?.textContent || "",
+        topic: document.getElementById("lpFormTopic")?.value || "",
+        lesson_date: document.getElementById("lpFormDate")?.value || "",
       });
-      document.getElementById("lpSchemeExperiences").innerHTML = makeChecks(experiences, "experience_ids", expChecked);
-      document.getElementById("lpSchemeQuestions").innerHTML = makeChecks(choices.inquiry_questions, "inquiry_question_ids", new Set((selected.inquiry_question_ids || []).map(String)));
-      const assessmentItems = [...(choices.resources || []).map((x) => ({...x, kind: "resource"})), ...(choices.competencies || []).map((x) => ({...x, kind: "competency"})), ...(choices.assessment_tools || []).map((x) => ({...x, kind: "tool"})), ...(choices.rubrics || []).map((x) => ({...x, kind: "rubric"})), ...(choices.assessment_rubrics || []).map((x) => ({...x, kind: "assessment_rubric"}))];
-      const selectedIds = {
-        resource: new Set((selected.resource_ids || []).map(String)),
-        competency: new Set((selected.competency_ids || []).map(String)),
-        tool: new Set((selected.tool_ids || []).map(String)),
-        rubric: new Set((selected.rubric_ids || []).map(String)),
-        assessment_rubric: new Set((selected.assessment_rubric_ids || []).map(String)),
-      };
-      document.getElementById("lpSchemeAssessment").innerHTML = assessmentItems.map((item) => {
-        const label = item.kind === "assessment_rubric" ? (item.criteria_name || "Assessment rubric") : (item.name || item.text || item.code || "");
-        return `<div class="col-md-6"><label class="form-check"><input class="form-check-input" type="checkbox" name="scheme_${item.kind}_ids" value="${Number(item.id) || 0}" ${selectedIds[item.kind]?.has(String(item.id)) ? "checked" : ""}><span class="form-check-label small"><span class="badge text-bg-light me-1">${item.kind === "assessment_rubric" ? "rubric" : item.kind}</span>${esc(label)}</span></label></div>`;
-      }).join("") || '<div class="text-muted small">No linked resources or assessment mappings configured.</div>';
-      document.querySelector('[name="learning_area_id"]').value = activeSchemeContext.learning_area_id || "";
-      document.querySelector('[name="class_id"]').value = activeSchemeContext.class_id || "";
-      const topicInput = document.querySelector('[name="topic"]');
-      if (topicInput && !topicInput.value.trim()) {
-        topicInput.value = activeSchemeContext.title
-          || [activeSchemeContext.learning_area_name, activeSchemeContext.strand_name, activeSchemeContext.sub_strand_name].filter(Boolean).join(" · ")
-          || `Lesson plan · Week ${activeSchemeContext.week_number || ""}`.trim();
+      const jobId = Number(queued?.data?.job_id || queued?.job_id || 0);
+      pollAiDraft(jobId, 0);
+    } catch (e) {
+      if (redraft) redraft.disabled = false;
+      setAiState(`The assistant is unavailable right now (${esc(e.message || "error")}). You can write the plan yourself.`, "danger");
+    }
+  }
+
+  function pollAiDraft(jobId, attempt) {
+    clearTimeout(aiPoll);
+    aiPoll = setTimeout(async () => {
+      if (!document.getElementById("lessonFormModal")) return;
+      let drafts = [];
+      try {
+        const res = await API.academic.getAiLessonPlanDrafts("own");
+        drafts = res?.data?.drafts || res?.drafts || [];
+      } catch (_) {}
+      const match = drafts.find((d) => d.workflow_id === "academics.lesson_plan_draft" && (!jobId || Number(d.metadata?.queue_job_id) === jobId));
+      const redraft = document.getElementById("lpAiRedraft");
+      if (match && match.status !== "failed" && match.draft?.body) {
+        applyAiDraft(match.draft);
+        if (redraft) redraft.disabled = false;
+        setAiState("Drafted by the assistant. Review every part, edit where needed, then save.", "success");
+        return;
       }
-    } catch (error) {
-      activeSchemeContext = null;
-      if (contextBox) contextBox.innerHTML = `<span class="text-danger">Unable to load this approved scheme row.</span>`;
+      if (match?.status === "failed" || attempt >= 24) {
+        if (redraft) redraft.disabled = false;
+        setAiState("The draft is taking longer than expected. Keep working; use “Draft with assistant” to try again.", "danger");
+        return;
+      }
+      pollAiDraft(jobId, attempt + 1);
+    }, attempt === 0 ? 2500 : 5000);
+  }
+
+  function applyAiDraft(draft) {
+    const topic = document.getElementById("lpFormTopic");
+    const activities = document.getElementById("lpFormActivities");
+    if (topic && draft.title) topic.value = String(draft.title).slice(0, 200);
+    const steps = Array.isArray(draft.next_steps) ? draft.next_steps.filter(Boolean) : [];
+    const items = Array.isArray(draft.items) ? draft.items.map((x) => (typeof x === "string" ? x : x?.text || x?.title || "")).filter(Boolean) : [];
+    if (activities) {
+      activities.value = [String(draft.body || "").trim(), items.length ? items.map((x) => `- ${x}`).join("\n") : "", steps.length ? "Next steps:\n" + steps.map((x) => `- ${x}`).join("\n") : ""].filter(Boolean).join("\n\n");
     }
   }
 
   async function savePlan(id, status = "draft") {
     const form = document.getElementById("lessonPlanForm");
+    if (!form) return;
     const formData = Object.fromEntries(new FormData(form));
-    formData.scheme_of_work_id = form.querySelector('[name="scheme_of_work_id"]:checked')?.value || form.querySelector('#lpFormScheme')?.value || form.querySelector('input[name="scheme_of_work_id"]')?.value || "";
+    const a = selectedAssignment();
+    formData.stream_learning_area_id = Number(document.getElementById("lpFormAssignment")?.value) || null;
+    formData.sub_strand_id = Number(document.getElementById("lpFormSubStrand")?.value) || null;
+    formData.strand_id = Number(document.getElementById("lpFormStrand")?.value) || null;
+    if (a) { formData.learning_area_id = a.learning_area_id; formData.class_id = a.class_id; }
     formData.learning_outcome_ids = [...form.querySelectorAll('input[name="learning_outcome_ids"]:checked')].map((input) => Number(input.value));
-    formData.experiences = [...form.querySelectorAll('input[name="experience_ids"]:checked')].map((input) => ({ id: Number(input.value), text: input.dataset.text || input.closest("label")?.innerText.trim() || "" }));
+    formData.experiences = [...form.querySelectorAll('input[name="experience_ids"]:checked')].map((input) => ({ id: Number(input.value), text: input.dataset.text || "" }));
     formData.resources_items = [...form.querySelectorAll('input[name="scheme_resource_ids"]:checked')].map((input) => ({ id: Number(input.value) }));
     formData.resources = formData.resources_items;
     const activitiesText = String(formData.activities || "").trim();
@@ -436,40 +573,34 @@ const lessonPlansController = (() => {
     formData.rubric_ids = [...form.querySelectorAll('input[name="scheme_rubric_ids"]:checked')].map((input) => Number(input.value));
     formData.assessment_rubric_ids = [...form.querySelectorAll('input[name="scheme_assessment_rubric_ids"]:checked')].map((input) => Number(input.value));
     formData.inquiry_questions = [...form.querySelectorAll('input[name="inquiry_question_ids"]:checked')].map((input) => ({ id: Number(input.value), text: input.dataset.text || "" }));
-    if (!formData.scheme_of_work_id) {
-      await window.infoDialog('Notice', "Select an approved scheme row before creating a lesson plan.");
-      return;
-    }
-    const requiredFields = [
-      ["topic", "a lesson topic"],
-      ["lesson_date", "a lesson date"],
-    ];
-    const missingFields = requiredFields.filter(([name]) => !String(formData[name] || "").trim()).map(([, label]) => label);
-    if (missingFields.length) {
-      await window.infoDialog('Notice', `Complete ${missingFields.join(", ")} before saving.`);
-      return;
-    }
+
+    const missing = [];
+    if (!id && !formData.stream_learning_area_id) missing.push("the class stream and learning area");
+    if (!id && !formData.sub_strand_id) missing.push("the strand and sub-strand");
+    if (!String(formData.lesson_date || "").trim()) missing.push("the lesson date");
+    if (!String(formData.topic || "").trim()) missing.push("the lesson topic");
+    if (!activitiesText) missing.push("the lesson steps");
+    if (missing.length) { await window.infoDialog("Notice", `Complete ${missing.join(", ")} before saving.`); return; }
     if (!formData.learning_outcome_ids.length || !formData.experiences.length) {
-      await window.infoDialog('Notice', "Select at least one scheme outcome and learning experience.");
+      await window.infoDialog("Notice", "Tick at least one learning outcome and one learning experience.");
       return;
     }
-    // Cast numeric fields
-    formData.duration = parseInt(formData.duration) || 40;
+    if (id) {
+      // The curriculum context of an existing plan is fixed.
+      delete formData.stream_learning_area_id; delete formData.sub_strand_id; delete formData.strand_id;
+      delete formData.learning_area_id; delete formData.class_id;
+    }
+    formData.duration = parseInt(formData.duration, 10) || 40;
     formData.status = status;
     try {
-      if (id) {
-        await API.academic.updateLessonPlan(id, formData);
-      } else {
-        await API.academic.createLessonPlan(formData);
-      }
-      bootstrap.Modal.getInstance(
-        document.getElementById("lessonFormModal"),
-      )?.hide();
+      if (id) await API.academic.updateLessonPlan(id, formData);
+      else await API.academic.createLessonPlan(formData);
+      bootstrap.Modal.getInstance(document.getElementById("lessonFormModal"))?.hide();
       await loadPlans();
-      await window.infoDialog('Notice', id ? "Lesson plan updated." : "Lesson plan created.");
+      window.showNotification?.(status === "submitted" ? "Lesson plan saved and submitted for approval." : "Lesson plan saved.", "success");
     } catch (e) {
       console.error("Save plan:", e);
-      await window.infoDialog('Notice', "Failed to save lesson plan: " + (e.message || ""));
+      await window.infoDialog("Notice", "Failed to save lesson plan: " + (e.message || ""));
     }
   }
 
@@ -522,31 +653,13 @@ const lessonPlansController = (() => {
   }
 
   async function duplicatePlan(id) {
-    const plan = allPlans.find((p) => p.id == id);
-    if (!plan) return;
-    const copy = {
-      topic: (plan.topic || "") + " (Copy)",
-      subtopic: plan.subtopic || "",
-      learning_area_id: plan.learning_area_id,
-      class_id: plan.class_id,
-      teacher_id: plan.teacher_id,
-      unit_id: plan.unit_id,
-      objectives: plan.objectives || "",
-      activities: plan.activities || "",
-      resources: plan.resources || "",
-      assessment: plan.assessment || "",
-      homework: plan.homework || "",
-      lesson_date: plan.lesson_date || "",
-      duration: plan.duration || 40,
-      status: "draft",
-    };
     try {
-      await API.academic.createLessonPlan(copy);
-      await loadPlans();
-      await window.infoDialog('Notice', "Lesson plan duplicated.");
+      const response = await API.academic.getLessonPlan(id);
+      const detail = response?.data?.data || response?.data || response || {};
+      const copy = { ...detail, id: null, status: "draft", topic: `${detail.topic || detail.title || ""} (Copy)`, date: "", lesson_date: "" };
+      await showFormModal(copy);
     } catch (e) {
-      console.error("Duplicate:", e);
-      await window.infoDialog('Notice', "Failed to duplicate.");
+      await window.infoDialog("Notice", "Unable to copy this lesson plan.");
     }
   }
 
@@ -561,7 +674,7 @@ const lessonPlansController = (() => {
       createBtn.addEventListener("click", () => {
         // Lesson-plan creation belongs to this scoped workspace for every
         // teacher, including teachers who also hold a leadership role. The
-        // old standalone route bypassed the approved-scheme workflow.
+        // old standalone route bypassed the scoped teaching assignment.
         showFormModal();
       });
     }

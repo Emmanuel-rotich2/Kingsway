@@ -47,6 +47,20 @@ final class DownloadController extends BaseController
     }
 
 
+    /** GET /api/download/learning-resource?token= — a signed learning-resource link. */
+    public function getLearningResource(
+        $id = null,
+        $data = [],
+        $segments = []
+    ): never {
+        try {
+            $file = $this->downloads()->resolveLearningResource(trim((string) ($_GET['token'] ?? '')));
+            $this->stream($file, 'inline');
+        } catch (Throwable $exception) {
+            $this->abortDownload($exception);
+        }
+    }
+
     /** POST /api/download/export */
     public function postExport($id = null, $data = [], $segments = [])
     {

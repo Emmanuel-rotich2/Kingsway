@@ -2285,6 +2285,8 @@ const ENDPOINT_PERMISSIONS = {
   "/academic/ai-assessment-draft-approve": { POST: ["academic_approve", "academic_manage", "academics_manage", "curriculum_approve"] },
   "/academic/scheme-of-work-get": "academic_view",
   "/academic/lesson-planning-context": "lesson_plans_view",
+  "/academic/lesson-planning-options": "lesson_plans_view",
+  "/academic/lesson-planning-choices": "lesson_plans_view",
   "/academic/lesson-plans-list": "lesson_plans_view",
   "/academic/lesson-plans-get": "lesson_plans_view",
   "/academic/lesson-plans-create": "lesson_plans_create",
@@ -5619,6 +5621,12 @@ window.API = {
     approveAiLearningGapReview: async (id) => apiCall(`/academic/ai-learning-gap-review-approve/${Number(id)}`, "POST", {}),
     getLessonPlanningContext: async (schemeId) =>
       apiCall(`/academic/lesson-planning-context/${schemeId}`, "GET"),
+    // Lesson plans are planned from the teacher's own stream + learning area
+    // + sub-strand; a scheme of work is not required.
+    getLessonPlanningOptions: async (params = {}) =>
+      apiCall("/academic/lesson-planning-options", "GET", null, params),
+    getLessonPlanningChoices: async (params = {}) =>
+      apiCall("/academic/lesson-planning-choices", "GET", null, params),
     saveLessonPlanLearnerEvidence: async (lessonPlanId, data) =>
       apiCall(`/academic/lesson-plan-learner-evidence/${lessonPlanId}`, "POST", data),
     getSchemeOfWork: async (id = null) => {
@@ -8345,13 +8353,6 @@ window.API = {
         student_id: studentId,
       }),
 
-    resolveMpesaException: async (mpesaId, matchingStatus, reason) =>
-      apiCall("/payments/mpesa-exception", "POST", {
-        mpesa_id: mpesaId,
-        matching_status: matchingStatus,
-        reason: reason,
-      }),
-
     // Get M-Pesa reconciliation history
     getMpesaReconcileHistory: async (mpesaId) =>
       apiCall(
@@ -9240,28 +9241,6 @@ window.API = {
         null,
         params,
       );
-    },
-
-    getAccountantCashPosition: async () => {
-      return await apiCall("/dashboard/accountant/cash-position", "GET");
-    },
-
-    getAccountantPayrollSummary: async () => {
-      return await apiCall("/dashboard/accountant/payroll-summary", "GET");
-    },
-
-    sendAccountantFeeReminder: async (studentId) => {
-      return await apiCall("/communications/send-reminder", "POST", {
-        student_id: studentId,
-        type: "fee_reminder",
-      });
-    },
-
-    getAccountantPendingExpenses: async (params = {}) => {
-      return await apiCall("/finance/expenses", "GET", null, {
-        status: "pending_approval",
-        ...params,
-      });
     },
 
     /**

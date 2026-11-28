@@ -186,6 +186,29 @@ class AdmissionAdminManager extends BaseAPI
     private array $parentIdCache = [];
 
     /** Open admission windows accepting applications now (staff self-service picker). */
+    /**
+     * Applications a staff member submitted through the staff portal (they
+     * are the parent/guardian of record). Identity and status only.
+     */
+    public static function staffPortalApplicationsForPerson(\PDO $pdo, int $personId): array
+    {
+        if ($personId < 1) return [];
+        $parent = $pdo->prepare('SELECT id FROM parents WHERE person_id = ? LIMIT 1');
+        $parent->execute([$personId]);
+        $parentId = (int) $parent->fetchColumn();
+        if (!$parentId) return [];
+        $stmt = $pdo->prepare(
+            "SELECT id, application_no, applicant_name, gender, grade_applying_for, status,
+                    admission_appointment_date, created_at
+               FROM admission_applications
+              WHERE parent_id = ?
+              ORDER BY created_at DESC
+              LIMIT 50"
+        );
+        $stmt->execute([$parentId]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
     public static function openWindows(\PDO $pdo): array
     {
         return $pdo->query(

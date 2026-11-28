@@ -1,217 +1,133 @@
 <?php
 /**
  * CBC Curriculum Page
- * Purpose: View and manage the Competency-Based Curriculum structure
- * Features: Learning areas, strands, sub-strands, competency indicators, assessment criteria
+ *
+ * Read-only view of the Competency-Based Curriculum (learning area → strand →
+ * sub-strand → learning outcomes). The server scopes every read: leadership
+ * sees the whole school curriculum, a teacher sees only the learning areas
+ * (and grades) they are assigned to in the academic year. Changes are made
+ * through the governed Curriculum Proposals workflow, never here.
  */
 ?>
 
 <div id="curriculumCbcPage">
-    <!-- Page Header -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
         <div>
-            <h4 class="mb-1"><i class="bi bi-diagram-3"></i> CBC Curriculum</h4>
-            <small class="text-muted">Competency-Based Curriculum structure and learning areas</small>
+            <h4 class="mb-1"><i class="bi bi-diagram-3"></i> <span id="curriculumPageTitle">CBC Curriculum</span></h4>
+            <small class="text-muted" id="curriculumPageSubtitle">Competency-Based Curriculum structure by learning area</small>
         </div>
-        <div class="btn-group">
+        <div class="btn-group d-print-none">
             <button class="btn btn-outline-primary btn-sm" id="exportCurriculumBtn" data-curriculum-export>
-                <i class="bi bi-download"></i> Export
+                <i class="bi bi-download"></i> Export CSV
             </button>
-            <button class="btn btn-outline-secondary btn-sm" id="printCurriculumBtn" data-curriculum-print><i class="bi bi-printer"></i> Print / PDF</button>
-            <a class="btn btn-outline-success btn-sm" href="home.php?route=curriculum_proposals"><i class="bi bi-lightbulb"></i> Propose Change</a>
-            <button class="btn btn-success btn-sm" id="addLearningAreaBtn" data-curriculum-manage data-year-write>
-                <i class="bi bi-plus-circle"></i> Add Learning Area
+            <button class="btn btn-outline-secondary btn-sm" id="printCurriculumBtn" data-curriculum-print>
+                <i class="bi bi-printer"></i> Print / PDF
             </button>
+            <a class="btn btn-outline-success btn-sm" href="home.php?route=curriculum_proposals">
+                <i class="bi bi-lightbulb"></i> Propose Change
+            </a>
         </div>
     </div>
 
-    <!-- KPI Summary Cards -->
+    <!-- Teacher assignment scope: shown only to restricted (teaching) users. -->
+    <div class="card border-primary-subtle mb-4 d-none" id="curriculumScopeCard">
+        <div class="card-body py-3">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <strong class="me-2"><i class="bi bi-person-check"></i> Assigned to you:</strong>
+                <div id="curriculumScopeChips" class="d-flex flex-wrap gap-1"></div>
+            </div>
+        </div>
+    </div>
+
     <div class="row g-3 mb-4">
-        <div class="col-md-3">
-            <div class="card border-primary">
-                <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Learning Areas</h6>
-                    <h3 class="text-primary mb-0" id="totalLearningAreas">0</h3>
-                </div>
-            </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-primary h-100"><div class="card-body text-center">
+                <h6 class="text-muted mb-2">Learning Areas</h6>
+                <h3 class="text-primary mb-0" id="totalLearningAreas">0</h3>
+            </div></div>
         </div>
-        <div class="col-md-3">
-            <div class="card border-success">
-                <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Strands</h6>
-                    <h3 class="text-success mb-0" id="totalStrands">0</h3>
-                </div>
-            </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-success h-100"><div class="card-body text-center">
+                <h6 class="text-muted mb-2">Strands</h6>
+                <h3 class="text-success mb-0" id="totalStrands">0</h3>
+            </div></div>
         </div>
-        <div class="col-md-3">
-            <div class="card border-info">
-                <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Sub-Strands</h6>
-                    <h3 class="text-info mb-0" id="totalSubStrands">0</h3>
-                </div>
-            </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-info h-100"><div class="card-body text-center">
+                <h6 class="text-muted mb-2">Sub-Strands</h6>
+                <h3 class="text-info mb-0" id="totalSubStrands">0</h3>
+            </div></div>
         </div>
-        <div class="col-md-3">
-            <div class="card border-warning">
-                <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Learning Outcomes</h6>
-                    <h3 class="text-warning mb-0" id="totalLearningOutcomes">0</h3>
-                </div>
-            </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-warning h-100"><div class="card-body text-center">
+                <h6 class="text-muted mb-2">Learning Outcomes</h6>
+                <h3 class="text-warning mb-0" id="totalLearningOutcomes">0</h3>
+            </div></div>
         </div>
     </div>
 
-    <!-- Filter / Search Card -->
-    <div class="card mb-4">
+    <div class="card mb-4 d-print-none">
         <div class="card-body">
             <div class="row g-3">
                 <div class="col-md-3">
+                    <label class="form-label small text-muted mb-1" for="gradeLevelFilter">Grade</label>
                     <select class="form-select" id="gradeLevelFilter">
                         <option value="">All Grade Levels</option>
                     </select>
                 </div>
                 <div class="col-md-3">
+                    <label class="form-label small text-muted mb-1" for="learningAreaFilter">Learning area</label>
                     <select class="form-select" id="learningAreaFilter">
                         <option value="">All Learning Areas</option>
                     </select>
                 </div>
                 <div class="col-md-3">
+                    <label class="form-label small text-muted mb-1" for="strandFilter">Strand</label>
                     <select class="form-select" id="strandFilter">
                         <option value="">All Strands</option>
                     </select>
                 </div>
                 <div class="col-md-3">
-                    <input type="text" class="form-control" id="searchCurriculum" placeholder="Search curriculum...">
+                    <label class="form-label small text-muted mb-1" for="searchCurriculum">Search</label>
+                    <input type="search" class="form-control" id="searchCurriculum" placeholder="Strand, sub-strand or code">
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Main Data Table -->
     <div class="card">
         <div class="card-body">
             <div class="table-responsive">
-                <table class="table table-hover table-bordered" id="curriculumTable">
+                <table class="table table-hover table-bordered align-middle" id="curriculumTable">
                     <thead class="table-light">
                         <tr>
-                            <th scope="col">#</th>
-                            <th scope="col">Code</th>
+                            <th scope="col" style="width:3rem">#</th>
+                            <th scope="col">Grade</th>
                             <th scope="col">Learning Area</th>
-                            <th scope="col">Applicable Grades</th>
-                            <th scope="col">Curriculum Status</th>
-                            <th scope="col">Actions</th>
+                            <th scope="col">Strand</th>
+                            <th scope="col">Sub-Strands</th>
+                            <th scope="col">Outcomes</th>
+                            <th scope="col" class="d-print-none">View</th>
                         </tr>
                     </thead>
-                    <tbody id="curriculumTableBody"><tr><td colspan="6" class="text-center text-muted py-3">Loading learning areas…</td></tr></tbody>
+                    <tbody id="curriculumTableBody"><tr><td colspan="7" class="text-center text-muted py-3">Loading curriculum…</td></tr></tbody>
                 </table>
             </div>
-            <div class="d-flex justify-content-between align-items-center mt-3">
+            <div class="d-flex justify-content-between align-items-center mt-3 d-print-none">
                 <small class="text-muted">
-                    Showing <span id="showingFrom">0</span> to <span id="showingTo">0</span> of <span id="totalRecords">0</span> entries
+                    Showing <span id="showingFrom">0</span> to <span id="showingTo">0</span> of <span id="totalRecords">0</span> strands
                 </small>
-                <nav>
-                    <ul class="pagination pagination-sm mb-0" id="pagination"></ul>
-                </nav>
+                <nav><ul class="pagination pagination-sm mb-0" id="pagination"></ul></nav>
             </div>
         </div>
     </div>
 </div>
 
-<div class="modal fade" id="learningAreaCreateModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog"><div class="modal-content">
-        <div class="modal-header"><h5 class="modal-title">Add Learning Area</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-        <div class="modal-body">
-            <label class="form-label" for="newLearningAreaName">Name *</label><input class="form-control mb-3" id="newLearningAreaName" required maxlength="120">
-            <label class="form-label" for="newLearningAreaCode">Code *</label><input class="form-control mb-3" id="newLearningAreaCode" required maxlength="30">
-            <label class="form-label" for="newLearningAreaGrades">Applicable grades *</label><select class="form-select mb-3" id="newLearningAreaGrades" multiple size="7"><option>PlayGroup</option><option>PP1</option><option>PP2</option><option>Grade 1</option><option>Grade 2</option><option>Grade 3</option><option>Grade 4</option><option>Grade 5</option><option>Grade 6</option><option>Grade 7</option><option>Grade 8</option><option>Grade 9</option></select>
-            <label class="form-label" for="newLearningAreaDescription">Description</label><textarea class="form-control" id="newLearningAreaDescription" rows="2"></textarea>
-            <div class="form-text">Use the official CBC learning-area name and code. The area will be added to the school syllabus as active.</div>
-        </div>
-        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" id="saveLearningAreaBtn" data-year-write>Add Learning Area</button></div>
-    </div></div>
-</div>
-
-<div class="modal fade" id="learningAreaAssignModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg"><div class="modal-content">
-        <div class="modal-header"><h5 class="modal-title">Assign Learning Area to Classes</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-        <div class="modal-body">
-            <input type="hidden" id="assignLearningAreaId">
-            <label class="form-label" for="assignLearningAreaYear">Academic year *</label><select class="form-select mb-3" id="assignLearningAreaYear"></select>
-            <div id="assignLearningAreaClasses" class="border rounded p-3" style="max-height:45vh;overflow:auto">Choose an academic year to load its classes.</div>
-        </div>
-        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="saveLearningAreaAssignmentBtn" data-year-write>Assign to selected classes</button></div>
-    </div></div>
-</div>
-
-<!-- Add/Edit Curriculum Entry Modal -->
-<div class="modal fade" id="curriculumModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-scrollable modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="curriculumModalLabel">Add Curriculum Entry</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="curriculumForm">
-                    <input type="hidden" id="curriculumId">
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Grade Level *</label>
-                            <select class="form-select" id="currGradeLevel" required>
-                                <option value="">Select Grade</option>
-                                <option value="PlayGroup">PlayGroup</option>
-                        <option value="PP1">PP1</option>
-                                <option value="PP2">PP2</option>
-                                <option value="Grade 1">Grade 1</option>
-                                <option value="Grade 2">Grade 2</option>
-                                <option value="Grade 3">Grade 3</option>
-                                <option value="Grade 4">Grade 4</option>
-                                <option value="Grade 5">Grade 5</option>
-                                <option value="Grade 6">Grade 6</option>
-                                <option value="Grade 7">Grade 7</option>
-                                <option value="Grade 8">Grade 8</option>
-                                <option value="Grade 9">Grade 9</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Learning Area *</label>
-                            <input type="text" class="form-control" id="currLearningArea" required placeholder="e.g., Mathematics">
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Strand *</label>
-                            <input type="text" class="form-control" id="currStrand" required placeholder="e.g., Numbers">
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Sub-Strand</label>
-                            <input type="text" class="form-control" id="currSubStrand" placeholder="e.g., Whole Numbers">
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Competency Indicators</label>
-                        <textarea class="form-control" id="currIndicators" rows="3" placeholder="List competency indicators..."></textarea>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Assessment Criteria</label>
-                        <textarea class="form-control" id="currAssessment" rows="3" placeholder="Describe assessment criteria..."></textarea>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveCurriculumBtn" data-year-write>Save Entry</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Curriculum Entry Details Modal -->
 <div class="modal fade" id="viewCurriculumModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="viewCurriculumModalLabel">Curriculum Entry Details</h5>
+                <h5 class="modal-title" id="viewCurriculumModalLabel">Strand Details</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body" id="viewCurriculumBody"></div>
@@ -221,5 +137,12 @@
         </div>
     </div>
 </div>
+
+<style>
+@media print {
+    #curriculumCbcPage .table-responsive { overflow: visible; }
+    #curriculumCbcPage .card { border: 0; box-shadow: none; }
+}
+</style>
 
 <script src="<?= $appBase ?>/js/pages/curriculum_cbc.js?v=<?php echo asset_version('js/pages/curriculum_cbc.js'); ?>"></script>

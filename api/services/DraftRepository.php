@@ -351,6 +351,23 @@ class DraftRepository
             }
             return;
         }
+        if ($workflowId === 'academics.lesson_plan_draft' && $subjectType === 'academic_lesson_plan_context') {
+            // Drafted from the teacher's own stream x learning-area assignment.
+            if ($subjectId < 1) {
+                throw new DomainException('The lesson-plan source is no longer valid.', 403);
+            }
+            $roles = (new OperatorScopeResolver($pdo))->roles($userId);
+            $roleIds = array_map(static fn(array $role): int => (int) ($role['id'] ?? 0), $roles);
+            if (!array_intersect([2, 3, 4, 5, 6], $roleIds)) {
+                $staffId = StaffRecordsService::staffIdForUserId($pdo, $userId, true);
+                $check = $pdo->prepare('SELECT 1 FROM vw_teacher_effective_stream_learning_areas WHERE staff_id = ? AND academic_year_class_stream_learning_area_id = ? LIMIT 1');
+                $check->execute([(int) $staffId, $subjectId]);
+                if (!$staffId || !$check->fetchColumn()) {
+                    throw new DomainException('The class stream and learning area are no longer within your teaching assignment.', 403);
+                }
+            }
+            return;
+        }
         if ($workflowId === 'academics.lesson_plan_draft') {
             if ($subjectType !== 'academic_lesson_plan_draft' || $subjectId < 1) {
                 throw new DomainException('The lesson-plan source is no longer valid.', 403);
@@ -840,8 +857,18 @@ class DraftRepository
         if (isset($draft['items']) && is_array($draft['items'])) {
             $result['items'] = array_values(array_filter(array_map(static function ($item): ?array {
                 if (!is_array($item) || trim((string) ($item['question'] ?? '')) === '') return null;
-                return ['question' => mb_substr(trim((string) $item['question']), 0, 1000), 'type' => mb_substr(trim((string) ($item['type'] ?? 'short_answer')), 0, 80), 'marks' => max(0, (int) ($item['marks'] ?? 0))];
-            }, array_slice($draft['items'], 0, 20))));
+                $options = array_values(array_filter(array_map(
+                    static fn($o): string => mb_substr(trim(is_scalar($o) ? (string) $o : ''), 0, 500),
+                    array_slice(is_array($item['options'] ?? null) ? $item['options'] : [], 0, 8)
+                ), 'strlen'));
+                return [
+                    'question' => mb_substr(trim((string) $item['question']), 0, 1000),
+                    'type' => mb_substr(trim((string) ($item['type'] ?? 'short_answer')), 0, 80),
+                    'marks' => max(0, (int) ($item['marks'] ?? 0)),
+                    'options' => $options,
+                    'answer' => mb_substr(trim(is_scalar($item['answer'] ?? null) ? (string) $item['answer'] : ''), 0, 2000),
+                ];
+            }, array_slice($draft['items'], 0, 30))));
         }
         if ($workflowId === 'academics.timetable_planning') {
             foreach (['questions', 'suggestions', 'unresolved_constraints'] as $field) {

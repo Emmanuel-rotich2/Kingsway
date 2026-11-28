@@ -141,6 +141,157 @@ class CateringController extends BaseController
         return $this->userHasAny(['inventory_manage', 'inventory_approve', 'catering_manage'], [], ['director', 'school administrator', 'inventory manager', 'store manager', 'catering manager', 'cook', 'admin']);
     }
 
+    // ================================================================
+    // KITCHEN MENU: dishes, the meal plan, and what was cooked and served
+    // ================================================================
+
+    private ?\App\API\Modules\catering\KitchenService $kitchen = null;
+
+    /** Run a kitchen action; $write limits it to the Cateress and leadership. */
+    private function kitchen(callable $fn, bool $write = false)
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        if ($write && !\App\API\Modules\catering\KitchenService::canWrite((array) $this->getUserRoleIds())) {
+            return $this->forbidden('The menu is planned by the kitchen (the Cateress) and the school office.');
+        }
+        $this->kitchen ??= new \App\API\Modules\catering\KitchenService($this->db->getConnection());
+        try {
+            return $this->success($fn($this->kitchen));
+        } catch (\RuntimeException $e) {
+            $code = (int) $e->getCode();
+            return $this->respond(null, $e->getMessage(), in_array($code, [400, 404, 409], true) ? $code : 400, false);
+        } catch (Throwable $e) {
+            \App\API\Includes\FileLogger::write('catering', ['type' => 'kitchen_menu_error', 'reason' => mb_substr($e->getMessage(), 0, 200)], 'error');
+            return $this->serverError('The menu could not be updated.');
+        }
+    }
+
+    private function q(array $data): array
+    {
+        return array_merge($_GET, is_array($data) ? $data : []);
+    }
+
+    /** GET /api/catering/dishes?active=1 */
+    public function getDishes($id = null, $data = [], $segments = [])
+    {
+        return $this->kitchen(fn ($k) => [
+            'dishes' => $k->dishes(!empty($this->q((array) $data)['active'])),
+            'can_plan' => \App\API\Modules\catering\KitchenService::canWrite((array) $this->getUserRoleIds()),
+        ]);
+    }
+
+    /** POST /api/catering/dishes — add or edit a dish. */
+    public function postDishes($id = null, $data = [], $segments = [])
+    {
+        return $this->kitchen(fn ($k) => $k->saveDish((array) $data), true);
+    }
+
+    /** GET /api/catering/plans?from=Y-m-d&to=Y-m-d */
+    public function getPlans($id = null, $data = [], $segments = [])
+    {
+        $q = $this->q((array) $data);
+        return $this->kitchen(fn ($k) => $k->plans((string) ($q['from'] ?? date('Y-m-d')), (string) ($q['to'] ?? $q['from'] ?? date('Y-m-d')))
+            + ['can_plan' => \App\API\Modules\catering\KitchenService::canWrite((array) $this->getUserRoleIds())]);
+    }
+
+    /** POST /api/catering/plans — add a dish to a meal, or edit it (id). */
+    public function postPlans($id = null, $data = [], $segments = [])
+    {
+        return $this->kitchen(fn ($k) => $k->savePlan((array) $data, (int) $this->getUserId()), true);
+    }
+
+    /** POST /api/catering/plans-remove/{id} */
+    public function postPlansRemove($id = null, $data = [], $segments = [])
+    {
+        return $this->kitchen(function ($k) use ($id) { $k->removePlan((int) $id); return ['removed' => (int) $id]; }, true);
+    }
+
+    /** POST /api/catering/plans-record/{id} — prepared / served / cancelled, with counts. */
+    public function postPlansRecord($id = null, $data = [], $segments = [])
+    {
+        return $this->kitchen(fn ($k) => $k->record((int) $id, (array) $data, (int) $this->getUserId()), true);
+    }
+
+    /** POST /api/catering/plans-copy-week {from, to} (Mondays) */
+    public function postPlansCopyWeek($id = null, $data = [], $segments = [])
+    {
+        return $this->kitchen(fn ($k) => $k->copyWeek((string) ($data['from'] ?? ''), (string) ($data['to'] ?? ''), (int) $this->getUserId()), true);
+    }
+
+    // ------------------------------------------------------------------
+    // Food store (FoodStoreService): items, deliveries, issues to the
+    // kitchen, spoilage, stock counts and the bin card ledger.
+    // ------------------------------------------------------------------
+
+    private ?\App\API\Modules\inventory\FoodStoreService $foodStore = null;
+
+    private function store(callable $fn, bool $write = false)
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $roles = (array) $this->getUserRoleIds();
+        if (!\App\API\Modules\inventory\FoodStoreService::canView($roles)) {
+            return $this->forbidden('The food store is kept by the food store manager.');
+        }
+        if ($write && !\App\API\Modules\inventory\FoodStoreService::canManage($roles)) {
+            return $this->forbidden('Only the food store manager and the school office change the food store.');
+        }
+        $this->foodStore ??= new \App\API\Modules\inventory\FoodStoreService($this->db->getConnection());
+        try {
+            return $this->success($fn($this->foodStore, (int) $this->getUserId()));
+        } catch (\RuntimeException $e) {
+            $code = (int) $e->getCode();
+            return $this->respond(null, $e->getMessage(), in_array($code, [400, 404, 409], true) ? $code : 400, false);
+        } catch (Throwable $e) {
+            \App\API\Includes\FileLogger::write('catering', ['type' => 'food_store_error', 'reason' => mb_substr($e->getMessage(), 0, 200)], 'error');
+            return $this->serverError('The food store could not be updated.');
+        }
+    }
+
+    /** GET /api/catering/store — the food items, their levels and the lists the forms need. */
+    public function getStore($id = null, $data = [], $segments = [])
+    {
+        return $this->store(fn ($s) => $s->store(!empty($this->q((array) $data)['all']))
+            + ['can_manage' => \App\API\Modules\inventory\FoodStoreService::canManage((array) $this->getUserRoleIds())]);
+    }
+
+    /** GET /api/catering/store-ledger?from&to&movement&item_id — deliveries, issues, spoilage and counts. */
+    public function getStoreLedger($id = null, $data = [], $segments = [])
+    {
+        $q = $this->q((array) $data);
+        return $this->store(fn ($s) => $s->ledger((string) ($q['from'] ?? ''), (string) ($q['to'] ?? ''),
+            !empty($q['item_id']) ? (int) $q['item_id'] : ($id ? (int) $id : null), isset($q['movement']) ? (string) $q['movement'] : null));
+    }
+
+    /** POST /api/catering/store-item — add or edit a food item. */
+    public function postStoreItem($id = null, $data = [], $segments = [])
+    {
+        return $this->store(fn ($s, $u) => $s->saveItem((array) $data, $u), true);
+    }
+
+    /** POST /api/catering/store-receive — a delivery. */
+    public function postStoreReceive($id = null, $data = [], $segments = [])
+    {
+        return $this->store(fn ($s, $u) => $s->receive((array) $data, $u), true);
+    }
+
+    /** POST /api/catering/store-issue — food handed to the kitchen. */
+    public function postStoreIssue($id = null, $data = [], $segments = [])
+    {
+        return $this->store(fn ($s, $u) => $s->issue((array) $data, $u), true);
+    }
+
+    /** POST /api/catering/store-spoil — food thrown away. */
+    public function postStoreSpoil($id = null, $data = [], $segments = [])
+    {
+        return $this->store(fn ($s, $u) => $s->spoil((array) $data, $u), true);
+    }
+
+    /** POST /api/catering/store-count — a stock count. */
+    public function postStoreCount($id = null, $data = [], $segments = [])
+    {
+        return $this->store(fn ($s, $u) => $s->count((array) $data, $u), true);
+    }
+
     private function delegate(callable $operation)
     {
         try {

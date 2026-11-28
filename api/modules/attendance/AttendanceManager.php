@@ -1912,6 +1912,23 @@ class AttendanceManager extends BaseAPI
             $created = 0;
             $updated = 0;
             $onPermission = 0;
+            $skipped = 0;
+
+            // Only learners placed in this dormitory may be marked in it.
+            $placed = $this->db->prepare(
+                "SELECT student_academic_enrollment_id FROM dormitory_assignments WHERE dormitory_id = ? AND status = 'active'"
+            );
+            $placed->execute([(int) $dormitoryId]);
+            $enrollmentIds = array_map('intval', $placed->fetchAll(\PDO::FETCH_COLUMN));
+            $inDorm = [];
+            if ($enrollmentIds) {
+                $marks = implode(',', array_fill(0, count($enrollmentIds), '?'));
+                $members = $this->db->prepare(
+                    "SELECT student_id FROM student_academic_enrollments WHERE id IN ($marks) AND enrollment_status = 'active'"
+                );
+                $members->execute($enrollmentIds);
+                $inDorm = array_flip(array_map('intval', $members->fetchAll(\PDO::FETCH_COLUMN)));
+            }
 
             foreach ($attendance as $record) {
                 $studentId = $record['student_id'] ?? null;
@@ -1919,6 +1936,10 @@ class AttendanceManager extends BaseAPI
                 $notes = $record['notes'] ?? null;
 
                 if (!$studentId) {
+                    continue;
+                }
+                if (!isset($inDorm[(int) $studentId])) {
+                    $skipped++;
                     continue;
                 }
 
@@ -1971,6 +1992,7 @@ class AttendanceManager extends BaseAPI
                 'created' => $created,
                 'updated' => $updated,
                 'on_permission' => $onPermission,
+                'not_in_dormitory' => $skipped,
                 'total' => $created + $updated,
                 'dormitory_id' => (int) $dormitoryId,
                 'session_id' => (int) $sessionId,

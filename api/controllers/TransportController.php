@@ -43,6 +43,21 @@ class TransportController extends BaseController
         return null;
     }
 
+
+    /**
+     * Which learners ride which route: the transport team and leadership
+     * (Director 3, School Administrator 4, Headteacher 5, Accountant 10,
+     * Driver 23).
+     */
+    private function guardTransportRoster(): ?array
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        if (!array_intersect([3, 4, 5, 10, 23], array_map('intval', (array) $this->getUserRoleIds()))) {
+            return $this->forbidden('Route passenger lists are kept by the transport office.');
+        }
+        return null;
+    }
+
     private function guardTransportManage(): ?array
     {
         if ($guard = $this->guardTransport()) return $guard;
@@ -346,11 +361,13 @@ class TransportController extends BaseController
     }
     public function getAssignments($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransportRoster()) return $guard;
         $result = $this->api->getAssignments($data['student_id'] ?? null);
         return $this->handleResponse($result);
     }
     public function getStudentsByRoute($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransportRoster()) return $guard;
         $month = isset($data['month']) && $data['month'] !== '' ? (int) $data['month'] : null;
         $year = isset($data['year']) && $data['year'] !== '' ? (int) $data['year'] : null;
         $result = $this->api->getStudentsByRoute($data['route_id'] ?? null, $month, $year);
@@ -378,11 +395,13 @@ class TransportController extends BaseController
     }
     public function getPayments($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransportFinance()) return $guard;
         $result = $this->api->getPayments($data['student_id'] ?? null);
         return $this->handleResponse($result);
     }
     public function getPaymentSummary($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransportFinance()) return $guard;
         $result = $this->api->getPaymentSummary($data['student_id'] ?? null);
         return $this->handleResponse($result);
     }
@@ -397,6 +416,7 @@ class TransportController extends BaseController
     }
     public function getAllArrearsCredits($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransportFinance()) return $guard;
         $result = $this->api->getAllArrearsCredits();
         return $this->handleResponse($result);
     }
@@ -427,6 +447,7 @@ class TransportController extends BaseController
     }
     public function getRouteManifest($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransportRoster()) return $guard;
         $routeId = $data['route_id'] ?? $id ?? null;
         if (!$routeId) {
             return $this->badRequest('route_id is required');
@@ -469,6 +490,7 @@ class TransportController extends BaseController
     }
     public function getRouteSummary($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransportRoster()) return $guard;
         $routeId = $data['route_id'] ?? $id ?? null;
         if (!$routeId) {
             return $this->badRequest('route_id is required');
@@ -702,6 +724,85 @@ return $this->serverError('An internal error occurred.');
             \App\API\Services\Logger::legacyError('[TransportController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
 return $this->serverError('An internal error occurred.');
         }
+    }
+
+    // ================================================================
+    // DRIVER'S VEHICLE LOGBOOK (My Vehicle)
+    // ================================================================
+
+    private ?\App\API\Modules\transport\DriverLogbookService $logbook = null;
+
+    /**
+     * Run a logbook action against the caller's own vehicle (or, for the
+     * Director/School Administrator, ?vehicle_id=).
+     */
+    private function withMyVehicle(array $data, callable $fn)
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $this->logbook ??= new \App\API\Modules\transport\DriverLogbookService(Database::getInstance()->getConnection());
+        $roles = array_map('intval', (array) $this->getUserRoleIds());
+        $vehicleId = (int) ($data['vehicle_id'] ?? $_GET['vehicle_id'] ?? 0) ?: null;
+        try {
+            $vehicle = $this->logbook->vehicleFor((int) $this->getCurrentUserId(), $roles, $vehicleId);
+            if (!$vehicle) {
+                return $this->respond(null, 'No vehicle is assigned to you. Ask the transport office to assign one.', 404, false);
+            }
+            return $this->success($fn($this->logbook, $vehicle, (int) $this->getCurrentUserId()));
+        } catch (\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            \App\API\Includes\FileLogger::write('transport', ['type' => 'driver_logbook_error', 'reason' => mb_substr($e->getMessage(), 0, 200)], 'error');
+            return $this->serverError('The vehicle logbook could not be updated.');
+        }
+    }
+
+    /**
+     * GET /api/transport/route-board/{id}
+     * The route board (stops, vehicle, driver, schedule, incidents). Drivers
+     * may open only a route they are assigned to.
+     */
+    public function getRouteBoard($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportRoster()) return $guard;
+        $routeId = (int) ($id ?? $data['route_id'] ?? 0);
+        if ($routeId <= 0) return $this->badRequest('route_id is required');
+        $roles = array_map('intval', (array) $this->getUserRoleIds());
+        if (!array_intersect($roles, [3, 4, 5, 10]) && !$this->api->userHasAssignedRoute((int) $this->getCurrentUserId(), $routeId)) {
+            return $this->forbidden('You may only open the route you drive.');
+        }
+        $this->logbook ??= new \App\API\Modules\transport\DriverLogbookService(Database::getInstance()->getConnection());
+        $board = $this->logbook->routeBoard($routeId);
+        return $board ? $this->success($board) : $this->notFound('Route not found');
+    }
+
+    /** GET /api/transport/my-logbook */
+    public function getMyLogbook($id = null, $data = [], $segments = [])
+    {
+        return $this->withMyVehicle((array) $data, fn ($svc, $v) => $svc->logbook($v));
+    }
+
+    /** POST /api/transport/my-service — a service, repair or inspection done. */
+    public function postMyService($id = null, $data = [], $segments = [])
+    {
+        return $this->withMyVehicle((array) $data, fn ($svc, $v, $u) => ['id' => $svc->addService($v, $u, (array) $data)] + $svc->logbook($v));
+    }
+
+    /** POST /api/transport/my-fuel */
+    public function postMyFuel($id = null, $data = [], $segments = [])
+    {
+        return $this->withMyVehicle((array) $data, fn ($svc, $v, $u) => ['id' => $svc->addFuel($v, $u, (array) $data)] + $svc->logbook($v));
+    }
+
+    /** POST /api/transport/my-check — the pre-trip walk-round check. */
+    public function postMyCheck($id = null, $data = [], $segments = [])
+    {
+        return $this->withMyVehicle((array) $data, fn ($svc, $v, $u) => ['result' => $svc->addCheck($v, $u, (array) $data)] + $svc->logbook($v));
+    }
+
+    /** POST /api/transport/my-problem — a breakdown, accident or delay. */
+    public function postMyProblem($id = null, $data = [], $segments = [])
+    {
+        return $this->withMyVehicle((array) $data, fn ($svc, $v, $u) => ['id' => $svc->reportProblem($v, $u, (array) $data)] + $svc->logbook($v));
     }
 
     /**

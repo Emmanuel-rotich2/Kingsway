@@ -65,6 +65,7 @@ class ChaplaincyController extends BaseController
      */
     public function getTeamRoles($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         return $this->handleResponse($this->api->listTeamRoles());
     }
 
@@ -73,6 +74,7 @@ class ChaplaincyController extends BaseController
      */
     public function getTeam($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         return $this->handleResponse($this->api->getTeam());
     }
 
@@ -112,6 +114,7 @@ class ChaplaincyController extends BaseController
      */
     public function getVolunteers($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         return $this->handleResponse($this->api->listVolunteers($_GET ?? []));
     }
 
@@ -136,6 +139,7 @@ class ChaplaincyController extends BaseController
 
     public function deleteVolunteers($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         return $this->deleteVolunteer($id, $data, $segments);
     }
 
@@ -146,6 +150,7 @@ class ChaplaincyController extends BaseController
      */
     public function getPrograms($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         return $this->handleResponse($this->api->listPrograms($_GET ?? []));
     }
 
@@ -183,11 +188,13 @@ class ChaplaincyController extends BaseController
      */
     public function getNextDate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         return $this->handleResponse($this->api->resolveNextDate($_GET ?? []));
     }
 
     public function getProgramsNextDate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         return $this->getNextDate($id, $data, $segments);
     }
 
@@ -196,6 +203,7 @@ class ChaplaincyController extends BaseController
      */
     public function getSessions($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         return $this->handleResponse($this->api->listSessions($_GET ?? []));
     }
 
@@ -221,6 +229,7 @@ class ChaplaincyController extends BaseController
 
     public function putSessions($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         return $this->putSession($id, $data, $segments);
     }
 
@@ -237,6 +246,7 @@ class ChaplaincyController extends BaseController
 
     public function deleteSessions($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         return $this->deleteSession($id, $data, $segments);
     }
 
@@ -245,12 +255,14 @@ class ChaplaincyController extends BaseController
      */
     public function getSessionAttendance($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         if (!$id) return $this->badRequest('Session ID is required');
         return $this->handleResponse($this->api->getSessionAttendance((int) $id));
     }
 
     public function getSessionsAttendance($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         return $this->getSessionAttendance($id, $data, $segments);
     }
 
@@ -266,6 +278,7 @@ class ChaplaincyController extends BaseController
 
     public function putSessionsAttendance($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         return $this->putSessionAttendance($id, $data, $segments);
     }
 
@@ -276,6 +289,7 @@ class ChaplaincyController extends BaseController
      */
     public function getGroups($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         if ($id) {
             $list = $this->api->listGroups([]);
             foreach (($list['data'] ?? []) as $g) {
@@ -302,6 +316,7 @@ class ChaplaincyController extends BaseController
      */
     public function getGroupsMembers($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         if (!$id) return $this->badRequest('Group ID is required');
         return $this->handleResponse($this->api->listGroupMembers((int) $id));
     }
@@ -331,6 +346,7 @@ class ChaplaincyController extends BaseController
      */
     public function getGroupsAttendance($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardChaplaincy()) return $guard;
         if (!$id) return $this->badRequest('Group ID is required');
         $date = (string) ($_GET['meeting_date'] ?? date('Y-m-d'));
         return $this->handleResponse($this->api->getGroupAttendance((int) $id, $date));
@@ -413,10 +429,21 @@ class ChaplaincyController extends BaseController
         return $this->handleResponse($this->api->getDashboardSummary());
     }
 
+    /**
+     * The chaplaincy department's records (team, programmes, groups, learners'
+     * spiritual profiles, pastoral visits) belong to the Chaplain (24), with
+     * oversight by the Director (3), School Administrator (4) and
+     * Headteacher (5). Chapel service times stay readable to all staff.
+     */
+    private const CHAPLAINCY_ROLES = [3, 4, 5, 24];
+
     private function guardChaplaincy(): ?array
     {
         if (!$this->user) {
             return $this->unauthorized('Authentication required');
+        }
+        if (!array_intersect(self::CHAPLAINCY_ROLES, array_map('intval', (array) $this->getUserRoleIds()))) {
+            return $this->forbidden('Chaplaincy records are kept by the chaplaincy department.');
         }
         return null;
     }

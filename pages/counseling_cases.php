@@ -3,12 +3,13 @@
 
 ?>
 
-<div class="container-fluid px-4 py-4">
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/chaplaincy.css?v=<?= asset_version('css/pages/chaplaincy.css') ?>">
+<div class="kw-care container-fluid px-4 py-4">
 
   <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
     <div>
-      <h4 class="fw-bold mb-0"><i class="bi bi-person-badge text-primary me-2"></i>Counseling Cases</h4>
-      <p class="text-muted small mb-0 mt-1">Counseling sessions and case management.</p>
+      <h4 class="care-title fw-bold mb-0"><i class="bi bi-person-badge text-primary me-2"></i>Counseling Cases</h4>
+      <p class="text-muted small mb-0 mt-1">Counseling sessions and case management.</p><p class="care-seal" role="note"><i class="bi bi-lock" aria-hidden="true"></i>Confidential pastoral record. Share only with staff who need it to help the learner.</p>
     </div>
     <button class="btn btn-outline-primary btn-sm" data-kw-onclick="counselingCasesController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
@@ -38,3 +39,4 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/counseling_cases.js'); ?>
+<?php asset_script($appBase, 'js/components/care_ui.js'); ?>

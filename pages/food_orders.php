@@ -1,41 +1,45 @@
 <?php
-/* Food Orders — food/catering supplier purchase order tracking. */
-
+/**
+ * Deliveries — the food that came into the store: each delivery with its
+ * supplier, delivery note, items, cost and use-by dates. Record a new one
+ * from here. Purchase orders stay on the Purchase Orders page.
+ * Data: /api/catering/store-ledger?movement=receive, POST store-receive.
+ */
 ?>
-
-<div class="container-fluid px-4 py-4">
-
-  <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/support_ops.css?v=<?= asset_version('css/pages/support_ops.css') ?>">
+<div class="kw-ops kw-ops--store container-fluid py-3" id="deliveriesPage">
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
     <div>
-      <h4 class="fw-bold mb-0"><i class="bi bi-basket text-success me-2"></i>Food Orders</h4>
-      <p class="text-muted small mb-0 mt-1">Purchase orders raised with food and catering suppliers.</p>
+      <h1 class="ops-title">Deliveries</h1>
+      <p class="ops-lede">Food received into the store, by delivery note.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2 d-print-none">
+      <button class="btn btn-ops" type="button" id="dlNew" data-fs-manage hidden><i class="bi bi-truck me-1" aria-hidden="true"></i>Receive a delivery</button>
+      <a class="btn btn-outline-secondary" href="home.php?route=purchase_orders"><i class="bi bi-receipt me-1" aria-hidden="true"></i>Purchase orders</a>
     </div>
   </div>
-
-  <div class="d-flex gap-2 mb-3 flex-wrap align-items-end">
-    <div><label class="form-label small fw-semibold">Search</label><input type="text" class="form-control form-control-sm" id="foSearch" placeholder="Order no / supplier…"></div>
-    <div><label class="form-label small fw-semibold">Status</label><select class="form-select form-select-sm" id="foStatus">
-      <option value="">All statuses</option>
-      <option>draft</option><option>pending</option><option>approved</option><option>ordered</option><option>received</option><option>cancelled</option>
-    </select></div>
-    <button class="btn btn-outline-success btn-sm" data-kw-onclick="foodOrdersController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+  <div class="ops-panel mb-3">
+    <div class="d-flex flex-wrap gap-3 align-items-end">
+      <div><label class="form-label small" for="dlFrom">From</label><input class="form-control" type="date" id="dlFrom"></div>
+      <div><label class="form-label small" for="dlTo">To</label><input class="form-control" type="date" id="dlTo"></div>
+      <div><label class="form-label small" for="dlSup">Supplier</label><select class="form-select" id="dlSup"><option value="">All suppliers</option></select></div>
+      <ul class="ops-facts ms-md-3" id="dlFacts" aria-live="polite"></ul>
+      <div class="ms-auto d-flex gap-2 d-print-none">
+        <button class="btn btn-outline-secondary" type="button" id="dlCsv"><i class="bi bi-download me-1" aria-hidden="true"></i>CSV</button>
+        <button class="btn btn-outline-secondary" type="button" id="dlPrint"><i class="bi bi-printer me-1" aria-hidden="true"></i>Print</button>
+      </div>
+    </div>
   </div>
-
-  <div class="bg-white border rounded-3 overflow-hidden">
-    <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
-        <thead class="table-light"><tr>
-          <th>Order No</th><th>Supplier</th><th>Contact</th><th>Order Date</th><th>Expected Delivery</th><th>Items</th><th>Total (KES)</th><th>Status</th>
-        </tr></thead>
-        <tbody id="foBody"><tr><td colspan="8" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
+  <div class="ops-panel">
+    <div class="table-responsive" tabindex="0" role="region" aria-label="Deliveries">
+      <table class="table align-middle mb-0">
+        <thead><tr><th scope="col">Item</th><th scope="col">Quantity</th><th scope="col">Cost of one</th><th scope="col">Value</th><th scope="col">Use by</th></tr></thead>
+        <tbody id="dlBody"><tr><td colspan="5" class="text-muted p-3">Loading deliveries…</td></tr></tbody>
       </table>
     </div>
-    <div class="p-3 border-top d-flex justify-content-between align-items-center">
-      <small class="text-muted" id="foInfo"></small>
-      <div class="btn-group btn-group-sm" id="foPages"></div>
-    </div>
   </div>
-
+  <?php include __DIR__ . '/../components/modals/food_store_forms.php'; ?>
 </div>
-
+<?php asset_script($appBase, 'js/pages/support_ops_common.js'); ?>
+<?php asset_script($appBase, 'js/pages/food_store_common.js'); ?>
 <?php asset_script($appBase, 'js/pages/food_orders.js'); ?>

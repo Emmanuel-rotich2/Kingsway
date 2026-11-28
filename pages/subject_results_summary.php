@@ -1,99 +1,69 @@
 <?php
 /**
- * Subject Results Summary - Subject Teacher Specific Results Viewing
- * Role: Subject Teacher (8)
- * Purpose: View results for their assigned subjects
- * Shows only results for the teacher's assigned subjects
+ * Subject Results Summary — summative exam results for the classes and
+ * learning areas the teacher teaches, per term of each academic year
+ * (history included). The server limits academic/results to the teacher's
+ * own assignments. Filters load on change; table is CSV/PDF-ready.
  */
 ?>
-<div class="container-fluid py-4">
-    <div class="row">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">
-                        <i class="bi bi-graph-up me-2"></i>Subject Results Summary
-                    </h5>
-                    <small class="text-muted">Results for your assigned subjects</small>
+<style>
+@media print {
+    @page { size: A4 landscape; margin: 10mm; }
+    #subjectResultsPage .d-print-none { display: none !important; }
+    #subjectResultsPage .table-responsive { overflow: visible; }
+}
+</style>
+<div class="container-fluid py-4" id="subjectResultsPage">
+    <div class="card">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h5 class="card-title mb-0"><i class="bi bi-graph-up me-2"></i>Subject Results Summary</h5>
+                <small class="text-muted">Summative exam results for the classes and learning areas you teach</small>
+            </div>
+            <div class="d-flex gap-2 d-print-none">
+                <button id="exportBtn" class="btn btn-outline-success btn-sm" type="button"><i class="bi bi-download me-1"></i>CSV</button>
+                <button id="printBtn" class="btn btn-outline-secondary btn-sm" type="button"><i class="bi bi-printer me-1"></i>Print / PDF</button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="row g-2 mb-3 d-print-none">
+                <div class="col-md-2">
+                    <label class="form-label small text-muted" for="yearFilter">Academic year</label>
+                    <select id="yearFilter" class="form-select"></select>
                 </div>
-                <div class="card-body">
-                    <div id="resultsLoading" class="text-center py-4">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <p class="mt-2 text-muted">Loading subject results...</p>
-                    </div>
-                    <div id="resultsContent" style="display: none;">
-                        <div class="row mb-3">
-                            <div class="col-md-3">
-                                <label class="form-label">Academic Year</label>
-                                <select id="yearFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Years</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">Term</label>
-                                <select id="termFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Terms</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">Subject</label>
-                                <select id="subjectFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Subjects</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">Class</label>
-                                <select id="classFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Classes</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <div class="d-flex gap-2">
-                                <button id="loadResultsBtn" class="btn btn-primary" data-permission="results_view">
-                                    <i class="bi bi-search me-1"></i>Load Results
-                                </button>
-                                <button id="exportBtn" class="btn btn-outline-success" data-permission="results_export">
-                                    <i class="bi bi-download me-1"></i>Export
-                                </button>
-                                <button id="printBtn" class="btn btn-outline-secondary" data-permission="results_export">
-                                    <i class="bi bi-printer me-1"></i>Print
-                                </button>
-                            </div>
-                            <div id="statsContainer" class="d-flex gap-3">
-                                <span class="badge bg-primary">Students: <span id="totalStudents">0</span></span>
-                                <span class="badge bg-success">Average: <span id="averageScore">0%</span></span>
-                                <span class="badge bg-info">Above Avg: <span id="aboveAverage">0</span></span>
-                            </div>
-                        </div>
-
-                        <div class="table-responsive">
-                            <table class="table table-hover" id="resultsTable">
-                                <thead>
-                                    <tr>
-                                        <th scope="col">Student</th>
-                                        <th scope="col">Adm No</th>
-                                        <th scope="col">Class</th>
-                                        <th scope="col">Subject</th>
-                                        <th scope="col">Marks</th>
-                                        <th scope="col">Grade</th>
-                                        <th scope="col">Remarks</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="resultsTableBody">
-                                    <tr>
-                                        <td colspan="8" class="text-center text-muted py-4">
-                                            Select filters and click Load Results
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                <div class="col-md-2">
+                    <label class="form-label small text-muted" for="termFilter">Term</label>
+                    <select id="termFilter" class="form-select"></select>
                 </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted" for="scopeFilter">Class &amp; learning area</label>
+                    <select id="scopeFilter" class="form-select"><option value="">All my classes and learning areas</option></select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small text-muted" for="viewFilter">Show</label>
+                    <select id="viewFilter" class="form-select">
+                        <option value="summary">Learner averages</option>
+                        <option value="detail">Every exam result</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted" for="searchFilter">Search</label>
+                    <input id="searchFilter" type="search" class="form-control" placeholder="Learner name or admission number">
+                </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 mb-3" id="statsContainer">
+                <span class="badge bg-primary">Learners: <span id="totalStudents">0</span></span>
+                <span class="badge bg-secondary">Exams: <span id="totalExams">0</span></span>
+                <span class="badge bg-success">Average: <span id="averageScore">—</span></span>
+                <span class="badge bg-info text-dark">At or above average: <span id="aboveAverage">0</span></span>
+                <span class="badge bg-warning text-dark">Below expectation: <span id="belowExpectation">0</span></span>
+            </div>
+            <div id="levelDistribution" class="mb-3"></div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle" id="resultsTable">
+                    <thead class="table-light"><tr id="resultsHead"></tr></thead>
+                    <tbody id="resultsTableBody"><tr><td class="text-center text-muted py-4">Loading results…</td></tr></tbody>
+                </table>
             </div>
         </div>
     </div>

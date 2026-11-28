@@ -33,20 +33,20 @@
 </div>
 
 <div class="modal fade" id="proposalModal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Curriculum Change Proposal</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">
-  <form id="proposalForm"><input type="hidden" id="proposalId"><div class="row g-3">
-    <div class="col-md-4"><label class="form-label">Curriculum item</label><select class="form-select" id="proposalEntity" required><option value="strand">Strand</option><option value="sub_strand">Sub-strand</option><option value="learning_area">Learning area</option></select></div>
-    <div class="col-md-4"><label class="form-label">Change</label><select class="form-select" id="proposalAction" required><option value="create">Add</option><option value="update">Modify</option><option value="remove">Retire / remove</option></select></div>
-    <div class="col-md-4"><label class="form-label">Effective term</label><select class="form-select" id="proposalTerm"><option value="">Whole academic year</option></select></div>
-    <div class="col-md-6"><label class="form-label">Learning area</label><select class="form-select" id="proposalArea" required></select></div>
-    <div class="col-md-6"><label class="form-label">Grade / class level</label><select class="form-select" id="proposalGrade" required></select></div>
-    <div class="col-12 d-none" id="targetWrap"><label class="form-label">Existing item</label><select class="form-select" id="proposalTarget"></select></div>
-    <div class="col-md-6 d-none" id="parentStrandWrap"><label class="form-label">Parent strand</label><select class="form-select" id="proposalParentStrand"></select></div>
-    <div class="col-md-6 proposed-field"><label class="form-label">Proposed code</label><input class="form-control" id="proposalCode" maxlength="20"></div>
-    <div class="col-md-6 proposed-field"><label class="form-label">Proposed name</label><input class="form-control" id="proposalName" maxlength="200"></div>
-    <div class="col-12 proposed-field"><label class="form-label">Proposed description</label><textarea class="form-control" id="proposalDescription" rows="3"></textarea></div>
-    <div class="col-12"><label class="form-label">Reason and expected academic benefit</label><textarea class="form-control" id="proposalRationale" rows="3" required></textarea></div>
-    <div class="col-md-6 admin-source d-none"><label class="form-label">Authority source</label><select class="form-select" id="proposalSource"><option value="school">School decision</option><option value="ministry">Ministry of Education</option><option value="import">Curriculum import</option><option value="teacher">Teacher proposal</option></select></div>
-    <div class="col-md-6 admin-source d-none"><label class="form-label">Circular / document reference</label><input class="form-control" id="proposalReference"></div>
+  <form id="proposalForm" novalidate><input type="hidden" id="proposalId"><div class="row g-3">
+    <div class="col-md-4"><label class="form-label" for="proposalEntity">What to change</label><select class="form-select" id="proposalEntity" required><option value="strand">A strand</option><option value="sub_strand">A sub-strand</option><option value="learning_area">The learning area itself</option></select></div>
+    <div class="col-md-4"><label class="form-label" for="proposalAction">Change</label><select class="form-select" id="proposalAction" required><option value="create">Add new</option><option value="update">Modify existing</option><option value="remove">Retire / remove</option></select></div>
+    <div class="col-md-4"><label class="form-label" for="proposalTerm">Effective from</label><select class="form-select" id="proposalTerm"><option value="">Whole academic year</option></select></div>
+    <div class="col-md-8"><label class="form-label" for="proposalArea">Learning area</label><select class="form-select" id="proposalArea" required></select></div>
+    <div class="col-md-4" id="gradeWrap"><label class="form-label" for="proposalGrade">Grade</label><select class="form-select" id="proposalGrade"></select></div>
+    <div class="col-md-6 d-none" id="parentStrandWrap"><label class="form-label" for="proposalParentStrand">Under strand</label><select class="form-select" id="proposalParentStrand"></select></div>
+    <div class="col-12 d-none" id="targetWrap"><label class="form-label" for="proposalTarget" id="proposalTargetLabel">Existing item</label><select class="form-select" id="proposalTarget"></select></div>
+    <div class="col-md-4 proposed-field"><label class="form-label" for="proposalCode" id="proposalCodeLabel">Code</label><input class="form-control" id="proposalCode" maxlength="20"></div>
+    <div class="col-md-8 proposed-field"><label class="form-label" for="proposalName" id="proposalNameLabel">Name</label><input class="form-control" id="proposalName" maxlength="200"></div>
+    <div class="col-12 proposed-field"><label class="form-label" for="proposalDescription">Description</label><textarea class="form-control" id="proposalDescription" rows="3"></textarea></div>
+    <div class="col-12"><label class="form-label" for="proposalRationale">Reason and expected academic benefit</label><textarea class="form-control" id="proposalRationale" rows="3" required></textarea></div>
+    <div class="col-md-6 admin-source d-none"><label class="form-label" for="proposalSource">Authority source</label><select class="form-select" id="proposalSource"><option value="school">School decision</option><option value="ministry">Ministry of Education</option><option value="import">Curriculum import</option><option value="teacher">Teacher proposal</option></select></div>
+    <div class="col-md-6 admin-source d-none"><label class="form-label" for="proposalReference">Circular / document reference</label><input class="form-control" id="proposalReference"></div>
   </div></form>
 </div><div class="modal-footer"><button class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-outline-success" id="saveDraftBtn" data-year-write>Save Draft</button><button class="btn btn-success" id="saveSubmitBtn" data-year-write>Save & Submit</button></div></div></div></div>
 

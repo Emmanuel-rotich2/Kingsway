@@ -35,6 +35,28 @@ class HealthController extends BaseController
         $this->api = $this->contract('App\API\Modules\health\HealthAPI');
     }
 
+    /**
+     * Learners' health records are confidential. Read: Director (3), School
+     * Administrator (4), Headteacher (5), Boarding Master/Matron (18),
+     * Chaplain/Counsellor (24), Deputy Head - Discipline (63).
+     * Record and change: School Administrator (4) and Boarding/Matron (18),
+     * who run the sick bay.
+     */
+    private const HEALTH_READ_ROLES = [3, 4, 5, 18, 24, 63];
+    private const HEALTH_WRITE_ROLES = [4, 18];
+
+    private function guardHealth(bool $write): ?array
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $roles = array_map('intval', (array) $this->getUserRoleIds());
+        if (!array_intersect($write ? self::HEALTH_WRITE_ROLES : self::HEALTH_READ_ROLES, $roles)) {
+            return $this->forbidden($write
+                ? 'Health records are kept by the sick bay (Matron) and the School Administrator.'
+                : 'Learners\' health records are confidential to the sick bay and school leadership.');
+        }
+        return null;
+    }
+
     private function userId()
     {
         return $this->user['user_id'] ?? $this->user['id'] ?? null;
@@ -46,6 +68,7 @@ class HealthController extends BaseController
 
     public function getSummary($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardHealth(false)) return $guard;
         $result = $this->api->getSummary();
         if (($result['code'] ?? 200) >= 400) {
             return $this->serverError('An internal error occurred.');
@@ -92,6 +115,7 @@ class HealthController extends BaseController
 
     public function getRecords($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardHealth(false)) return $guard;
         $studentId = $id ? (int)$id : null;
         $result = $this->api->listRecords(
             $studentId,
@@ -106,6 +130,7 @@ class HealthController extends BaseController
 
     public function postRecords($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardHealth(true)) return $guard;
         if (empty($data['student_id'])) {
             return $this->badRequest('student_id is required');
         }
@@ -119,6 +144,7 @@ class HealthController extends BaseController
 
     public function putRecords($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardHealth(true)) return $guard;
         if (!$id) return $this->badRequest('Student ID required');
         $data['student_id'] = $id;
         return $this->postRecords(null, $data, $segments);
@@ -130,6 +156,7 @@ class HealthController extends BaseController
 
     public function getSickBay($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardHealth(false)) return $guard;
         $result = $this->api->listVisits(
             $_GET['status'] ?? '',
             $_GET['date'] ?? ''
@@ -142,6 +169,7 @@ class HealthController extends BaseController
 
     public function postSickBay($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardHealth(true)) return $guard;
         if (empty($data['student_id']) || trim($data['complaint'] ?? '') === '') {
             return $this->badRequest('student_id and complaint are required');
         }
@@ -155,6 +183,7 @@ class HealthController extends BaseController
 
     public function putSickBay($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardHealth(true)) return $guard;
         if (!$id) return $this->badRequest('Visit ID required');
         $dismiss = ($segments[0] ?? '') === 'dismiss';
 
@@ -171,6 +200,7 @@ class HealthController extends BaseController
 
     public function getVaccinations($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardHealth(false)) return $guard;
         $result = $this->api->listVaccinations(
             $id ? (int)$id : null,
             !empty($_GET['due_only'])
@@ -183,6 +213,7 @@ class HealthController extends BaseController
 
     public function postVaccinations($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardHealth(true)) return $guard;
         if (empty($data['student_id']) || trim($data['vaccine_name'] ?? '') === '') {
             return $this->badRequest('student_id and vaccine_name are required');
         }

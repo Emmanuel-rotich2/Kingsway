@@ -92,15 +92,15 @@ class AuthMiddleware
             // Resource file downloads (teaching materials / past papers). The list
             // (GET /api/academic/resources) and upload (POST) stay authenticated; only
             // the file-serving GET is public because the frontend opens it via
-            // window.location.href (a top-level navigation carries no Authorization
-            // header). Materials are a shared, non-sensitive library.
-            'academic/resources/download',
+            // (academic/resources/download was open here; learning resources are
+            // now served only through download/learning-resource signed links.)
             // Opaque generated-file and school-document delivery.
             // The encrypted token is the authorization credential because direct
             // browser navigation and <iframe>/<a> requests do not attach bearer JWTs.
             'download/public',
             'download/print',
             'download/generated',
+            'download/learning-resource',
             // Public website content showcase (read-only). These resources are
             // rendered unauthenticated on the static public site via kw_*()
             // helpers, so anonymous JS cache hydration (PublicCache) must fetch

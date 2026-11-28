@@ -90,6 +90,17 @@ _PLAIN_CHANNELS = {"sms": 320, "whatsapp": 1000}
 # Extra instructions for workflows whose draft is a conversation turn rather
 # than a document.
 _WORKFLOW_GUIDANCE = {
+    "academics.assessment_draft": (
+        " For this workflow also return 'items': a list of question objects, "
+        "each {'question': text, 'type': one of short_answer|long_answer|"
+        "multiple_choice|true_false|practical, 'marks': whole number, "
+        "'options': list of 2-5 choice strings (multiple_choice only), "
+        "'answer': the expected answer or marking guide}. Write exactly "
+        "'question_count' questions when it is given, pitched for Kenyan CBC "
+        "learners of the stated learning area, testing the supplied learning "
+        "outcomes, with marks adding up to 'max_marks'. Put a one-paragraph "
+        "summary of what the questions test in 'body'."
+    ),
     "academics.timetable_planning": (
         "You are the timetable planning assistant. The class timetable itself "
         "is placed by the school's scheduling engine from allocations, weekly "

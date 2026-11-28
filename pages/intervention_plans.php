@@ -6,13 +6,14 @@
  */
 /* PARTIAL — no DOCTYPE/html/head/body */
 ?>
-<div class="container-fluid mt-3">
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/chaplaincy.css?v=<?= asset_version('css/pages/chaplaincy.css') ?>">
+<div class="kw-care container-fluid mt-3">
 
   <!-- Header -->
   <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-      <h2 class="mb-0"><i class="bi bi-journal-plus me-2 text-primary"></i>Intervention Plans</h2>
-      <small class="text-muted">Formal support plans with goals, timeline, and responsible staff</small>
+      <h2 class="care-title mb-0"><i class="bi bi-journal-plus me-2 text-primary"></i>Intervention Plans</h2>
+      <small class="text-muted">Formal support plans with goals, timeline, and responsible staff</small><p class="care-seal" role="note"><i class="bi bi-lock" aria-hidden="true"></i>Confidential pastoral record. Share only with staff who need it to help the learner.</p>
     </div>
     <button class="btn btn-primary" data-kw-onclick="interventionPlansController.showModal()">
       <i class="bi bi-plus-circle me-1"></i> Create Plan
@@ -150,3 +151,4 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/intervention_plans.js'); ?>
+<?php asset_script($appBase, 'js/components/care_ui.js'); ?>

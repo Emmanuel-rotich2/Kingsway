@@ -3207,6 +3207,46 @@ class ParentPortalManager extends BaseAPI
      * @param int $studentId
      * @return array|null
      */
+    /** The child's current grade level (for grade-tagged learning resources). */
+    private function childGradeLevel(int $studentId): ?string
+    {
+        $stmt = $this->db->prepare(
+            'SELECT grade_level FROM ' . ReadReplicaService::qualifiedRef('student_directory') . "
+              WHERE student_id = ? ORDER BY (enrollment_status = 'active') DESC, academic_year_start_date DESC LIMIT 1"
+        );
+        $stmt->execute([$studentId]);
+        $grade = $stmt->fetchColumn();
+        return $grade ? (string) $grade : null;
+    }
+
+    /** Teaching materials and past papers the School Administrator published as public, for this child's grade. */
+    public function getLearningResources(int $studentId): array
+    {
+        if ($access = $this->assertAccess($studentId)) return $access;
+        try {
+            $grade = $this->childGradeLevel($studentId);
+            $items = (new \App\API\Modules\academic\LearningResourceService($this->db))->listPublic($grade);
+            return $this->successResponse(['grade_level' => $grade, 'items' => $items]);
+        } catch (\Throwable $e) {
+            return $this->errorResponse('Learning resources are unavailable right now.', 500);
+        }
+    }
+
+    /** A short-lived link to one published public resource. */
+    public function openLearningResource(int $studentId, string $kind, int $resourceId, bool $scheme): array
+    {
+        if ($access = $this->assertAccess($studentId)) return $access;
+        try {
+            $kind = $kind === 'past_paper' ? 'past_paper' : 'material';
+            $target = (new \App\API\Modules\academic\LearningResourceService($this->db))->openable($kind, $resourceId, null, $scheme);
+            if (!empty($target['external_url'])) return $this->successResponse(['url' => $target['external_url'], 'external' => true]);
+            return $this->successResponse(['url' => (new DownloadService())->learningResourceUrl($target['path'], $target['name']), 'external' => false]);
+        } catch (\RuntimeException $e) {
+            $code = (int) $e->getCode();
+            return $this->errorResponse($e->getMessage(), in_array($code, [403, 404], true) ? $code : 400);
+        }
+    }
+
     private function assertAccess(int $studentId): ?array
     {
         if (!$this->parentId) {

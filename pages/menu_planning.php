@@ -1,258 +1,100 @@
 <?php
 /**
- * Menu Planning Page (Cafeteria menu for boarding school)
- * HTML structure only - logic will be in js/pages/menu_planning.js
- * Embedded in app_layout.php
+ * Menu Planning — the kitchen's week: which dishes are cooked at each meal,
+ * for how many, and the list of dishes the kitchen makes. manage_menus opens
+ * the same page on the Dishes tab.
+ * Data: /api/catering/plans, /api/catering/dishes (KitchenService).
+ * Planning: Cateress, Director, School Administrator.
  */
 ?>
-
-<div class="card shadow-sm">
-    <div class="card-header bg-gradient bg-success text-white">
-        <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="bi bi-cup-hot"></i> Menu Planning</h4>
-            <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="addMenuBtn" data-permission="menu_manage" data-year-write>
-                    <i class="bi bi-plus-circle"></i> Add Menu
-                </button>
-                <button class="btn btn-outline-light btn-sm" id="printMenuBtn">
-                    <i class="bi bi-printer"></i> Print Menu
-                </button>
-            </div>
-        </div>
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/support_ops.css?v=<?= asset_version('css/pages/support_ops.css') ?>">
+<div class="kw-ops kw-ops--kitchen container-fluid py-3" id="menuPlanPage">
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
+    <div>
+      <h1 class="ops-title">Menu planning</h1>
+      <p class="ops-lede">Plan each meal of the week from the kitchen's dishes, with how many servings to cook.</p>
     </div>
-
-    <div class="card-body">
-        <!-- Filter Row -->
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <label class="form-label">Week</label>
-                <select class="form-select" id="weekSelect"></select>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Meal Type</label>
-                <select class="form-select" id="mealTypeFilter">
-                    <option value="">All Meals</option>
-                    <option value="breakfast">Breakfast</option>
-                    <option value="lunch">Lunch</option>
-                    <option value="supper">Supper</option>
-                    <option value="snack">Snacks</option>
-                </select>
-            </div>
-        </div>
-
-        <!-- Weekly Menu Calendar -->
-        <div class="card mb-4">
-            <div class="card-body">
-                <h5 class="card-title">Weekly Menu <span id="weekRange" class="text-muted"></span></h5>
-                <div class="table-responsive">
-                    <table class="table table-bordered" id="weeklyMenuTable">
-                        <thead class="table-light">
-                            <tr>
-                                <th style="width: 12%;">Day</th>
-                                <th style="width: 22%;">Breakfast</th>
-                                <th style="width: 22%;">Lunch</th>
-                                <th style="width: 22%;">Supper</th>
-                                <th style="width: 22%;">Snacks</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td class="fw-bold">Monday</td>
-                                <td id="mon_breakfast" class="menu-cell" data-day="monday" data-meal="breakfast">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="mon_lunch" class="menu-cell" data-day="monday" data-meal="lunch">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="mon_supper" class="menu-cell" data-day="monday" data-meal="supper">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="mon_snack" class="menu-cell" data-day="monday" data-meal="snack">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="fw-bold">Tuesday</td>
-                                <td id="tue_breakfast" class="menu-cell" data-day="tuesday" data-meal="breakfast">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="tue_lunch" class="menu-cell" data-day="tuesday" data-meal="lunch">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="tue_supper" class="menu-cell" data-day="tuesday" data-meal="supper">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="tue_snack" class="menu-cell" data-day="tuesday" data-meal="snack">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="fw-bold">Wednesday</td>
-                                <td id="wed_breakfast" class="menu-cell" data-day="wednesday" data-meal="breakfast">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="wed_lunch" class="menu-cell" data-day="wednesday" data-meal="lunch">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="wed_supper" class="menu-cell" data-day="wednesday" data-meal="supper">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="wed_snack" class="menu-cell" data-day="wednesday" data-meal="snack">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="fw-bold">Thursday</td>
-                                <td id="thu_breakfast" class="menu-cell" data-day="thursday" data-meal="breakfast">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="thu_lunch" class="menu-cell" data-day="thursday" data-meal="lunch">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="thu_supper" class="menu-cell" data-day="thursday" data-meal="supper">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="thu_snack" class="menu-cell" data-day="thursday" data-meal="snack">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="fw-bold">Friday</td>
-                                <td id="fri_breakfast" class="menu-cell" data-day="friday" data-meal="breakfast">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="fri_lunch" class="menu-cell" data-day="friday" data-meal="lunch">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="fri_supper" class="menu-cell" data-day="friday" data-meal="supper">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="fri_snack" class="menu-cell" data-day="friday" data-meal="snack">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="fw-bold">Saturday</td>
-                                <td id="sat_breakfast" class="menu-cell" data-day="saturday" data-meal="breakfast">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="sat_lunch" class="menu-cell" data-day="saturday" data-meal="lunch">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="sat_supper" class="menu-cell" data-day="saturday" data-meal="supper">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="sat_snack" class="menu-cell" data-day="saturday" data-meal="snack">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="fw-bold">Sunday</td>
-                                <td id="sun_breakfast" class="menu-cell" data-day="sunday" data-meal="breakfast">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="sun_lunch" class="menu-cell" data-day="sunday" data-meal="lunch">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="sun_supper" class="menu-cell" data-day="sunday" data-meal="supper">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                                <td id="sun_snack" class="menu-cell" data-day="sunday" data-meal="snack">
-                                    <small class="text-muted">Click to add</small>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- Nutritional Requirements -->
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title">Weekly Nutritional Overview</h5>
-                <div class="row">
-                    <div class="col-md-6">
-                        <canvas id="nutritionChart"></canvas>
-                    </div>
-                    <div class="col-md-6">
-                        <ul class="list-group">
-                            <li class="list-group-item d-flex justify-content-between">
-                                <span>Average Calories/Day</span>
-                                <span class="badge bg-primary" id="avgCalories">0 kcal</span>
-                            </li>
-                            <li class="list-group-item d-flex justify-content-between">
-                                <span>Average Protein/Day</span>
-                                <span class="badge bg-success" id="avgProtein">0 g</span>
-                            </li>
-                            <li class="list-group-item d-flex justify-content-between">
-                                <span>Cost Per Student/Week</span>
-                                <span class="badge bg-info" id="costPerStudent">KES 0</span>
-                            </li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <div class="d-flex flex-wrap gap-2 d-print-none">
+      <a class="btn btn-outline-secondary" href="home.php?route=todays_menu"><i class="bi bi-calendar2-day me-1" aria-hidden="true"></i>Today's menu</a>
+      <button class="btn btn-outline-secondary" type="button" id="mpCsv"><i class="bi bi-download me-1" aria-hidden="true"></i>CSV</button>
+      <button class="btn btn-outline-secondary" type="button" id="mpPrint"><i class="bi bi-printer me-1" aria-hidden="true"></i>Print</button>
     </div>
+  </div>
+
+  <div class="ops-tabs d-print-none" role="tablist" aria-label="Menu planning" id="mpTabs">
+    <button type="button" role="tab" id="mpTabWeek" aria-controls="mpWeekPanel" aria-selected="true">Week plan</button>
+    <button type="button" role="tab" id="mpTabDishes" aria-controls="mpDishPanel" aria-selected="false" tabindex="-1">Dishes</button>
+  </div>
+
+  <div role="tabpanel" id="mpWeekPanel" aria-labelledby="mpTabWeek">
+    <div class="d-flex flex-wrap align-items-end gap-2 mb-3 d-print-none">
+      <div class="btn-group" role="group" aria-label="Change week">
+        <button class="btn btn-outline-secondary" type="button" id="mpPrev" aria-label="Previous week"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+        <button class="btn btn-outline-secondary" type="button" id="mpThis">This week</button>
+        <button class="btn btn-outline-secondary" type="button" id="mpNext" aria-label="Next week"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+      </div>
+      <div><label class="form-label small" for="mpWeek">Week of</label><input class="form-control" type="date" id="mpWeek"></div>
+      <button class="btn btn-outline-secondary" type="button" id="mpCopy" hidden><i class="bi bi-files me-1" aria-hidden="true"></i>Copy last week into empty meals</button>
+    </div>
+    <h2 class="h5 mb-2" id="mpRange" aria-live="polite"></h2>
+    <div class="ops-week" id="mpGrid" aria-describedby="mpRange"></div>
+    <p class="small text-muted mt-2 mb-0" id="mpHint"></p>
+  </div>
+
+  <div role="tabpanel" id="mpDishPanel" aria-labelledby="mpTabDishes" hidden>
+    <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3 d-print-none">
+      <div><label class="form-label small" for="mpDishQ">Find a dish</label><input class="form-control" type="search" id="mpDishQ"></div>
+      <button class="btn btn-ops" type="button" id="mpDishAdd" hidden><i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Add a dish</button>
+    </div>
+    <div class="ops-panel p-0">
+      <div class="table-responsive" tabindex="0" role="region" aria-label="Dishes">
+        <table class="table align-middle mb-0">
+          <thead><tr><th scope="col">Dish</th><th scope="col">Usually served at</th><th scope="col">Notes</th><th scope="col">In use</th><th scope="col" class="d-print-none"><span class="visually-hidden">Actions</span></th></tr></thead>
+          <tbody id="mpDishBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add or change a dish on a meal -->
+  <div class="modal fade" id="mpPlanModal" tabindex="-1" aria-labelledby="mpPlanTitle" aria-hidden="true">
+    <div class="modal-dialog"><form class="modal-content" id="mpPlanForm" novalidate>
+      <div class="modal-header"><h2 class="modal-title h5" id="mpPlanTitle">Plan a dish</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body">
+        <p class="fw-semibold mb-2" id="mpPlanWhen"></p>
+        <label class="form-label small" for="mpPlanDish">Dish</label>
+        <select class="form-select mb-1" id="mpPlanDish" required></select>
+        <button type="button" class="btn btn-link btn-sm px-0 mb-2" id="mpPlanNewDish">The dish is not listed: add it</button>
+        <label class="form-label small" for="mpPlanServings">Servings to cook</label>
+        <input class="form-control mb-2" type="number" min="0" max="5000" inputmode="numeric" id="mpPlanServings" required>
+        <label class="form-label small" for="mpPlanNotes">Notes for the kitchen</label>
+        <textarea class="form-control" id="mpPlanNotes" rows="2" maxlength="500"></textarea>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button type="button" class="btn btn-outline-danger" id="mpPlanRemove" hidden>Remove from this meal</button>
+        <span class="d-flex gap-2"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-ops">Save</button></span>
+      </div>
+    </form></div>
+  </div>
+
+  <!-- Add or edit a dish -->
+  <div class="modal fade" id="mpDishModal" tabindex="-1" aria-labelledby="mpDishTitle" aria-hidden="true">
+    <div class="modal-dialog"><form class="modal-content" id="mpDishForm" novalidate>
+      <div class="modal-header"><h2 class="modal-title h5" id="mpDishTitle">Add a dish</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="mpDishId">
+        <label class="form-label small" for="mpDishName">Name</label>
+        <input class="form-control mb-2" id="mpDishName" maxlength="255" required placeholder="For example: Githeri with cabbage">
+        <label class="form-label small" for="mpDishMeal">Usually served at</label>
+        <select class="form-select mb-2" id="mpDishMeal"><option value="breakfast">Breakfast</option><option value="snack">Tea break</option><option value="lunch" selected>Lunch</option><option value="dinner">Supper</option></select>
+        <label class="form-label small" for="mpDishDesc">Notes (ingredients, allergies)</label>
+        <textarea class="form-control mb-2" id="mpDishDesc" rows="2" maxlength="1000"></textarea>
+        <div class="form-check"><input class="form-check-input" type="checkbox" id="mpDishActive" checked><label class="form-check-label" for="mpDishActive">Still cooked (shown when planning)</label></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-ops">Save dish</button></div>
+    </form></div>
+  </div>
 </div>
-
-<!-- Add/Edit Menu Modal -->
-<div class="modal fade" id="menuModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="menuModalTitle">Add Menu Item</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="menuForm">
-                    <input type="hidden" id="menuId">
-                    <input type="hidden" id="menuDay">
-                    <input type="hidden" id="menuMealType">
-                    <div class="mb-3">
-                        <label class="form-label">Day</label>
-                        <input type="text" class="form-control" id="dayDisplay" readonly>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Meal Type</label>
-                        <input type="text" class="form-control" id="mealDisplay" readonly>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Planned servings*</label>
-                        <input type="number" class="form-control" id="plannedServings" min="0" step="1" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Notes</label>
-                        <textarea class="form-control" id="menuNotes" rows="2"></textarea>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveMenuBtn" data-year-write>Save Menu</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<style>
-    .menu-cell {
-        cursor: pointer;
-        min-height: 60px;
-        vertical-align: top;
-        padding: 8px;
-    }
-
-    .menu-cell:hover {
-        background-color: #f8f9fa;
-    }
-
-    .menu-content {
-        font-size: 0.9rem;
-    }
-</style>
-<style>@media print { #addMenuBtn, #printMenuBtn, #weekSelect, #mealTypeFilter { display:none !important; } .menu-cell { cursor:default; } }</style>
-
+<?php asset_script($appBase, 'js/pages/support_ops_common.js'); ?>
+<?php asset_script($appBase, 'js/pages/kitchen_common.js'); ?>
 <?php asset_script($appBase, 'js/pages/menu_planning.js'); ?>
-</script>

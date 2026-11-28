@@ -1,0 +1,182 @@
+/*
+ * Security office (gate desk, visitor register, security incidents).
+ * Scoped to .kw-gate. Built for a guard on a phone or tablet at the gate,
+ * by day or night: large targets, high legibility, tabular figures, and one
+ * strong element (who is on site right now). Uses the app's --kw-theme-*
+ * surface tokens so light and dark themes keep working.
+ *
+ *   Ink     gatehouse ink       text, primary actions
+ *   Amber   barrier amber       needs action, overstay, learner out
+ *   Clear   clear to go         signed out, allowed, resolved
+ *   Stop    stop                turned away, critical
+ */
+.kw-gate {
+  --gate-ink: var(--kw-theme-text, #1e2a32);
+  --gate-muted: var(--kw-theme-muted, #5f6b76);
+  --gate-line: var(--kw-theme-border, #e2e6ea);
+  --gate-surface: var(--kw-theme-surface, #ffffff);
+  --gate-amber: #9a5b00;
+  --gate-clear: #2e7d4f;
+  --gate-stop: #b3261e;
+  --gate-action: #1f3a4d;
+  --gate-radius: 8px;
+  font-variant-numeric: tabular-nums;
+}
+html[data-kw-theme="dark"] .kw-gate {
+  --gate-amber: #f0b14a;
+  --gate-clear: #7ccf9c;
+  --gate-stop: #ff8a80;
+  --gate-action: #9cc2dd;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-kw-theme="light"]):not([data-kw-theme="dark"]) .kw-gate {
+    --gate-amber: #f0b14a;
+    --gate-clear: #7ccf9c;
+    --gate-stop: #ff8a80;
+    --gate-action: #9cc2dd;
+  }
+}
+
+.kw-gate .gate-title {
+  font-weight: 800;
+  font-size: clamp(1.35rem, 1.1rem + 0.9vw, 1.75rem);
+  letter-spacing: -0.01em;
+  color: var(--gate-ink);
+  margin: 0;
+}
+.kw-gate .gate-lede { color: var(--gate-muted); max-width: 64ch; margin: 0.15rem 0 0; }
+
+/* The one strong element: how many people are inside right now. */
+.kw-gate .gate-now {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+.kw-gate .gate-now__n {
+  font-size: clamp(3rem, 2rem + 4vw, 4.5rem);
+  font-weight: 800;
+  line-height: 0.9;
+  color: var(--gate-ink);
+}
+.kw-gate .gate-now__label { font-weight: 600; color: var(--gate-muted); }
+
+.kw-gate .gate-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.5rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  color: var(--gate-muted);
+}
+.kw-gate .gate-figures strong { color: var(--gate-ink); font-size: 1.15rem; margin-inline-end: 0.3rem; }
+.kw-gate .gate-figures a { color: inherit; }
+
+.kw-gate .gate-panel {
+  background: var(--gate-surface);
+  border: 1px solid var(--gate-line);
+  border-radius: var(--gate-radius);
+  padding: 1rem;
+}
+.kw-gate .gate-panel h2 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0 0 0.75rem;
+  color: var(--gate-ink);
+}
+
+/* Big, finger-friendly controls at the gate. */
+.kw-gate :is(.btn, .form-control, .form-select) { min-height: 44px; }
+.kw-gate .btn-sm { min-height: 36px; }
+.kw-gate .btn-gate {
+  --bs-btn-bg: var(--gate-action);
+  --bs-btn-border-color: var(--gate-action);
+  --bs-btn-color: #fff;
+  --bs-btn-hover-bg: color-mix(in oklab, var(--gate-action) 85%, black);
+  --bs-btn-hover-border-color: color-mix(in oklab, var(--gate-action) 85%, black);
+  --bs-btn-hover-color: #fff;
+  font-weight: 700;
+}
+html[data-kw-theme="dark"] .kw-gate .btn-gate { --bs-btn-color: #0b1620; --bs-btn-hover-color: #0b1620; }
+.kw-gate :is(.btn, .form-control, .form-select, a, [tabindex]):focus-visible {
+  outline: 3px solid var(--gate-amber);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* Who is on site: one line each, the time in large, sign-out on the right. */
+.kw-gate .gate-list { list-style: none; margin: 0; padding: 0; }
+.kw-gate .gate-list > li {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr auto;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+  padding: 0.6rem 0;
+  border-block-end: 1px solid var(--gate-line);
+}
+.kw-gate .gate-list > li:last-child { border-block-end: 0; }
+.kw-gate .gate-list .gate-time { font-weight: 800; font-size: 1.1rem; color: var(--gate-ink); }
+.kw-gate .gate-list .gate-who { font-weight: 700; color: var(--gate-ink); }
+.kw-gate .gate-list .gate-meta { color: var(--gate-muted); font-size: 0.875rem; }
+.kw-gate .gate-list > li.is-long .gate-time { color: var(--gate-amber); }
+.kw-gate .gate-empty { color: var(--gate-muted); padding: 1rem 0; margin: 0; }
+.kw-gate .gate-list > li.gate-empty { display: block; border-block-end: 0; }
+
+.kw-gate .gate-tag {
+  display: inline-block;
+  padding: 0.15em 0.55em;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.kw-gate .gate-tag.is-amber { color: var(--gate-amber); }
+.kw-gate .gate-tag.is-clear { color: var(--gate-clear); }
+.kw-gate .gate-tag.is-stop { color: var(--gate-stop); }
+.kw-gate .gate-tag.is-muted { color: var(--gate-muted); }
+
+.kw-gate .gate-learner {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+.kw-gate .gate-learner img {
+  inline-size: 56px;
+  block-size: 68px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--gate-line);
+}
+
+.kw-gate .table > thead > tr > th { color: var(--gate-muted); font-weight: 600; font-size: 0.8125rem; }
+.kw-gate tr.is-critical > :first-child { box-shadow: inset 4px 0 0 var(--gate-stop); }
+.kw-gate tr.is-high > :first-child { box-shadow: inset 4px 0 0 var(--gate-amber); }
+
+/* Incident response trail: a real sequence, so a timeline. */
+.kw-gate .gate-trail { list-style: none; padding: 0; margin: 0; border-inline-start: 2px solid var(--gate-line); }
+.kw-gate .gate-trail > li { position: relative; padding: 0 0 0.9rem 1rem; }
+.kw-gate .gate-trail > li::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: -6px;
+  inset-block-start: 0.35rem;
+  inline-size: 10px;
+  block-size: 10px;
+  border-radius: 50%;
+  background: var(--gate-surface);
+  border: 2px solid var(--gate-action);
+}
+
+@media (width < 576px) {
+  .kw-gate .gate-list > li { grid-template-columns: 3.75rem 1fr; }
+  .kw-gate .gate-list > li > :last-child { grid-column: 1 / -1; }
+  .kw-gate .gate-list > li > :last-child .btn { inline-size: 100%; }
+}
+@media (forced-colors: active) {
+  .kw-gate .gate-tag { border-color: CanvasText; }
+  .kw-gate tr:is(.is-critical, .is-high) > :first-child { box-shadow: none; border-inline-start: 4px solid CanvasText; }
+}
+@media print {
+  .kw-gate .d-print-none { display: none !important; }
+}

@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-/* Downloads — per-page sidebar (child list): report cards, fee statements, receipts */
+/* Downloads — per-page sidebar (child list): learning materials, past papers, report cards, fee statements, receipts */
 $parentPageTitle  = 'Downloads';
 $parentActive     = 'downloads';
 $parentPageScript = 'parents/downloads';

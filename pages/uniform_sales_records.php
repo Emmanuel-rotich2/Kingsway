@@ -1,39 +1,56 @@
 <?php
-/* Uniform Sales Records — read-only list of uniform item sales. */
-
+/**
+ * Uniform Sales — every sale the uniform store made: counter sales at the
+ * till, staff orders and parent orders, with what was bought, for which
+ * learner, how it was paid and who served. A second view totals each
+ * garment and size. Cancelled orders are listed but not counted.
+ * Data: /api/inventory/uniform-store-sales (catalog_orders and their lines).
+ */
 ?>
-
-<div class="container-fluid px-4 py-4">
-
-  <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/support_ops.css?v=<?= asset_version('css/pages/support_ops.css') ?>">
+<div class="kw-ops kw-ops--shop container-fluid py-3" id="uniformSalesPage">
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
     <div>
-      <h4 class="fw-bold mb-0"><i class="bi bi-person-badge text-primary me-2"></i>Uniform Sales Records</h4>
-      <p class="text-muted small mb-0 mt-1">Recorded uniform item sales and payment status.</p>
+      <h1 class="ops-title">Uniform sales</h1>
+      <p class="ops-lede">Counter sales, staff orders and parent orders.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2 d-print-none">
+      <button class="btn btn-outline-secondary" type="button" id="srCsv"><i class="bi bi-download me-1" aria-hidden="true"></i>CSV</button>
+      <button class="btn btn-outline-secondary" type="button" id="srPrint"><i class="bi bi-printer me-1" aria-hidden="true"></i>Print</button>
     </div>
   </div>
 
-  <div class="d-flex gap-2 mb-3 flex-wrap align-items-end">
-    <div><label class="form-label small fw-semibold">Payment Status</label><select class="form-select form-select-sm" id="usrStatus"><option value="">All statuses</option><option>paid</option><option>pending</option><option>partially_paid</option></select></div>
-    <div><label class="form-label small fw-semibold">From</label><input type="date" class="form-control form-control-sm" id="usrFrom"></div>
-    <div><label class="form-label small fw-semibold">To</label><input type="date" class="form-control form-control-sm" id="usrTo"></div>
-    <button class="btn btn-outline-primary btn-sm" data-kw-onclick="uniformSalesRecordsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+  <div class="ops-panel mb-3">
+    <div class="d-flex flex-wrap gap-2 align-items-end d-print-none">
+      <div><label class="form-label small" for="srFrom">From</label><input class="form-control" type="date" id="srFrom"></div>
+      <div><label class="form-label small" for="srTo">To</label><input class="form-control" type="date" id="srTo"></div>
+      <div><label class="form-label small" for="srSource">Sold through</label><select class="form-select" id="srSource"><option value="">Everywhere</option></select></div>
+      <div><label class="form-label small" for="srPay">Payment</label><select class="form-select" id="srPay"><option value="">Any</option><option value="paid">Paid</option><option value="unpaid">Not paid yet</option></select></div>
+      <div class="flex-grow-1" style="max-inline-size:18rem"><label class="form-label small" for="srSearch">Find</label><input class="form-control" type="search" id="srSearch" placeholder="Reference, buyer or learner"></div>
+    </div>
+    <ul class="ops-facts mt-3" id="srFacts" aria-live="polite"></ul>
   </div>
 
-  <div class="bg-white border rounded-3 overflow-hidden">
-    <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
-        <thead class="table-light"><tr>
-          <th>Sale Date</th><th>Adm No</th><th>Student</th><th>Item</th><th>Size</th><th>Qty</th><th>Amount (KES)</th><th>Payment</th><th>Sold By</th>
-        </tr></thead>
-        <tbody id="usrBody"><tr><td colspan="9" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
+  <div class="ops-tabs d-print-none" role="tablist" id="srTabs">
+    <button type="button" role="tab" id="srTabSales" aria-controls="srSales" aria-selected="true">Sales</button>
+    <button type="button" role="tab" id="srTabItems" aria-controls="srItems" aria-selected="false" tabindex="-1">By garment and size</button>
+  </div>
+  <section class="ops-panel" id="srSales" role="tabpanel" aria-labelledby="srTabSales">
+    <div class="table-responsive" tabindex="0" role="region" aria-label="Sales">
+      <table class="table align-middle mb-0">
+        <thead><tr><th scope="col">When</th><th scope="col">Sale</th><th scope="col">What was bought</th><th scope="col">Buyer</th><th scope="col">Total</th><th scope="col">Payment</th></tr></thead>
+        <tbody id="srBody"><tr><td colspan="6" class="text-muted p-3">Loading sales…</td></tr></tbody>
       </table>
     </div>
-    <div class="p-3 border-top d-flex justify-content-between align-items-center">
-      <small class="text-muted" id="usrInfo"></small>
-      <div class="btn-group btn-group-sm" id="usrPages"></div>
+  </section>
+  <section class="ops-panel" id="srItems" role="tabpanel" aria-labelledby="srTabItems" hidden>
+    <div class="table-responsive" tabindex="0" role="region" aria-label="Sales by garment and size">
+      <table class="table align-middle mb-0">
+        <thead><tr><th scope="col">Garment</th><th scope="col">Size</th><th scope="col">Pieces sold</th><th scope="col">Takings</th></tr></thead>
+        <tbody id="srItemBody"></tbody>
+      </table>
     </div>
-  </div>
-
+  </section>
 </div>
-
+<?php asset_script($appBase, 'js/pages/support_ops_common.js'); ?>
 <?php asset_script($appBase, 'js/pages/uniform_sales_records.js'); ?>
