@@ -170,7 +170,7 @@
       }
       if (this.actions.includes("transport_attendance")) {
         target.appendChild(button("Attendance", "bi-clipboard-check", () => {
-          window.location.href = (window.APP_BASE || "") + "/home.php?route=mark_attendance";
+          window.location.href = (window.APP_BASE || "") + "/home.php?route=transport_passengers";
         }));
       }
     },

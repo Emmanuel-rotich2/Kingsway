@@ -1,0 +1,332 @@
+/*
+ * Chaplaincy & counselling office — shared look for the Chaplain's pages.
+ *
+ * Scoped to .kw-care so nothing leaks into other modules. Built on the app's
+ * --kw-theme-* surface tokens, so light, dark and auto themes keep working.
+ *
+ *   Vesper  evening blue      titles, primary actions, the care rail
+ *   Leaf    growth            resolved, well, done
+ *   Lamp    a lamp left on    needs attention, follow-up due (sparingly)
+ *   Seal    wax seal          confidential, urgent
+ *
+ * Titles use a humanist book serif from the system (no web-font download);
+ * body text stays in the app's sans. Urgency is never shown by colour alone:
+ * every tinted chip keeps its text, and priority rows also get an edge.
+ */
+
+.kw-care {
+  --care-vesper: #1f4e6b;
+  --care-leaf: #4f7a33;
+  --care-lamp: #8a5a0e;
+  --care-seal: #93394a;
+  --care-ink: var(--kw-theme-text, #172033);
+  --care-muted: var(--kw-theme-muted, #697386);
+  --care-line: var(--kw-theme-border, #e4e8ed);
+  --care-surface: var(--kw-theme-surface, #ffffff);
+  --care-wash: color-mix(in oklab, var(--care-vesper) 6%, var(--care-surface));
+  --care-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", "URW Palladio L", P052, Georgia, serif;
+  --care-radius-sm: 6px;
+  --care-radius: 10px;
+}
+
+html[data-kw-theme="dark"] .kw-care {
+  --care-vesper: #8db8d6;
+  --care-leaf: #a3c97f;
+  --care-lamp: #e2ae52;
+  --care-seal: #e58a99;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-kw-theme="light"]):not([data-kw-theme="dark"]) .kw-care {
+    --care-vesper: #8db8d6;
+    --care-leaf: #a3c97f;
+    --care-lamp: #e2ae52;
+    --care-seal: #e58a99;
+  }
+}
+
+/* ------------------------------------------------------------ page head */
+.kw-care .care-title {
+  font-family: var(--care-serif);
+  font-weight: 600;
+  font-size: clamp(1.4rem, 1.1rem + 1vw, 1.85rem);
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+  color: var(--care-ink);
+  margin-block: 0 0.25rem;
+  padding-inline-start: 0.85rem;
+  border-inline-start: 3px solid var(--care-vesper);
+}
+.kw-care .care-title > i.bi,
+.kw-care .care-title > i[class*="fa-"] {
+  display: none; /* the rail marks the page; icons repeated the sidebar */
+}
+.kw-care .care-title + small,
+.kw-care .care-title + p,
+.kw-care .care-title ~ .text-muted {
+  display: block;
+  max-width: 68ch;
+  padding-inline-start: calc(0.85rem + 3px);
+  color: var(--care-muted);
+}
+.kw-care h5, .kw-care h6, .kw-care .card-header strong, .kw-care .modal-title {
+  font-family: var(--care-serif);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Confidential seal: a real note, shown on counselling pages only. */
+.kw-care .care-seal {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0 calc(0.85rem + 3px);
+  padding: 0.3rem 0.75rem 0.3rem 0.6rem;
+  border: 1px solid color-mix(in oklab, var(--care-seal) 45%, transparent);
+  border-radius: 999px;
+  color: var(--care-seal);
+  background: color-mix(in oklab, var(--care-seal) 7%, var(--care-surface));
+  font-size: 0.8125rem;
+}
+
+/* --------------------------------------------------------- figures strip */
+/* Stat cards read as one strip of figures rather than a row of boxes. */
+.kw-care .row:has(> [class*="col"] > .card .fs-2),
+.kw-care .row:has(> [class*="col"] > .card h3) {
+  --bs-gutter-x: 0;
+  border-block: 1px solid var(--care-line);
+  margin-inline: 0;
+}
+.kw-care .row > [class*="col"] > .card:has(.fs-2, h3) {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent !important;
+}
+/* Phones: the figures sit two by two instead of four tall blocks. */
+@media (width < 576px) {
+  .kw-care .row:has(> [class*="col"] > .card .fs-2) > [class*="col"],
+  .kw-care .row:has(> [class*="col"] > .card h3) > [class*="col"] {
+    flex: 0 0 50%;
+    max-width: 50%;
+  }
+  .kw-care .row > [class*="col"] > .card:has(.fs-2, h3) .card-body { padding: 0.75rem; }
+  .kw-care .row > [class*="col"]:nth-child(odd) > .card:has(.fs-2, h3) { border-inline-start: 0; }
+  .kw-care .row > [class*="col"]:nth-child(n+3) > .card:has(.fs-2, h3) { border-block-start: 1px solid var(--care-line); }
+}
+.kw-care .row > [class*="col"] + [class*="col"] > .card:has(.fs-2, h3) {
+  border-inline-start: 1px solid var(--care-line);
+}
+.kw-care .card :is(.fs-2, h3:not(.care-title)) {
+  font-family: var(--care-serif);
+  font-variant-numeric: lining-nums tabular-nums;
+  font-weight: 600;
+  color: var(--care-ink);
+}
+
+/* Pages that put their title in a coloured card header: a quiet header
+   instead, so the title rail is the one strong mark on the page. */
+.kw-care .card-header:is(.bg-info, .bg-primary, .bg-success, .bg-danger, .bg-warning, .bg-dark) {
+  background: var(--care-surface) !important;
+  color: var(--care-ink) !important;
+  padding-block: 1rem;
+}
+.kw-care .card-header:is(.bg-info, .bg-primary, .bg-success, .bg-danger, .bg-warning, .bg-dark) :is(.text-white, small, .text-white-50) {
+  color: var(--care-muted) !important;
+}
+.kw-care .card-header:is(.bg-info, .bg-primary, .bg-success, .bg-danger, .bg-warning, .bg-dark) .care-title { color: var(--care-ink) !important; }
+.kw-care .card-header .btn-light {
+  --bs-btn-bg: transparent;
+  --bs-btn-border-color: color-mix(in oklab, var(--care-vesper) 45%, transparent);
+  --bs-btn-color: var(--care-vesper);
+  --bs-btn-hover-bg: var(--care-wash);
+  --bs-btn-hover-color: var(--care-vesper);
+}
+
+/* ------------------------------------------------------------- surfaces */
+.kw-care .card {
+  border-color: var(--care-line);
+  border-radius: var(--care-radius);
+  box-shadow: none;
+}
+.kw-care .card.shadow-sm { box-shadow: none !important; }
+.kw-care .card-header {
+  background: var(--care-surface);
+  border-bottom-color: var(--care-line);
+}
+
+/* --------------------------------------------------------------- tables */
+.kw-care .table {
+  --bs-table-hover-bg: var(--care-wash);
+  --bs-table-striped-bg: transparent;
+  font-variant-numeric: tabular-nums;
+}
+.kw-care .table > thead > tr > th,
+.kw-care .table > thead.table-light > tr > th {
+  background: var(--care-surface);
+  color: var(--care-muted);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  border-bottom: 1px solid var(--care-line);
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+}
+.kw-care .table-responsive {
+  container-type: inline-size;
+  max-block-size: min(70vh, 720px);
+}
+.kw-care .table-responsive:focus-visible {
+  outline: 2px solid var(--care-vesper);
+  outline-offset: 2px;
+}
+/* Rows the page marks as high/urgent get an edge, not just a colour.
+   Urgent (seal) is declared last so it wins when a row has both. */
+.kw-care tr:has(.bg-warning) > :first-child { box-shadow: inset 3px 0 0 var(--care-lamp); }
+.kw-care tr:has(.bg-danger, .badge-urgent) > :first-child { box-shadow: inset 3px 0 0 var(--care-seal); }
+
+/* Narrow screens: each row becomes a short labelled list. Labels come from
+   the column headers (set as data-label by js/components/care_ui.js). */
+@container (width < 620px) {
+  .kw-care .table-responsive .table,
+  .kw-care .table-responsive .table :is(tbody, tr, td) {
+    display: block;
+  }
+  .kw-care .table-responsive .table thead { display: none; }
+  .kw-care .table-responsive .table tbody tr {
+    padding: 0.6rem 0.75rem;
+    border-block-end: 1px solid var(--care-line);
+  }
+  .kw-care .table-responsive .table tbody tr > :first-child { box-shadow: none; }
+  .kw-care .table-responsive .table tr:has(.bg-warning) { box-shadow: inset 3px 0 0 var(--care-lamp); }
+  .kw-care .table-responsive .table tr:has(.bg-danger, .badge-urgent) { box-shadow: inset 3px 0 0 var(--care-seal); }
+  /* Hanging label: wrapped values stay aligned under their own column. */
+  .kw-care .table-responsive .table td {
+    border: 0;
+    position: relative;
+    padding: 0.15rem 0 0.15rem 8.75rem;
+  }
+  .kw-care .table-responsive .table td[data-label]::before {
+    content: attr(data-label);
+    position: absolute;
+    inset-inline-start: 0;
+    inset-block-start: 0.2rem;
+    inline-size: 8.25rem;
+    color: var(--care-muted);
+    font-size: 0.8125rem;
+  }
+  .kw-care .table-responsive .table td[colspan],
+  .kw-care .table-responsive .table td:not([data-label]) { padding-inline-start: 0; }
+  .kw-care .table-responsive .table td[colspan]::before { content: none; }
+}
+@media (width < 620px) {
+  .kw-care .table-responsive { max-block-size: none; }
+}
+
+/* --------------------------------------------------------- status chips */
+.kw-care .badge {
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.3em 0.65em;
+  border: 1px solid transparent;
+}
+.kw-care :is(.badge.bg-primary, .badge.bg-info, .badge.text-bg-primary, .badge.text-bg-info) {
+  background: color-mix(in oklab, var(--care-vesper) 12%, var(--care-surface)) !important;
+  color: var(--care-vesper) !important;
+  border-color: color-mix(in oklab, var(--care-vesper) 30%, transparent);
+}
+.kw-care :is(.badge.bg-success, .badge.text-bg-success) {
+  background: color-mix(in oklab, var(--care-leaf) 12%, var(--care-surface)) !important;
+  color: var(--care-leaf) !important;
+  border-color: color-mix(in oklab, var(--care-leaf) 30%, transparent);
+}
+.kw-care :is(.badge.bg-warning, .badge.text-bg-warning) {
+  background: color-mix(in oklab, var(--care-lamp) 13%, var(--care-surface)) !important;
+  color: var(--care-lamp) !important;
+  border-color: color-mix(in oklab, var(--care-lamp) 32%, transparent);
+}
+.kw-care :is(.badge.bg-danger, .badge.text-bg-danger) {
+  background: color-mix(in oklab, var(--care-seal) 12%, var(--care-surface)) !important;
+  color: var(--care-seal) !important;
+  border-color: color-mix(in oklab, var(--care-seal) 32%, transparent);
+}
+.kw-care :is(.badge.bg-secondary, .badge.text-bg-secondary, .badge.bg-light, .badge.text-bg-light) {
+  background: var(--care-wash) !important;
+  color: var(--care-muted) !important;
+  border-color: var(--care-line);
+}
+
+/* --------------------------------------------------------------- actions */
+.kw-care .btn { border-radius: var(--care-radius-sm); }
+.kw-care .btn.btn-primary {
+  background-color: var(--care-vesper);
+  border-color: var(--care-vesper);
+  color: #fff;
+}
+/* theme.css paints dark-mode primary buttons with !important; the care
+   accent overrides it the same way, with higher specificity. */
+html[data-kw-theme="dark"] .kw-care .btn.btn-primary,
+html[data-kw-theme="dark"] .kw-care .btn.btn-primary:hover:not(:disabled),
+html[data-kw-theme="dark"] .kw-care .btn.btn-primary:focus-visible {
+  background-color: var(--care-vesper) !important;
+  border-color: var(--care-vesper) !important;
+  color: #0d1b26 !important;
+}
+.kw-care .btn.btn-primary:hover { background-color: color-mix(in oklab, var(--care-vesper) 85%, black); }
+.kw-care .btn-primary {
+  --bs-btn-bg: var(--care-vesper);
+  --bs-btn-border-color: var(--care-vesper);
+  --bs-btn-hover-bg: color-mix(in oklab, var(--care-vesper) 85%, black);
+  --bs-btn-hover-border-color: color-mix(in oklab, var(--care-vesper) 85%, black);
+  --bs-btn-active-bg: color-mix(in oklab, var(--care-vesper) 75%, black);
+  --bs-btn-color: #fff;
+  --bs-btn-hover-color: #fff;
+}
+html[data-kw-theme="dark"] .kw-care .btn-primary { --bs-btn-color: #0d1b26; --bs-btn-hover-color: #0d1b26; }
+.kw-care .btn-outline-primary {
+  --bs-btn-color: var(--care-vesper);
+  --bs-btn-border-color: color-mix(in oklab, var(--care-vesper) 55%, transparent);
+  --bs-btn-hover-bg: var(--care-vesper);
+  --bs-btn-hover-border-color: var(--care-vesper);
+  --bs-btn-hover-color: var(--care-surface);
+}
+.kw-care :is(.btn, .form-control, .form-select, .form-check-input, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--care-vesper);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+.kw-care .text-primary { color: var(--care-vesper) !important; }
+
+/* --------------------------------------------------------------- reading */
+.kw-care .modal-body p,
+.kw-care .card-body > p {
+  max-width: 72ch;
+}
+
+/* ------------------------------------------------------- forced colours */
+@media (forced-colors: active) {
+  .kw-care .care-title { border-inline-start-color: CanvasText; }
+  .kw-care .badge { border-color: CanvasText; }
+  .kw-care .care-seal { border-color: CanvasText; }
+  .kw-care tr:has(.bg-danger, .bg-warning) > :first-child { box-shadow: none; border-inline-start: 3px solid CanvasText; }
+}
+
+@media print {
+  .kw-care .table-responsive { max-block-size: none; overflow: visible; }
+  .kw-care .table > thead > tr > th { position: static; }
+  .kw-care .care-title { border-inline-start-color: #000; }
+}
+
+/* ------------------------------------------------------------ dashboard */
+/* One accent for section icons (they were five unrelated colours). */
+.kw-care.role-dashboard :is(h5, h6) > i.bi,
+.kw-care.role-dashboard .dash-section-title > i.bi {
+  color: var(--care-vesper) !important;
+}
+.kw-care.role-dashboard .dash-section-title h6 {
+  font-size: 1.05rem;
+}
+.kw-care.role-dashboard .dash-badge.bg-danger {
+  background: color-mix(in oklab, var(--care-seal) 12%, var(--care-surface)) !important;
+  color: var(--care-seal) !important;
+}

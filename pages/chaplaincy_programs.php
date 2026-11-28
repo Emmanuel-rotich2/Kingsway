@@ -4,11 +4,12 @@
 
 ?>
 
-<div class="container-fluid px-4 py-4">
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/chaplaincy.css?v=<?= asset_version('css/pages/chaplaincy.css') ?>">
+<div class="kw-care container-fluid px-4 py-4">
 
   <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
     <div>
-      <h4 class="fw-bold mb-0"><i class="bi bi-church text-primary me-2"></i>Spiritual Programs</h4>
+      <h4 class="care-title fw-bold mb-0"><i class="bi bi-church text-primary me-2"></i>Spiritual Programs</h4>
       <p class="text-muted small mb-0 mt-1">
         SDA ministries — Sabbath Worship (Saturday), class-linked Sabbath School, Friday Vespers,
         Adventist Youth, Week of Prayer, Pathfinders &amp; Adventurers, Choral, Bible Study, Outreach, Baptism services.
@@ -256,3 +257,4 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/chaplaincy_programs.js'); ?>
+<?php asset_script($appBase, 'js/components/care_ui.js'); ?>

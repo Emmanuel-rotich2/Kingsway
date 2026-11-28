@@ -101,6 +101,12 @@ class MealReportManager extends BaseAPI
     {
         $limit = max(1, min(200, (int) $limit));
         $where = "status = 'active'";
+        // Food only: the categories the food store keeps (inventory_categories.store).
+        $food = $this->db->query("SELECT name FROM inventory_categories WHERE store = 'food'")->fetchAll(PDO::FETCH_COLUMN);
+        if (!$food) {
+            return ['success' => true, 'data' => []];
+        }
+        $where .= ' AND category IN (' . implode(',', array_map(fn ($n) => $this->db->quote((string) $n), $food)) . ')';
         if ($lowStockOnly) {
             $where .= " AND stock_status IN ('OUT OF STOCK', 'REORDER', 'LOW STOCK')";
         }

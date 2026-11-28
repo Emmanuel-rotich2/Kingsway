@@ -503,7 +503,7 @@ const viewAttendanceController = {
     try {
       const [boardingAccess, markAccess] = await Promise.all([
         window.AppRouteAccess.authorizeRoute("boarding_roll_call"),
-        window.AppRouteAccess.authorizeRoute("mark_attendance"),
+        window.AppRouteAccess.authorizeRoute("class_mark_attendance"),
       ]);
 
       this.canAccessBoarding = boardingAccess?.authorized !== false;

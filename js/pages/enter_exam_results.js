@@ -115,10 +115,13 @@ const ExamResultsController = {
       if (yearId) params.academic_year_id = yearId;
       if (termId) params.term_id = termId;
       const payload = this.unwrap(await window.API.academic.listExamSchedules(params)) || {};
-      this.state.exams = (payload.exams || []).filter((exam) =>
-        Number(exam.assessment_id) > 0 &&
-        (!exam.exam_period_id || ['results_open', 'moderation'].includes(exam.exam_period_status))
-      );
+      // Papers open for entry come first; earlier papers (this term or past
+      // years) stay listed so the teacher can view their history read-only.
+      const isOpen = (exam) => !exam.exam_period_id || ['results_open', 'moderation'].includes(exam.exam_period_status);
+      this.state.exams = (payload.exams || [])
+        .filter((exam) => Number(exam.assessment_id) > 0)
+        .map((exam) => ({ ...exam, __open: isOpen(exam) }))
+        .sort((a, b) => Number(b.__open) - Number(a.__open) || String(b.exam_date || '').localeCompare(String(a.exam_date || '')));
       this.populateFilters();
       this.applyFilters();
       // A deep link may name either the examination schedule or the register
@@ -174,7 +177,7 @@ const ExamResultsController = {
     select.innerHTML = '<option value="">Select an examination paper</option>' + this.state.filteredExams
       .map((exam) => {
         const className = [exam.class_name, exam.stream_name].filter(Boolean).join(" — ");
-        const label = `${exam.exam_name || exam.assessment_title} · ${className} · ${exam.subject_name}`;
+        const label = `${exam.exam_name || exam.assessment_title} · ${className} · ${exam.subject_name}${exam.__open ? '' : ' (view only)'}`;
         return `<option value="${Number(exam.assessment_id)}">${this.escape(label)}</option>`;
       }).join("");
     this.clearWorkspace();

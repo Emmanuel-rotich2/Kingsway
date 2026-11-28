@@ -45,6 +45,12 @@ final class TeacherCurriculumScopeService
         // A class teacher may teach the whole class without separate subject
         // rows. In that case, use the learning areas configured for that class
         // in this academic year rather than granting the entire curriculum.
+        // This widening is for the Class Teacher role only: a Subject Teacher
+        // (or intern) sees exactly the learning areas assigned to them, even
+        // when a stream record happens to name them as its class teacher.
+        if (!in_array(7, $roleIds, true)) {
+            return $this->restrictedScope($yearId, $contexts);
+        }
         $classStmt = $this->db->prepare(
             "SELECT DISTINCT aycla.learning_area_id, c.id AS class_id, c.grade_level,
                     c.name AS class_name, la.name AS subject_name
@@ -58,6 +64,12 @@ final class TeacherCurriculumScopeService
         $classStmt->execute([$staffId, $yearId]);
         $contexts = array_merge($contexts, $classStmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
 
+        return $this->restrictedScope($yearId, $contexts);
+    }
+
+    /** De-duplicate assignment rows into the restricted scope shape. */
+    private function restrictedScope(int $yearId, array $contexts): array
+    {
         $unique = [];
         foreach ($contexts as $context) {
             $areaId = (int) ($context['learning_area_id'] ?? 0);

@@ -8,17 +8,18 @@
 $appBase = app_base_path();
 ?>
 
-<div class="container-fluid py-4" id="specialNeedsPage">
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/chaplaincy.css?v=<?= asset_version('css/pages/chaplaincy.css') ?>">
+<div class="kw-care container-fluid py-4" id="specialNeedsPage">
 
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-header bg-info text-white">
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
-                    <h4 class="mb-0">
+                    <h4 class="care-title mb-0">
                         <i class="bi bi-heart me-2"></i>
                         Special Needs & Student Support
                     </h4>
-                    <small id="scopeSubtitle">Track and manage students with special educational needs and IEPs</small>
+                    <small id="scopeSubtitle">Track and manage students with special educational needs and IEPs</small><p class="care-seal" role="note"><i class="bi bi-lock" aria-hidden="true"></i>Confidential pastoral record. Share only with staff who need it to help the learner.</p>
                 </div>
                 <div class="btn-group">
                     <button class="btn btn-light btn-sm" id="exportRecordsBtn" data-permission="students_export">
@@ -377,3 +378,4 @@ $appBase = app_base_path();
 </div>
 
 <script src="<?php echo $appBase; ?>/js/pages/special_needs.js?v=<?php echo asset_version('js/pages/special_needs.js'); ?>"></script>
+<?php asset_script($appBase, 'js/components/care_ui.js'); ?>

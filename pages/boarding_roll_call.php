@@ -1,266 +1,67 @@
 <?php
 /**
- * Boarding Roll Call Page
- * 
- * Purpose: Allow House Parents/Boarding Masters to mark dormitory attendance
- * - Morning roll call (6:00 AM)
- * - Night roll call (9:30 PM)
- * - Weekend roll calls
- * - Evening prep attendance
- * 
- * Role: House Parent, Boarding Master, Admin
- * 
- * This is an embedded component - loaded via home.php?route=boarding_roll_call
+ * Boarding Roll Call — the dormitory register. Pick the dormitory and the
+ * roll call (night, morning, weekend), tap each learner in, absent or in
+ * the sick bay, and save. Learners on an approved exeat are shown as away.
+ * Below: today's count for every dormitory you may see.
+ * morning_roll_call and evening_roll_call open this page on their session.
+ * Data: /api/attendance/dormitories | sessions | dormitory-students,
+ * POST /api/attendance/mark-boarding (today only, dormitory-scoped),
+ * /api/boarding/roll-call (per-dormitory counts).
  */
+$rollCallSession = $rollCallSession ?? '';
 ?>
-
-<style>
-    .roll-call-card {
-        transition: all 0.2s;
-    }
-
-    .roll-call-card:hover {
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-
-    .status-present {
-        background-color: #d4edda !important;
-    }
-
-    .status-absent {
-        background-color: #f8d7da !important;
-    }
-
-    .status-permission {
-        background-color: #fff3cd !important;
-    }
-
-    .status-sick-bay {
-        background-color: #cce5ff !important;
-    }
-
-    .dormitory-header {
-        background: linear-gradient(135deg, #0f766e 0%, #14532d 100%);
-        color: white;
-    }
-
-    .session-badge {
-        font-size: 0.9rem;
-        padding: 0.5rem 1rem;
-    }
-
-    .student-row {
-        border-left: 4px solid transparent;
-        transition: all 0.2s;
-    }
-
-    .student-row.has-permission {
-        border-left-color: #ffc107;
-    }
-
-    .quick-stats {
-        background: #f8f9fa;
-        border-radius: 10px;
-        padding: 1rem;
-    }
-
-    .stat-item {
-        text-align: center;
-    }
-
-    .stat-value {
-        font-size: 2rem;
-        font-weight: bold;
-    }
-</style>
-
-<div>
-    <!-- Page Header -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
-                <div>
-                    <h3 class="mb-1"><i class="bi bi-house-door me-2"></i>Boarding Roll Call</h3>
-                    <p class="text-muted mb-0">Today’s boarding register for your authorised dormitory and roll-call session</p>
-                </div>
-                <div class="d-flex gap-2">
-                    <a href="<?= $appBase ?>/home.php?route=view_attendance&type=boarding" class="btn btn-outline-secondary d-none" id="viewAttendanceHistoryLink">
-                        <i class="bi bi-clock-history me-1"></i> View History
-                    </a>
-                </div>
-            </div>
-        </div>
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/support_ops.css?v=<?= asset_version('css/pages/support_ops.css') ?>">
+<div class="kw-ops kw-ops--dorm container-fluid py-3" id="rollCallPage" data-session-code="<?= htmlspecialchars($rollCallSession, ENT_QUOTES, 'UTF-8') ?>">
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
+    <div>
+      <h1 class="ops-title" id="rcTitle">Roll call</h1>
+      <p class="ops-lede">Tap each learner as you count them. Learners away on an approved exeat are already marked.</p>
     </div>
+    <div class="d-flex flex-wrap gap-2 d-print-none">
+      <button class="btn btn-outline-secondary" type="button" id="rcCsv"><i class="bi bi-download me-1" aria-hidden="true"></i>CSV</button>
+      <button class="btn btn-outline-secondary" type="button" id="rcPrint"><i class="bi bi-printer me-1" aria-hidden="true"></i>Print</button>
+    </div>
+  </div>
 
-    <!-- Administrative oversight view; the controller reveals this only to leadership/administration. -->
-    <section id="adminDashboard" class="card shadow-sm mb-4" style="display:none;">
-        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
-            <div><h5 class="mb-1"><i class="bi bi-speedometer2 me-2"></i>Boarding Attendance Oversight</h5><small id="adminDashboardDate"></small></div>
-            <span class="badge bg-light text-success">School-wide view</span>
+  <div class="row g-2 mb-3 d-print-none">
+    <div class="col-12 col-md-4"><label class="form-label small" for="rcDorm">Dormitory</label><select class="form-select" id="rcDorm"></select></div>
+    <div class="col-7 col-md-4"><label class="form-label small" for="rcSession">Roll call</label><select class="form-select" id="rcSession"></select></div>
+    <div class="col-5 col-md-2"><label class="form-label small" for="rcDate">Date</label><input class="form-control" type="date" id="rcDate"></div>
+    <div class="col-12 col-md-2"><label class="form-label small" for="rcSearch">Find</label><input class="form-control" type="search" id="rcSearch" placeholder="Name or bed"></div>
+  </div>
+
+  <div id="rcState" class="ops-panel text-muted mb-3" role="status">Loading your dormitories…</div>
+
+  <div id="rcBody" hidden>
+    <div class="ops-panel mb-3">
+      <div class="d-flex flex-wrap justify-content-between align-items-end gap-3">
+        <div class="ops-count" aria-live="polite">
+          <span class="ops-count__n" id="rcIn">0</span><span class="ops-count__of" id="rcOf">of 0 in</span>
         </div>
-        <div class="card-body">
-            <div class="row g-3 mb-3">
-                <div class="col-6 col-lg"><div class="border rounded p-3"><small class="text-muted">Expected</small><div class="fs-4 fw-bold" id="adminExpected">0</div></div></div>
-                <div class="col-6 col-lg"><div class="border rounded p-3"><small class="text-muted">Marked</small><div class="fs-4 fw-bold text-primary" id="adminMarked">0</div></div></div>
-                <div class="col-6 col-lg"><div class="border rounded p-3"><small class="text-muted">Present</small><div class="fs-4 fw-bold text-success" id="adminPresent">0</div></div></div>
-                <div class="col-6 col-lg"><div class="border rounded p-3"><small class="text-muted">Absent / Sick</small><div class="fs-4 fw-bold text-danger" id="adminExceptions">0</div></div></div>
-                <div class="col-6 col-lg"><div class="border rounded p-3"><small class="text-muted">Pending Registers</small><div class="fs-4 fw-bold text-warning" id="adminPending">0</div></div></div>
-            </div>
-            <div class="table-responsive">
-                <table class="table table-sm table-hover align-middle mb-0">
-                    <thead class="table-light"><tr><th>Dormitory</th><th>Session</th><th>Responsible</th><th>Expected</th><th>Marked</th><th>Present</th><th>Pending</th><th>Status</th><th></th></tr></thead>
-                    <tbody id="adminSummaryBody"></tbody>
-                </table>
-            </div>
-        </div>
+        <ul class="ops-facts" id="rcFacts" aria-label="Roll call counts"></ul>
+      </div>
+      <div class="d-flex flex-wrap gap-2 mt-3 d-print-none" id="rcBulk">
+        <button class="btn btn-outline-success" type="button" id="rcAllIn">Mark everyone not yet counted as in</button>
+        <button class="btn btn-ops ms-md-auto" type="button" id="rcSave">Save roll call</button>
+      </div>
+      <p class="small text-muted mt-2 mb-0" id="rcNote"></p>
+    </div>
+    <section class="ops-panel" aria-labelledby="rcListTitle">
+      <h2 id="rcListTitle">Learners</h2>
+      <ul class="list-unstyled mb-0" id="rcList"></ul>
     </section>
+  </div>
 
-    <div id="rollCallError" class="alert alert-danger d-none" role="alert"></div>
-
-    <!-- Selection Controls -->
-    <div class="card shadow-sm mb-4">
-        <div class="card-body">
-            <div class="row g-3 align-items-end">
-                <div class="col-md-3">
-                    <label class="form-label fw-semibold">Dormitory</label>
-                    <select id="dormitorySelect" class="form-select">
-                        <option value="">-- Select Dormitory --</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label fw-semibold">Session</label>
-                    <select id="sessionSelect" class="form-select">
-                        <option value="">-- Select Session --</option>
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label fw-semibold">Date</label>
-                    <input type="date" id="rollCallDate" class="form-control" data-kw-validate="not_future">
-                </div>
-                <div class="col-md-2">
-                    <button id="refreshBtn" class="btn btn-outline-secondary w-100">
-                        <i class="bi bi-arrow-clockwise me-1"></i> Refresh
-                    </button>
-                </div>
-            </div>
-        </div>
+  <section class="ops-panel mt-3" aria-labelledby="rcAllTitle">
+    <h2 id="rcAllTitle">All dormitories</h2>
+    <div class="table-responsive" tabindex="0" role="region" aria-label="All dormitories">
+      <table class="table align-middle mb-0">
+        <thead><tr><th scope="col">Dormitory</th><th scope="col">Roll call</th><th scope="col">Learners</th><th scope="col">In</th><th scope="col">Absent</th><th scope="col">Away on exeat</th><th scope="col">Sick bay</th></tr></thead>
+        <tbody id="rcAllBody"></tbody>
+      </table>
     </div>
-
-    <!-- Quick Stats -->
-    <div class="quick-stats mb-4" id="quickStats" style="display: none;">
-        <div class="row">
-            <div class="col-6 col-md">
-                <div class="stat-item">
-                    <div class="stat-value text-primary" id="statTotal">0</div>
-                    <div class="text-muted">Total</div>
-                </div>
-            </div>
-            <div class="col-6 col-md">
-                <div class="stat-item">
-                    <div class="stat-value text-success" id="statPresent">0</div>
-                    <div class="text-muted">Present</div>
-                </div>
-            </div>
-            <div class="col-6 col-md">
-                <div class="stat-item">
-                    <div class="stat-value text-danger" id="statAbsent">0</div>
-                    <div class="text-muted">Absent</div>
-                </div>
-            </div>
-            <div class="col-6 col-md">
-                <div class="stat-item">
-                    <div class="stat-value text-warning" id="statPermission">0</div>
-                    <div class="text-muted">On Permission</div>
-                </div>
-            </div>
-            <div class="col-6 col-md">
-                <div class="stat-item">
-                    <div class="stat-value text-info" id="statSickBay">0</div>
-                    <div class="text-muted">Sick Bay</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Loading State -->
-    <div id="loadingState" class="text-center py-5" style="display: none;">
-        <div class="spinner-border text-primary" role="status"></div>
-        <p class="mt-2 text-muted">Loading students...</p>
-    </div>
-
-    <!-- Empty State -->
-    <div id="emptyState" class="text-center py-5">
-        <i class="bi bi-house-door display-1 text-muted"></i>
-        <h5 class="mt-3">Preparing today’s register…</h5>
-        <p class="text-muted">The system will open the authorised dormitory and applicable session automatically.</p>
-    </div>
-
-    <!-- Roll Call Card -->
-    <div id="rollCallCard" class="card shadow-sm" style="display: none;">
-        <div class="card-header dormitory-header">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <h5 class="mb-1" id="dormitoryTitle">Eagles House</h5>
-                    <span class="badge bg-light text-dark session-badge" id="sessionBadge">Morning Roll Call</span>
-                </div>
-                <div>
-                    <span class="badge bg-light text-dark" id="dateDisplay">7 January 2026</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Bulk Actions -->
-        <div class="card-body border-bottom bg-light">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <div class="btn-group">
-                    <button id="markAllPresent" class="btn btn-success btn-sm" data-year-write>
-                        <i class="bi bi-check-all me-1"></i> All Present
-                    </button>
-                    <button id="markAllAbsent" class="btn btn-danger btn-sm" data-year-write>
-                        <i class="bi bi-x-circle me-1"></i> All Absent
-                    </button>
-                </div>
-                <div>
-                    <button id="submitRollCall" class="btn btn-primary" data-year-write>
-                        <i class="bi bi-check2-circle me-2"></i>Submit Roll Call
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Students Table -->
-        <div class="table-responsive">
-            <table class="table table-hover mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th width="5%">#</th>
-                        <th width="12%">Adm No</th>
-                        <th width="25%">Student Name</th>
-                        <th width="12%">Class</th>
-                        <th width="10%">Bed</th>
-                        <th width="15%">Permission</th>
-                        <th width="21%">Status</th>
-                    </tr>
-                </thead>
-                <tbody id="studentsTableBody">
-                    <tr id="studentsTableState"><td colspan="7" class="text-center text-muted py-4">Select a dormitory and session.</td></tr>
-                </tbody>
-                <template id="boardingRollCallRowTemplate"><tr class="student-row" data-boarding-student-row><td data-fill="number"></td><td data-fill="admission"></td><td class="fw-semibold" data-fill="name"></td><td data-fill="class"></td><td data-fill="bed"></td><td data-fill="permission"></td><td><select class="form-select form-select-sm" data-student-status aria-label="Attendance status"><option value="unknown">Not marked</option><option value="present">Present</option><option value="absent">Absent</option><option value="permission">On permission</option><option value="sick_bay">Sick bay</option></select></td></tr></template>
-            </table>
-        </div>
-    </div>
-
-    <!-- Today's Summary -->
-    <div class="card shadow-sm mt-4" id="summaryCard" style="display: none;">
-        <div class="card-header bg-white">
-            <h5 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Current Register Summary</h5>
-        </div>
-        <div class="card-body">
-            <div id="summaryContent">
-                <!-- Summary will be loaded here -->
-            </div>
-        </div>
-    </div>
+  </section>
 </div>
-
-<script src="<?= $appBase ?>/js/pages/boarding_roll_call.js?v=<?php echo asset_version('js/pages/boarding_roll_call.js'); ?>"></script>
+<?php asset_script($appBase, 'js/pages/support_ops_common.js'); ?>
+<?php asset_script($appBase, 'js/pages/boarding_roll_call.js'); ?>

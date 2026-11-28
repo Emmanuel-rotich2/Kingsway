@@ -454,8 +454,9 @@ class SidebarConfigReader
             // permissions. Parents use the separate parent portal flow.
             if ($roleId !== 73) {
                 $staffAdmissionParent = $roleId * 10000 + 9950;
+                // Grouped under "Admissions" (see the route-group map).
                 $items[] = self::item($staffAdmissionParent, null, [
-                    'label' => 'Staff Child Admission',
+                    'label' => 'Apply for Admission',
                     'url' => 'staff_my_admission',
                     'icon' => 'fas fa-user-plus',
                     'subitems' => []
@@ -656,6 +657,7 @@ class SidebarConfigReader
             'Attendance' => ['icon' => 'fas fa-clipboard-check', 'children' => []],
             'Health & Welfare' => ['icon' => 'fas fa-heartbeat', 'children' => []],
             'Discipline' => ['icon' => 'fas fa-gavel', 'children' => []],
+            'Security' => ['icon' => 'fas fa-shield-alt', 'children' => []],
             'Staff' => ['icon' => 'fas fa-user-tie', 'children' => []],
             'Finance' => ['icon' => 'fas fa-coins', 'children' => []],
             'Controls & Audit' => ['icon' => 'fas fa-shield-halved', 'children' => []],
@@ -926,6 +928,7 @@ class SidebarConfigReader
             'products_catalog_management' => 'Inventory & Store',
             'catalog_orders_management' => 'Inventory & Store',
             'uniform_point_of_sale' => 'Inventory & Store',
+            'uniform_sales_records' => 'Finance',
             'uniform_stock_intake' => 'Inventory & Store',
             'uniform_unit_tracking' => 'Inventory & Store',
             'uniform_discounts' => 'Inventory & Store',
@@ -947,7 +950,14 @@ class SidebarConfigReader
             'attendance_reports' => 'Attendance Reports',
             'attendance_' => 'Attendance',
             'class_mark_attendance' => 'Attendance',
+            // The school security office: gate desk, visitors, incidents.
+            'security_gate' => 'Security',
+            'visitor_register' => 'Security',
+            'school_security_incidents' => 'Security',
             'manage_staff' => 'Staff',
+            // A staff member's own admission application for a child or
+            // relative belongs with admissions, not staff management.
+            'staff_my_admission' => 'Admissions',
             'staff_' => 'Staff',
             'all_teachers' => 'Staff',
             'teacher_' => 'Staff',

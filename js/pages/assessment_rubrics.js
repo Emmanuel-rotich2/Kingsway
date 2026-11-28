@@ -35,7 +35,9 @@ const RubricsController = {
         this.canManage = !teacher || window.AuthContext?.hasPermission?.('assessments_rubric_manage');
         document.querySelectorAll('[data-curriculum-manage]').forEach(node => node.classList.toggle('d-none', !this.canManage));
         this.setupEventListeners();
-        await this.loadToolReferencesComposed();
+        const note = document.getElementById('rubricScopeNote');
+        if (note && teacher) note.textContent = '· for the learning areas you teach';
+        await Promise.all([this.loadToolReferencesComposed(), this.loadCompetencies()]);
         if (!this.isMounted()) return;
         await this.loadRubrics();
         if (!this.isMounted()) return;
@@ -124,6 +126,28 @@ const RubricsController = {
         }
     },
 
+    async loadCompetencies() {
+        const list = document.getElementById('coreCompetenciesList');
+        if (!list) return;
+        try {
+            const res = await callAPI('/api/academic/core-competencies');
+            if (!this.isMounted()) return;
+            const rows = Array.isArray(res) ? res : (res?.data || []);
+            list.innerHTML = rows.length ? rows.map(c => `
+                <div class="col-md-6 col-xl-3">
+                    <div class="border rounded p-2 h-100">
+                        <div class="fw-semibold">${escapeHtml(c.name)} <span class="badge bg-light text-muted border">${escapeHtml(c.code || '')}</span></div>
+                        <div class="small text-muted">${escapeHtml(c.description || '')}</div>
+                        ${c.assessment_criteria ? `<div class="small mt-1"><span class="text-muted">Look for:</span> ${escapeHtml(c.assessment_criteria)}</div>` : ''}
+                    </div>
+                </div>`).join('')
+                : '<div class="col-12 text-muted small">No core competencies are configured.</div>';
+        } catch (e) {
+            console.error('Failed to load core competencies', e);
+            list.innerHTML = '<div class="col-12 text-danger small">Core competencies could not be loaded.</div>';
+        }
+    },
+
     openToolModal() {
         document.getElementById('assessmentToolForm')?.reset();
         bootstrap.Modal.getOrCreateInstance(document.getElementById('assessmentToolModal')).show();
@@ -134,6 +158,7 @@ const RubricsController = {
             tool_name: document.getElementById('toolName').value.trim(),
             tool_code: document.getElementById('toolCode').value.trim(),
             assessment_type_id: parseInt(document.getElementById('toolType').value) || 0,
+            assessment_type_classification_id: parseInt(document.getElementById('toolType').value) || 0,
             learning_area_id: parseInt(document.getElementById('toolArea').value) || 0,
             grade_level: document.getElementById('toolGrade').value.trim(),
             description: document.getElementById('toolDescription').value.trim()
@@ -187,6 +212,8 @@ const RubricsController = {
             this.render();
         } catch (e) {
             console.error('Failed to load rubrics', e);
+            const stateRow = document.getElementById('rubricTableState');
+            if (stateRow) { stateRow.hidden = false; stateRow.querySelector('td').textContent = 'Rubrics could not be loaded. Please try again.'; }
         }
     },
 

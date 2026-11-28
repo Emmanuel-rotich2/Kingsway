@@ -376,6 +376,18 @@ return $this->error('An internal error occurred.');
         return $this->handleResponse($this->api->getTeacherPlanningContext(array_merge($_GET, is_array($data) ? $data : [])));
     }
 
+    /** GET /api/academic/lesson-planning-options?academic_year_term_id= — teacher's own streams x learning areas and term days. */
+    public function getLessonPlanningOptions($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->getLessonPlanningOptions(array_merge($_GET, is_array($data) ? $data : [])));
+    }
+
+    /** GET /api/academic/lesson-planning-choices?stream_learning_area_id=&sub_strand_id= */
+    public function getLessonPlanningChoices($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->getLessonPlanningChoices(array_merge($_GET, is_array($data) ? $data : [])));
+    }
+
     /** GET /api/academic/lesson-planning-context/{schemeId} */
     public function getLessonPlanningContext($id = null, $data = [], $segments = [])
     {
@@ -521,44 +533,101 @@ return $this->serverError('An internal error occurred.');
         return $this->handleResponse($result);
     }
 
-    // ==================== TEACHING RESOURCES ====================
-    // GET /api/academic/resources?type=material|past_paper[&class_id=&subject_id=&term_id=&q=]
-    // Unified listing across teaching_materials and past_papers (all statuses).
-    public function getResources($id = null, $data = [], $segments = [])
+    // ==================== TEACHING MATERIALS & PAST PAPERS ====================
+    // Upload by teachers/leadership, publishing by the School Administrator
+    // (internal = staff, public = parent portal). See LearningResourceService.
+
+    private function learningResources(): \App\API\Modules\academic\LearningResourceService
     {
-        return $this->handleResponse($this->academicManager->getResources($data));
+        return new \App\API\Modules\academic\LearningResourceService($this->db->getConnection());
     }
 
-    // POST /api/academic/resources  (multipart FormData upload to teaching_materials)
-    // Fields: file, title, subject_id, class, type, term, description
+    private function resourceViewer(): array
+    {
+        return ['user_id' => (int) $this->getUserId(), 'role_ids' => array_map('intval', (array) $this->getUserRoleIds())];
+    }
+
+    private function resourceKind(array $data): string
+    {
+        return in_array((string) ($data['kind'] ?? $data['type'] ?? ''), ['past_paper', 'past-paper', 'past_papers'], true) ? 'past_paper' : 'material';
+    }
+
+    private function resourceCall(callable $fn)
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        try {
+            return $this->success($fn());
+        } catch (\RuntimeException $e) {
+            $code = (int) $e->getCode();
+            return $this->respond(null, $e->getMessage(), in_array($code, [400, 403, 404, 409], true) ? $code : 400, false);
+        } catch (\Throwable $e) {
+            \App\API\Includes\FileLogger::write('academic', ['type' => 'learning_resource_failed', 'reason' => mb_substr($e->getMessage(), 0, 200)], 'error');
+            return $this->serverError('The learning resource could not be processed.');
+        }
+    }
+
+    /** GET /api/academic/resources?kind=material|past_paper&status=&learning_area_id=&grade_level=&q=... */
+    public function getResources($id = null, $data = [], $segments = [])
+    {
+        $f = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->resourceCall(fn () => [
+            'items' => $this->learningResources()->list($this->resourceKind($f), $this->resourceViewer(), $f),
+            'can_publish' => (bool) array_intersect(\App\API\Modules\academic\LearningResourceService::PUBLISHER_ROLES, $this->resourceViewer()['role_ids']),
+            'accepted_extensions' => \App\API\Modules\academic\LearningResourceService::acceptedExtensions(),
+        ]);
+    }
+
+    /** POST /api/academic/resources (multipart: kind, file | external_url, scheme_file, title, ...) */
     public function postResources($id = null, $data = [], $segments = [])
     {
         $payload = array_merge($_POST, is_array($data) ? $data : []);
-        $file = isset($_FILES['file']) ? $_FILES['file'] : null;
-        $userId = (int) ($this->user['id'] ?? $this->user['user_id'] ?? 0);
-        return $this->handleResponse($this->academicManager->postResources($payload, $file, $userId));
+        return $this->resourceCall(fn () => $this->learningResources()->create(
+            $this->resourceKind($payload), $this->resourceViewer(), $payload, $_FILES['file'] ?? null, $_FILES['scheme_file'] ?? null
+        ));
     }
 
-    // GET /api/academic/resources/{id}/download  — serve the file (browser must hit this directly)
-    public function getResourcesDownload($id = null, $data = [], $segments = [])
+    /** PUT /api/academic/resources/{id} {kind, title, description, ...} */
+    public function putResources($id = null, $data = [], $segments = [])
     {
-        if (!$id) {
-            return $this->error('Resource id is required.');
-        }
-        $result = $this->academicManager->getResourceDownloadMeta((int) $id);
-        if (($result['success'] ?? false) !== true) {
-            return $this->handleResponse($result);
-        }
-        $row = $result['data'] ?? [];
-        $abs = $row['absolute_path'] ?? '';
-
-        header('Content-Type: ' . ($row['file_type'] ?: 'application/octet-stream'));
-        header('Content-Disposition: inline; filename="' . basename($row['file_name'] ?: 'download') . '"');
-        header('Content-Length: ' . filesize($abs));
-        readfile($abs);
-        exit;
+        $payload = is_array($data) ? $data : [];
+        return $this->resourceCall(function () use ($id, $payload) {
+            $this->learningResources()->update($this->resourceKind($payload), (int) $id, $this->resourceViewer(), $payload);
+            return ['id' => (int) $id];
+        });
     }
 
+    /** DELETE /api/academic/resources/{id}?kind= */
+    public function deleteResources($id = null, $data = [], $segments = [])
+    {
+        $payload = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->resourceCall(function () use ($id, $payload) {
+            $this->learningResources()->delete($this->resourceKind($payload), (int) $id, $this->resourceViewer());
+            return ['id' => (int) $id];
+        });
+    }
+
+    /** POST /api/academic/resources-decision {kind, id, action: publish|unpublish|reject, access_scope: internal|public, note} */
+    public function postResourcesDecision($id = null, $data = [], $segments = [])
+    {
+        $payload = is_array($data) ? $data : [];
+        return $this->resourceCall(function () use ($id, $payload) {
+            $rid = (int) ($id ?? $payload['id'] ?? 0);
+            $this->learningResources()->decide($this->resourceKind($payload), $rid, $this->resourceViewer(),
+                (string) ($payload['action'] ?? ''), (string) ($payload['access_scope'] ?? 'internal'), (string) ($payload['note'] ?? ''));
+            return ['id' => $rid];
+        });
+    }
+
+    /** GET /api/academic/resources-open?kind=&id=&scheme=1 — a signed link (or the external link) for an authorised viewer. */
+    public function getResourcesOpen($id = null, $data = [], $segments = [])
+    {
+        $f = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->resourceCall(function () use ($id, $f) {
+            $target = $this->learningResources()->openable($this->resourceKind($f), (int) ($id ?? $f['id'] ?? 0), $this->resourceViewer(), !empty($f['scheme']));
+            if (!empty($target['external_url'])) return ['url' => $target['external_url'], 'external' => true];
+            return ['url' => (new \App\API\Services\DownloadService())->learningResourceUrl($target['path'], $target['name']), 'external' => false];
+        });
+    }
 
     // Router calls methods with: methodName($id, $data, $segments)
 
@@ -1157,9 +1226,22 @@ return $this->serverError('An internal error occurred.');
 
     // ── Grading system administration (new Ministry scales, versions) ──────
 
+    /**
+     * Grading systems, bands, term weighting profiles and national-result
+     * imports are school policy: only the School Administrator (role 4)
+     * changes them. Every other role reads them. Permission codes are not
+     * enough here, because teaching roles carry broad academic_* grants.
+     */
     private function canManageGradingSystems(): bool
     {
-        return $this->userHasAny(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'], [1, 4, 5, 6], ['system administrator', 'school administrator', 'headteacher', 'deputy head - academic']);
+        return in_array(4, array_map('intval', $this->getUserRoleIds()), true);
+    }
+
+    private function gradingManageGuard()
+    {
+        return $this->canManageGradingSystems()
+            ? null
+            : $this->forbidden('Only the School Administrator can change grading scales. Other users have read-only access.');
     }
 
     private function gradingAdminCall(callable $operation, string $message, bool $created = false)
@@ -3062,6 +3144,13 @@ return $this->serverError('An internal error occurred.');
     public function getAssessmentsList($id = null, $data = [], $segments = [])
     {
         $filters = array_merge($_GET, is_array($data) ? $data : []);
+        unset($filters['teacher_scope_staff_id']);
+        // Teachers list only the assessments of their own assignments.
+        if (!$this->canManageAllFormativeAssessments()) {
+            $staffId = (int) ($this->getCurrentStaffId() ?? 0);
+            if ($staffId < 1) return $this->forbidden('A staff teaching assignment is required');
+            $filters['teacher_scope_staff_id'] = $staffId;
+        }
         return $this->handleResponse($this->academicManager->getAssessmentsList($filters));
     }
 
@@ -3688,11 +3777,20 @@ return $this->serverError('An internal error occurred.');
         if (!$this->canUseAiLessonPlanDraft()) return $this->forbidden('Academic lesson-planning permission is required');
         try {
             $schemeId = (int) ($data['scheme_of_work_id'] ?? $id ?? 0);
-            if ($schemeId < 1) throw new DomainException('An approved scheme row is required.', 422);
-            $input = $this->buildAiLessonPlanInput($schemeId, $data);
+            $slaId = (int) ($data['stream_learning_area_id'] ?? 0);
+            if ($schemeId > 0) {
+                $input = $this->buildAiLessonPlanInput($schemeId, $data);
+                $metadata = ['subject_type' => 'academic_lesson_plan_draft', 'subject_id' => $schemeId, 'scope' => 'approved_scheme_context'];
+            } elseif ($slaId > 0) {
+                // A lesson plan is drafted from the teacher's own stream,
+                // learning area and sub-strand; no scheme of work is needed.
+                $input = $this->buildAiDirectLessonPlanInput($slaId, $data);
+                $metadata = ['subject_type' => 'academic_lesson_plan_context', 'subject_id' => $slaId, 'scope' => 'teacher_stream_learning_area'];
+            } else {
+                throw new DomainException('Choose the class stream, learning area and sub-strand to draft a lesson plan.', 422);
+            }
             $queued = $this->contract(DraftRepository::class)->queue(
-                'academics.lesson_plan_draft', $this->aiAcademicContext(), $input,
-                ['subject_type' => 'academic_lesson_plan_draft', 'subject_id' => $schemeId, 'scope' => 'approved_scheme_context']
+                'academics.lesson_plan_draft', $this->aiAcademicContext(), $input, $metadata
             );
             return $this->accepted($queued, 'Lesson-plan draft queued for academic review');
         } catch (DomainException $e) {
@@ -3775,11 +3873,77 @@ return $this->serverError('An internal error occurred.');
         ];
     }
 
+    private function buildAiDirectLessonPlanInput(int $slaId, array $data): array
+    {
+        $result = $this->api->getLessonPlanningChoices([
+            'stream_learning_area_id' => $slaId,
+            'sub_strand_id' => (int) ($data['sub_strand_id'] ?? 0),
+        ]);
+        $payload = is_array($result) ? ($result['data'] ?? $result) : [];
+        if (isset($payload['data']) && is_array($payload['data'])) $payload = $payload['data'];
+        if (empty($payload['sub_strand_id'])) {
+            throw new DomainException('The class stream, learning area or sub-strand is outside your teaching assignment.', 403);
+        }
+        $choices = (array) ($payload['choices'] ?? []);
+        $texts = static function (array $rows): array {
+            $out = [];
+            foreach ($rows as $row) {
+                if (!is_array($row)) continue;
+                foreach (['text', 'name', 'criteria_name'] as $key) {
+                    if (isset($row[$key]) && trim((string) $row[$key]) !== '') { $out[] = trim((string) $row[$key]); break; }
+                }
+            }
+            return array_slice(array_values(array_unique($out)), 0, 20);
+        };
+        $clip = static fn($v, int $n = 200): string => mb_substr(trim((string) $v), 0, $n);
+        return [
+            'learning_area' => $clip($data['learning_area_name'] ?? ''),
+            'strand' => $clip($data['strand_name'] ?? ''),
+            'sub_strand' => $clip($data['sub_strand_name'] ?? ''),
+            'scheme_title' => $clip($data['topic'] ?? ($data['sub_strand_name'] ?? '')),
+            'week_number' => $clip($data['lesson_date'] ?? '', 40),
+            'learning_outcomes' => $texts((array) ($choices['outcomes'] ?? [])),
+            'learning_experiences' => $texts((array) ($choices['experiences'] ?? [])),
+            'resources' => $texts((array) ($choices['resources'] ?? [])),
+            'assessment_tools' => $texts((array) ($choices['assessment_tools'] ?? [])),
+            'competencies' => $texts((array) ($choices['competencies'] ?? [])),
+            'inquiry_questions' => $texts((array) ($choices['inquiry_questions'] ?? [])),
+            'teacher_intent' => $clip($data['teacher_intent'] ?? 'Draft a complete, learner-centred CBC lesson plan for this class: introduction, lesson development steps, conclusion, formative assessment and homework.', 500),
+        ];
+    }
+
     /** POST /api/academic/ai-assessment-draft-queue */
     public function postAiAssessmentDraftQueue($id = null, $data = [], $segments = [])
     {
         if (!$this->canUseAiAssessmentDraft()) return $this->forbidden('Academic assessment permission is required');
         try {
+            $assessmentId = (int) ($data['assessment_id'] ?? 0);
+            if ($assessmentId > 0) {
+                // Draft the questions of one formative assessment from its
+                // own strand, sub-strands and learning outcomes.
+                $ctx = $this->academicManager->formativeAssessmentAiContext(
+                    $assessmentId, (int) ($this->getCurrentStaffId() ?? 0), $this->canManageAllFormativeAssessments()
+                );
+                if (!$ctx) throw new DomainException('This assessment is outside your teaching scope.', 403);
+                if (!$ctx['learning_outcome_ids']) throw new DomainException('Link the assessment to a sub-strand with learning outcomes first.', 422);
+                $count = max(1, min(30, (int) ($data['question_count'] ?? 10)));
+                $input = [
+                    'learning_area' => (string) $ctx['learning_area'],
+                    'strand' => (string) $ctx['strand'],
+                    'sub_strand' => implode('; ', $ctx['sub_strands']),
+                    'learning_outcome' => mb_substr(implode(' | ', $ctx['learning_outcomes']), 0, 1500),
+                    'assessment_type' => mb_substr(trim((string) ($data['assessment_type'] ?? 'Classroom quiz')), 0, 100) ?: 'Classroom quiz',
+                    'max_marks' => (string) max(1, (int) round((float) ($ctx['assessment']['max_marks'] ?? 20))),
+                    'question_count' => (string) $count,
+                    'teacher_intent' => mb_substr(trim((string) ($data['teacher_intent'] ?? '')), 0, 500)
+                        ?: "Write {$count} age-appropriate questions that test understanding of these outcomes, with marks adding up to the maximum and a short expected answer for each.",
+                ];
+                $queued = $this->contract(DraftRepository::class)->queue(
+                    'academics.assessment_draft', $this->aiAcademicContext(), $input,
+                    ['subject_type' => 'academic_assessment_draft', 'subject_id' => (int) $ctx['learning_outcome_ids'][0], 'scope' => 'formative_assessment_questions']
+                );
+                return $this->accepted($queued + ['assessment_id' => $assessmentId], 'Assessment questions are being drafted');
+            }
             $outcomeId = (int) ($data['learning_outcome_id'] ?? 0);
             if ($outcomeId < 1) throw new DomainException('Select an authorized CBC learning outcome first.', 422);
             $query = $this->scopedCurriculumQuery(['learning_area_id' => (int) ($data['learning_area_id'] ?? 0)]);
@@ -4296,6 +4460,12 @@ return $this->serverError('An internal error occurred.');
     {
         $filters = array_merge($_GET, is_array($data) ? $data : []);
         $staffId = $this->getCurrentStaffId();
+        // Results outside academic leadership are always limited to the
+        // teacher's own stream x learning-area assignments, whatever the
+        // browser sends.
+        if (!$this->canManageAllFormativeAssessments()) {
+            $filters['subject_teacher_only'] = true;
+        }
         if (!empty($filters['subject_teacher_only']) && !$staffId) {
             return $this->forbidden('A staff teaching assignment is required to view subject-scoped results');
         }
@@ -4367,6 +4537,73 @@ return $this->serverError('An internal error occurred.');
         $open = !isset($data['open']) || filter_var($data['open'], FILTER_VALIDATE_BOOLEAN);
         $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
         return $this->handleResponse($this->academicManager->setAssessmentResultsWindow($assessmentId, $open, $userId, $staffId, $canManageAll));
+    }
+
+    /** GET /api/academic/formative-assessment-questions/{assessmentId} */
+    public function getFormativeAssessmentQuestions($id = null, $data = [], $segments = [])
+    {
+        $assessmentId = (int) ($id ?? ($_GET['assessment_id'] ?? 0));
+        if (!$assessmentId) return $this->badRequest('assessment_id is required');
+        if (!$this->canAccessFormativeAssessments()) return $this->forbidden('You do not have permission to view formative assessments');
+        return $this->handleResponse($this->academicManager->getFormativeAssessmentQuestions(
+            $assessmentId, (int) ($this->getCurrentStaffId() ?? 0), $this->canManageAllFormativeAssessments()
+        ));
+    }
+
+    /** POST /api/academic/formative-assessment-questions/{assessmentId} {questions:[], mode, source, sync_max_marks} */
+    public function postFormativeAssessmentQuestions($id = null, $data = [], $segments = [])
+    {
+        $assessmentId = (int) ($id ?? ($data['assessment_id'] ?? 0));
+        if (!$assessmentId) return $this->badRequest('assessment_id is required');
+        if (!$this->canAccessFormativeAssessments()) return $this->forbidden('You do not have permission to manage formative assessments');
+        return $this->handleResponse($this->academicManager->saveFormativeAssessmentQuestions(
+            $assessmentId, is_array($data) ? $data : [], (int) ($this->getCurrentStaffId() ?? 0), $this->canManageAllFormativeAssessments()
+        ));
+    }
+
+    /**
+     * POST /api/academic/formative-assessment-questions-extract (multipart: file, assessment_id)
+     * Reads an uploaded paper (PDF, DOCX, image, text) and returns the
+     * questions found in it as a preview. Nothing is saved until the teacher
+     * reviews the list and saves it.
+     */
+    public function postFormativeAssessmentQuestionsExtract($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canAccessFormativeAssessments()) return $this->forbidden('You do not have permission to manage formative assessments');
+        $assessmentId = (int) ($data['assessment_id'] ?? $_POST['assessment_id'] ?? 0);
+        if ($assessmentId > 0 && !$this->academicManager->formativeAssessmentForStaff(
+            $assessmentId, (int) ($this->getCurrentStaffId() ?? 0), $this->canManageAllFormativeAssessments()
+        )) {
+            return $this->forbidden('This assessment is outside your teaching scope');
+        }
+        $file = $_FILES['file'] ?? null;
+        if (!$file || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string) $file['tmp_name'])) {
+            return $this->badRequest('Choose the question paper to upload.');
+        }
+        $name = basename((string) ($file['name'] ?? 'paper'));
+        $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+        if (!in_array($ext, ['pdf', 'docx', 'txt', 'jpg', 'jpeg', 'png', 'webp'], true)) {
+            return $this->badRequest('Upload a PDF, Word (.docx), text file or a photo of the paper.');
+        }
+        if ((int) ($file['size'] ?? 0) > 8 * 1024 * 1024) return $this->badRequest('The file is larger than 8 MB.');
+        try {
+            $bytes = (string) file_get_contents((string) $file['tmp_name']);
+            $extracted = (new \App\API\Services\PythonDocumentBridge())->extractUploadedDocument([
+                'content_base64' => base64_encode($bytes),
+                'filename' => $name,
+                'profile' => 'assessment_questions',
+            ]);
+            $questions = \App\API\Services\AssessmentQuestionParser::parse((string) ($extracted['text'] ?? ''));
+            return $this->success([
+                'filename' => mb_substr($name, 0, 160),
+                'extraction_method' => (string) ($extracted['extraction_method'] ?? ''),
+                'questions' => $questions,
+                'preview_only' => true,
+            ], $questions ? 'Questions found. Review them before saving.' : 'No numbered questions were found in this file.');
+        } catch (\Throwable $e) {
+            \App\API\Includes\FileLogger::write('academic', ['type' => 'assessment_question_extract_failed', 'reason' => mb_substr($e->getMessage(), 0, 200)], 'warning');
+            return $this->badRequest('The file could not be read. Try a clearer PDF/Word file, or type the questions in.');
+        }
     }
 
     public function postFormativeAssessmentMarks($id = null, $data = [], $segments = [])
@@ -5274,7 +5511,7 @@ return $this->serverError('An internal error occurred.');
     /** POST /api/academic/grading-band - Create or update a grading band */
     public function postGradingBand($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
+        if ($guard = $this->gradingManageGuard()) return $guard;
         $payload = is_array($data) ? $data : [];
         $payload['user_id'] = (int) $this->getUserId();
         return $this->handleResponse($this->academicManager->postGradingBand($payload));
@@ -5283,7 +5520,7 @@ return $this->serverError('An internal error occurred.');
     /** DELETE /api/academic/grading-band/{id} - Delete a band */
     public function deleteGradingBand($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
+        if ($guard = $this->gradingManageGuard()) return $guard;
         if (!$id) return $this->badRequest('Band ID is required');
         return $this->handleResponse($this->academicManager->deleteGradingBand((int)$id));
     }
@@ -5303,7 +5540,7 @@ return $this->serverError('An internal error occurred.');
     /** POST /api/academic/aggregation-profile - upsert a term aggregation profile */
     public function postAggregationProfile($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
+        if ($guard = $this->gradingManageGuard()) return $guard;
         $payload = is_array($data) ? $data : [];
         $payload['user_id'] = (int) $this->getUserId();
         return $this->handleResponse($this->academicManager->postAggregationProfile($payload));
@@ -5312,7 +5549,7 @@ return $this->serverError('An internal error occurred.');
     /** DELETE /api/academic/aggregation-profile/{id} - deactivate a profile */
     public function deleteAggregationProfile($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
+        if ($guard = $this->gradingManageGuard()) return $guard;
         if (!$id) return $this->badRequest('Profile ID is required');
         return $this->handleResponse($this->academicManager->deleteAggregationProfile((int)$id));
     }
@@ -5327,7 +5564,7 @@ return $this->serverError('An internal error occurred.');
     /** POST /api/academic/national-results-import - CSV upload (pending_review) */
     public function postNationalResultsImport($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        if ($guard = $this->gradingManageGuard()) return $guard;
         $payload = is_array($data) ? $data : [];
         $payload['user_id'] = (int) $this->getUserId();
         return $this->handleResponse($this->academicManager->postNationalResultsImport($payload));
@@ -5343,7 +5580,7 @@ return $this->serverError('An internal error occurred.');
     /** POST /api/academic/national-results-review/{id} - approve or reject */
     public function postNationalResultsReview($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        if ($guard = $this->gradingManageGuard()) return $guard;
         if (!$id) return $this->badRequest('Result ID is required');
         $payload = is_array($data) ? $data : [];
         $payload['user_id'] = (int) $this->getUserId();

@@ -698,6 +698,7 @@ return $this->serverError('An internal error occurred.');
                 'parent_id' => $parentId,
                 'parent_relationship' => trim((string) ($data['parent_relationship'] ?? '')),
                 'special_needs' => trim((string) ($data['special_needs'] ?? '')),
+                'previous_school' => mb_substr(trim((string) ($data['previous_school'] ?? '')), 0, 200) ?: null,
             ];
 
             $result = $this->contract('App\\API\\Modules\\admission\\StudentAdmissionWorkflow')
@@ -715,6 +716,17 @@ return $this->serverError('An internal error occurred.');
         }
     }
 
+
+    /** GET /api/staff/my-admission-applications — the applications this staff member submitted, with status. */
+    public function getMyAdmissionApplications($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->access->staffId();
+        if (!$staffId) return $this->forbidden('No staff profile is linked to this account.');
+        $pdo = $this->db->getConnection();
+        $person = \App\API\Services\StaffRecordsService::personForStaffId($pdo, (int) $staffId);
+        if (!$person) return $this->forbidden('Active staff profile not found.');
+        return $this->success(['applications' => \App\API\Modules\admission\AdmissionAdminManager::staffPortalApplicationsForPerson($pdo, (int) $person['person_id'])]);
+    }
 
     /** GET /api/staff/my-admission-options */
     public function getMyAdmissionOptions($id = null, $data = [], $segments = [])
@@ -2543,8 +2555,9 @@ return $this->serverError('An internal error occurred.');
     public function getIncidents($id = null, $data = [], $segments = [])
     {
         try {
-            $this->access->require('staff.incidents.self');
-            $staffId = (int) ($this->access->staffId() ?? 0);
+            // Reporting and following one's own incidents is self-service
+            // for every active staff member (own reports only).
+            $staffId = (int) $this->access->requireActiveStaff();
             if ($staffId <= 0) {
                 throw new RuntimeException('No staff profile is linked to this account', 403);
             }
@@ -2564,8 +2577,9 @@ return $this->serverError('An internal error occurred.');
     public function postIncidents($id = null, $data = [], $segments = [])
     {
         try {
-            $this->access->require('staff.incidents.self');
-            $staffId = (int) ($this->access->staffId() ?? 0);
+            // Reporting and following one's own incidents is self-service
+            // for every active staff member (own reports only).
+            $staffId = (int) $this->access->requireActiveStaff();
             if ($staffId <= 0) {
                 throw new RuntimeException('No staff profile is linked to this account', 403);
             }

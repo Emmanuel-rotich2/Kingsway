@@ -10,13 +10,14 @@
  */
 ?>
 
-<div>
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/chaplaincy.css?v=<?= asset_version('css/pages/chaplaincy.css') ?>">
+<div class="kw-care">
     <!-- Page Header -->
     <div class="row mb-4">
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="bi bi-handshake me-2"></i>Parent Meetings</h4>
+                    <h4 class="care-title mb-1"><i class="bi bi-handshake me-2"></i>Parent Meetings</h4>
                     <p class="text-muted mb-0">Schedule and manage parent-teacher meetings</p>
                 </div>
                 <button class="btn btn-primary" id="scheduleMeeting" data-bs-toggle="modal" data-bs-target="#scheduleMeetingModal">
@@ -157,3 +158,4 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/parent_meetings.js'); ?>
+<?php asset_script($appBase, 'js/components/care_ui.js'); ?>

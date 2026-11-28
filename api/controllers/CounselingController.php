@@ -33,12 +33,42 @@ class CounselingController extends BaseController
         $this->api = $this->contract('App\API\Modules\counseling\CounselingAPI');
     }
 
+    /**
+     * Counselling records are confidential pastoral records. They are open to
+     * the Chaplain/Counsellor (24) and the referral partners the counselling
+     * routes serve: Headteacher (5) and Deputy Head - Discipline (63).
+     * Confidential session notes are for the Chaplain/Counsellor only.
+     */
+    private const COUNSELING_ROLES = [5, 24, 63];
+    private const CONFIDENTIAL_NOTE_ROLES = [24];
+
+    private function roleIds(): array
+    {
+        return array_map('intval', (array) $this->getUserRoleIds());
+    }
+
     private function guardCounseling(): ?array
     {
         if (!$this->user) {
             return $this->unauthorized('Authentication required');
         }
+        if (!array_intersect(self::COUNSELING_ROLES, $this->roleIds())) {
+            return $this->forbidden('Counselling records are confidential to the chaplaincy and counselling office.');
+        }
         return null;
+    }
+
+    /** Remove confidential notes from a result unless the viewer is the counsellor. */
+    private function redactConfidential($result)
+    {
+        if (array_intersect(self::CONFIDENTIAL_NOTE_ROLES, $this->roleIds())) return $result;
+        $walk = function ($value) use (&$walk) {
+            if (!is_array($value)) return $value;
+            unset($value['confidential_notes']);
+            foreach ($value as $k => $v) $value[$k] = $walk($v);
+            return $value;
+        };
+        return $walk($result);
     }
 
     /**
@@ -55,6 +85,7 @@ class CounselingController extends BaseController
      */
     public function getSummary($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardCounseling()) return $guard;
         return $this->handleResponse($this->api->getSummary($_GET ?? []));
     }
 
@@ -92,8 +123,9 @@ class CounselingController extends BaseController
      */
     public function getSession($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardCounseling()) return $guard;
         if ($id) {
-            return $this->handleResponse($this->api->get($id));
+            return $this->handleResponse($this->redactConfidential($this->api->get($id)));
         }
 
         // Get query parameters for filtering
@@ -106,7 +138,7 @@ class CounselingController extends BaseController
             'limit' => $_GET['limit'] ?? 10
         ];
 
-        return $this->handleResponse($this->api->list($params));
+        return $this->handleResponse($this->redactConfidential($this->api->list($params)));
     }
 
     /**
@@ -189,6 +221,7 @@ class CounselingController extends BaseController
      */
     public function getStats($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardCounseling()) return $guard;
         return $this->handleResponse($this->api->getStats());
     }
 
@@ -199,8 +232,9 @@ class CounselingController extends BaseController
     public function getSessions($id = null, $data = [], $segments = [])
     {
         $limit = min((int)($_GET['limit'] ?? 20), 100);
+        if ($guard = $this->guardCounseling()) return $guard;
         $sort  = ($_GET['sort'] ?? 'recent') === 'recent' ? 'DESC' : 'ASC';
-        return $this->handleResponse($this->api->getRecentSessions($limit, $sort));
+        return $this->handleResponse($this->redactConfidential($this->api->getRecentSessions($limit, $sort)));
     }
 
     /**

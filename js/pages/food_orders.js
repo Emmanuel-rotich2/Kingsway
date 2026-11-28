@@ -1,123 +1,62 @@
-/**
- * food_orders.js — Food Orders Controller (standalone page).
- * Food/catering supplier purchase order tracking.
- */
-const foodOrdersController = {
-  state: { orders: [], page: 1, pages: 0, total: 0, limit: 20, referenceCache: null },
+/** Deliveries: food received into the store, grouped by delivery (ledger rows of kind 'receive'). */
+(() => {
+  'use strict';
+  const root = document.getElementById('deliveriesPage');
+  if (!root) return;
+  const O = window.OpsCommon;
+  const F = window.FoodStore;
+  const { esc, num, kes, date, data, api } = O;
+  const $ = (id) => document.getElementById(id);
+  let rows = [];
 
-  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+  const shown = () => rows.filter((r) => !$('dlSup').value || r.supplier === $('dlSup').value);
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); },
-
-  fmtDate(v) {
-    if (!v) return '\u2014';
-    const dt = new Date(String(v).replace(' ', 'T'));
-    if (isNaN(dt)) return this.esc(v);
-    return dt.toLocaleDateString();
-  },
-
-  badgeClass(s) {
-    return { received: 'bg-success', approved: 'bg-primary', ordered: 'bg-info text-dark', pending: 'bg-warning text-dark', draft: 'bg-secondary', cancelled: 'bg-danger' }[s] || 'bg-secondary';
-  },
-
-  getParams(page) {
-    const params = { page, limit: this.state.limit };
-    const search = document.getElementById('foSearch')?.value.trim();
-    const status = document.getElementById('foStatus')?.value;
-    if (search) params.search = search;
-    if (status) params.status = status;
-    return params;
-  },
-
-  async loadReferencesComposed() {
+  async function load() {
+    $('dlBody').innerHTML = '<tr><td colspan="5" class="text-muted p-3">Loading deliveries…</td></tr>';
     try {
-      const response = await window.API.nodeViews.read("catering", "food-orders-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Food Orders Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
-    }
-  },
+      rows = (data(await api('/catering/store-ledger', 'GET', null, { movement: 'receive', from: $('dlFrom').value, to: $('dlTo').value })).rows) || [];
+    } catch (e) { $('dlBody').innerHTML = `<tr><td colspan="5" class="text-muted p-3">${esc(e.message || 'Deliveries could not be loaded.')}</td></tr>`; return; }
+    const cur = $('dlSup').value;
+    const sups = [...new Set(rows.map((r) => r.supplier).filter(Boolean))].sort();
+    $('dlSup').innerHTML = '<option value="">All suppliers</option>' + sups.map((s) => `<option>${esc(s)}</option>`).join('');
+    $('dlSup').value = sups.includes(cur) ? cur : '';
+    render();
+  }
 
-  async load(page = 1) {
-    const body = document.getElementById('foBody');
-    body.innerHTML = '<tr><td colspan="8" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
-    try {
-      const cache = this.state.referenceCache;
-      const r = cache?.suppliers !== undefined ? cache.suppliers : await this.API('GET', '/inventory/purchase-orders-list', null, this.getParams(page));
-      const payload = r?.data ?? r ?? {};
-      this.state.orders = Array.isArray(payload?.orders) ? payload.orders : (Array.isArray(payload) ? payload : []);
-      this.state.page = Number(payload?.pagination?.page || page);
-      this.state.pages = Number(payload?.pagination?.total_pages || 0);
-      this.state.total = Number(payload?.pagination?.total || this.state.orders.length);
-      this.render();
-    } catch (e) { body.innerHTML = `<tr><td colspan="8" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
-  },
+  function render() {
+    const list = shown();
+    const groups = new Map();
+    list.forEach((r) => { const k = `${r.date}|${r.supplier}|${r.document_no || ''}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); });
+    const value = list.reduce((s, r) => s + (r.value || 0), 0);
+    $('dlFacts').innerHTML = [[num(groups.size), groups.size === 1 ? 'delivery' : 'deliveries'], [kes(value), 'received, at cost']]
+      .map(([v, l]) => `<li><span class="ops-fact__v">${esc(v)}</span><span class="ops-fact__l">${esc(l)}</span></li>`).join('');
+    $('dlBody').innerHTML = groups.size ? [...groups.values()].map((g) => {
+      const h = g[0];
+      const head = [date(h.date), h.supplier || 'Supplier not recorded', h.document_no ? `delivery note ${h.document_no}` : 'no delivery note'].join(', ');
+      return `<tr class="table-active"><th scope="rowgroup" colspan="5"><span class="fw-bold">${esc(head)}</span>
+          <span class="small text-muted fw-normal ms-2">${esc(kes(g.reduce((s, r) => s + (r.value || 0), 0)))}${h.recorded_by ? `, received by ${esc(h.recorded_by)}` : ''}</span>
+          ${h.notes ? `<div class="small fw-normal">${esc(h.notes)}</div>` : ''}</th></tr>`
+        + g.map((r) => `<tr><td>${esc(r.item)}</td><td class="text-nowrap">${esc(num(r.in))} ${esc(r.unit)}</td><td>${r.unit_cost !== null ? esc(kes(r.unit_cost)) : ''}</td>
+          <td>${r.value !== null ? esc(kes(r.value)) : ''}</td><td>${r.expiry_date ? esc(date(r.expiry_date)) : ''}</td></tr>`).join('');
+    }).join('') : '<tr><td colspan="5" class="text-muted p-3">No deliveries in these dates.</td></tr>';
+  }
 
-  render() {
-    const body = document.getElementById('foBody');
-    if (!this.state.orders.length) { body.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">No food orders found.</td></tr>'; }
-    else {
-      body.innerHTML = this.state.orders.map(o => `<tr>
-        <td class="small fw-semibold">${this.esc(o.order_number || `#${o.id}`)}</td>
-        <td class="small">${this.esc(o.supplier_name || '\u2014')}</td>
-        <td class="small text-muted">${this.esc(o.contact_person || '\u2014')}</td>
-        <td class="small">${this.fmtDate(o.order_date)}</td>
-        <td class="small">${this.fmtDate(o.expected_delivery_date || o.expected_date)}</td>
-        <td class="small">${this.esc(o.item_count ?? '\u2014')}</td>
-        <td class="small fw-semibold">KES ${Number(o.total_amount ?? 0).toLocaleString()}</td>
-        <td><span class="badge ${this.badgeClass(o.status)}">${this.esc(o.status || 'pending')}</span></td>
-      </tr>`).join('');
-    }
-    document.getElementById('foInfo').textContent = `Showing ${this.state.orders.length} of ${this.state.total} orders`;
-    const pages = document.getElementById('foPages');
-    let html = '';
-    if (this.state.page > 1) html += `<button class="btn btn-outline-secondary" data-kw-onclick="foodOrdersController.load(${this.state.page - 1})">&laquo; Prev</button>`;
-    html += `<span class="btn btn-light disabled">Page ${this.state.page}${this.state.pages ? ` / ${this.state.pages}` : ''}</span>`;
-    if (this.state.page < this.state.pages) html += `<button class="btn btn-outline-secondary" data-kw-onclick="foodOrdersController.load(${this.state.page + 1})">Next &raquo;</button>`;
-    pages.innerHTML = html;
-  },
-
-  setupEventListeners() {
-    let timer = null;
-    document.getElementById('foSearch')?.addEventListener('input', () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => this.load(), 400);
-    });
-    document.getElementById('foStatus')?.addEventListener('change', () => this.load());
-  },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("catering", "food-orders-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Food Orders Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
-    }
-  },
-
-  async init() {
-    if (window.AuthContext?.ready) await window.AuthContext.ready();
-    this.setupEventListeners();
-    await this.loadReferencesComposed();
-    await this.load();
-    window.APIRealtime?.register?.("food_orders", {
-      refresh: async () => {
-        this.state.referenceCache = null;
-        await this.loadReferencesComposed();
-        await this.load();
-      }
-    }, ["inventory", "finance"]);
-  },
-};
-
-const foodOrdersControllerInstance = foodOrdersController;
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => foodOrdersControllerInstance.init().catch(() => {}));
-} else {
-  foodOrdersControllerInstance.init().catch(() => {});
-}
-
-window.foodOrdersController = foodOrdersControllerInstance;
+  async function init() {
+    await window.AuthContext?.ready?.();
+    F.wire();
+    $('dlTo').value = O.today();
+    const d = new Date(); d.setDate(d.getDate() - 30); $('dlFrom').value = d.toISOString().slice(0, 10);
+    ['dlFrom', 'dlTo'].forEach((id) => $(id).addEventListener('change', load));
+    $('dlSup').addEventListener('change', render);
+    F.onChange(load);
+    $('dlNew').addEventListener('click', () => F.openReceive());
+    $('dlPrint').addEventListener('click', () => window.print());
+    $('dlCsv').addEventListener('click', () => O.exportCsv(`food_deliveries_${$('dlFrom').value}_${$('dlTo').value}.csv`, ['Date', 'Supplier', 'Delivery note', 'Item', 'Quantity', 'Unit', 'Cost of one', 'Value', 'Use by', 'Received by', 'Notes'],
+      shown().map((r) => [r.date, r.supplier, r.document_no, r.item, r.in, r.unit, r.unit_cost, r.value, r.expiry_date, r.recorded_by, r.notes])));
+    if (!O.canExport()) $('dlCsv').hidden = true;
+    window.APIRealtime?.register?.('food_orders', { refresh: load }, ['inventory', 'catering']);
+    try { await F.load(); } catch { /* the list still loads; the form needs the store */ }
+    await load();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();

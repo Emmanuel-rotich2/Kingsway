@@ -77,6 +77,21 @@ $escape = static function ($value): string {
 
     <!-- ROW 2: DEPARTMENT ALERT — full-width -->
     <div class="row g-3 mb-4">
+        <!-- Security staff only: today at the gate (filled by support_gate_panel.js). -->
+        <div class="col-12" id="supportGatePanel" hidden>
+            <div class="card dash-card">
+                <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
+                    <div>
+                        <h6 class="mb-1">Today at the gate</h6>
+                        <p class="mb-0 small text-muted" id="supportGateFigures">Loading…</p>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <a class="btn btn-success" href="home.php?route=security_gate"><i class="bi bi-door-open me-1" aria-hidden="true"></i>Open gate desk</a>
+                        <a class="btn btn-outline-secondary" href="home.php?route=school_security_incidents">Incidents</a>
+                    </div>
+                </div>
+            </div>
+        </div>
         <div class="col-12">
             <div class="card dash-card border-start border-4 border-warning" id="supportDeptAlert">
                 <div class="card-body">
@@ -364,3 +379,4 @@ $escape = static function ($value): string {
 
 <?php asset_script($appBase, 'js/dashboards/dashboard_base_controller.js'); ?>
 <?php asset_script($appBase, 'js/dashboards/support_staff_dashboard.js'); ?>
+<?php asset_script($appBase, 'js/dashboards/support_gate_panel.js'); ?>

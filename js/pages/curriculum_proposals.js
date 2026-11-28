@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const state = { context: null, proposals: [], history: [], strands: [], subStrands: [], admin: false, sharedYearFilter: false };
+  const state = { areas: [], context: null, proposals: [], history: [], strands: [], subStrands: [], admin: false, sharedYearFilter: false };
   const el = id => document.getElementById(id);
   const esc = value => { const node=document.createElement('span'); node.textContent=value??''; return node.innerHTML; };
   const rows = value => Array.isArray(value) ? value : (value?.data || []);
@@ -58,10 +58,14 @@
     }
   }
 
+  // Areas with the same name exist once per level band (e.g. English for
+  // lower and upper primary), so always label them with their grades.
+  function areaLabel(a){const band=String(a.levels||a.level_band||'').replace(/_/g,' ').trim();return `${a.name}${band?' — '+band:''}`;}
   function fillAreaSelects(areas) {
-    const options='<option value="">Select learning area</option>'+areas.map(a=>`<option value="${a.id}">${esc(a.name)} (${esc(a.code)})</option>`).join('');
-    el('proposalArea').innerHTML=options;
-    el('historyArea').innerHTML='<option value="">All assigned learning areas</option>'+options.replace('<option value="">Select learning area</option>','');
+    state.areas=areas;
+    const opts=areas.map(a=>`<option value="${a.id}">${esc(areaLabel(a))}</option>`).join('');
+    el('proposalArea').innerHTML='<option value="">Select learning area</option>'+opts;
+    el('historyArea').innerHTML='<option value="">All assigned learning areas</option>'+opts;
   }
 
   async function loadProposals() {
@@ -101,44 +105,78 @@
 
   function openProposal(){
     el('proposalForm').reset(); el('proposalId').value='';
-    el('proposalGrade').innerHTML=''; refreshGrades(); refreshFormChoices();
+    refreshGrades(); refreshFormChoices();
     bootstrap.Modal.getOrCreateInstance(el('proposalModal')).show();
   }
 
+  function selectedArea(){return (state.areas||[]).find(a=>Number(a.id)===Number(el('proposalArea').value))||null;}
+
   function refreshGrades(){
-    const area=Number(el('proposalArea').value); const scope=(state.context?.data||state.context)?.scope||{};
-    const grades=scope.restricted?[...new Set((scope.contexts||[]).filter(x=>Number(x.learning_area_id)===area).map(x=>x.grade_level))]:['PlayGroup','PP1','PP2',...Array.from({length:9},(_,i)=>`Grade ${i+1}`)];
-    el('proposalGrade').innerHTML='<option value="">Select grade</option>'+grades.map(g=>`<option>${esc(g)}</option>`).join('');
+    const area=selectedArea(); const scope=(state.context?.data||state.context)?.scope||{};
+    const all=['PlayGroup','PP1','PP2',...Array.from({length:9},(_,i)=>`Grade ${i+1}`)];
+    let grades;
+    if(scope.restricted) grades=[...new Set((scope.contexts||[]).filter(x=>area&&Number(x.learning_area_id)===Number(area.id)).map(x=>x.grade_level).filter(Boolean))];
+    else if(area?.levels) grades=String(area.levels).split(',').map(g=>g.trim()).filter(Boolean);
+    else grades=area?all:[];
+    const current=el('proposalGrade').value;
+    el('proposalGrade').innerHTML=(grades.length===1?'':'<option value="">Select grade</option>')+grades.map(g=>`<option>${esc(g)}</option>`).join('');
+    if(grades.includes(current))el('proposalGrade').value=current;
   }
 
+  // Each field shows only when it means something for this kind of change,
+  // so nothing is asked twice (the learning area is never also "the item").
   async function refreshFormChoices(event){
     if(event?.target?.id==='proposalArea')refreshGrades();
-    const entity=el('proposalEntity').value, action=el('proposalAction').value;
+    const entity=el('proposalEntity').value;
     const createOption=el('proposalAction').querySelector('option[value="create"]');
     createOption.disabled=entity==='learning_area';
-    if(entity==='learning_area'&&action==='create')el('proposalAction').value='update';
+    if(entity==='learning_area'&&el('proposalAction').value==='create')el('proposalAction').value='update';
+    const action=el('proposalAction').value;
+    const isArea=entity==='learning_area';
+    const noun={strand:'strand',sub_strand:'sub-strand',learning_area:'learning area'}[entity];
+    el('gradeWrap').classList.toggle('d-none',isArea);
+    el('targetWrap').classList.toggle('d-none',isArea||action==='create');
+    el('parentStrandWrap').classList.toggle('d-none',!(entity==='sub_strand'&&action==='create'));
     document.querySelectorAll('.proposed-field').forEach(n=>n.classList.toggle('d-none',action==='remove'));
-    el('targetWrap').classList.toggle('d-none',action==='create'); el('parentStrandWrap').classList.toggle('d-none',!(entity==='sub_strand'&&action==='create'));
+    el('proposalTargetLabel').textContent=`${action==='remove'?'Strand to retire':'Strand to modify'}`.replace('Strand',noun.charAt(0).toUpperCase()+noun.slice(1));
+    el('proposalCodeLabel').textContent=action==='create'?`New ${noun} code`:'Code (after change)';
+    el('proposalNameLabel').textContent=action==='create'?`New ${noun} name`:'Name (after change)';
+    if(isArea){
+      const area=selectedArea();
+      if(area&&action==='update'&&event?.target?.id!=='proposalName'){el('proposalCode').value=area.code||'';el('proposalName').value=area.name||'';el('proposalDescription').value=area.description||'';}
+      return;
+    }
     const area=el('proposalArea').value,grade=el('proposalGrade').value;
-    if(!area||!grade)return;
-    state.strands=rows(await api(`strands?learning_area_id=${area}&grade_level=${encodeURIComponent(grade)}&academic_year_id=${el('yearFilter').value}`));
-    el('proposalParentStrand').innerHTML='<option value="">Select strand</option>'+state.strands.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('');
+    if(!area||!grade){el('proposalTarget').innerHTML='<option value="">Choose the learning area and grade first</option>';el('proposalParentStrand').innerHTML='';return;}
+    const year=el('yearFilter').value;
+    state.strands=rows(await api(`strands?learning_area_id=${area}&grade_level=${encodeURIComponent(grade)}&academic_year_id=${year}`));
+    el('proposalParentStrand').innerHTML='<option value="">Select strand</option>'+state.strands.map(s=>`<option value="${s.id}">${esc((s.code?s.code+' · ':'')+s.name)}</option>`).join('');
     let targets=state.strands;
-    if(entity==='learning_area')targets=((state.context?.data||state.context)?.learning_areas||[]);
-    if(entity==='sub_strand'){state.subStrands=rows(await api(`sub-strands?learning_area_id=${area}&grade_level=${encodeURIComponent(grade)}&academic_year_id=${el('yearFilter').value}`));targets=state.subStrands;}
-    el('proposalTarget').innerHTML='<option value="">Select existing item</option>'+targets.map(x=>`<option value="${x.id}">${esc(x.code||'')} · ${esc(x.name)}</option>`).join('');
+    if(entity==='sub_strand'){state.subStrands=rows(await api(`sub-strands?learning_area_id=${area}&grade_level=${encodeURIComponent(grade)}&academic_year_id=${year}`));targets=state.subStrands;}
+    el('proposalTarget').innerHTML=`<option value="">Select ${noun}</option>`+targets.map(x=>`<option value="${x.id}">${esc((x.code?x.code+' · ':'')+x.name)}</option>`).join('');
   }
 
   function prefillTarget(){
     const id=Number(el('proposalTarget').value), entity=el('proposalEntity').value;
-    const source=entity==='strand'?state.strands:entity==='sub_strand'?state.subStrands:((state.context?.data||state.context)?.learning_areas||[]);
-    const item=source.find(x=>Number(x.id)===id);if(!item)return;
+    const source=entity==='strand'?state.strands:state.subStrands;
+    const item=(source||[]).find(x=>Number(x.id)===id);if(!item)return;
     el('proposalCode').value=item.code||'';el('proposalName').value=item.name||'';el('proposalDescription').value=item.description||'';
     if(entity==='sub_strand')el('proposalParentStrand').value=item.strand_id||'';
   }
 
-  function payload(){return {entity_type:el('proposalEntity').value,change_action:el('proposalAction').value,target_entity_id:Number(el('proposalTarget').value)||null,learning_area_id:Number(el('proposalArea').value),grade_level:el('proposalEntity').value==='learning_area'?'All':el('proposalGrade').value,academic_year_id:Number(el('yearFilter').value),academic_year_term_id:Number(el('proposalTerm').value)||null,rationale:el('proposalRationale').value.trim(),change_source:el('proposalSource').value,source_reference:el('proposalReference').value.trim(),proposed_data:{strand_id:Number(el('proposalParentStrand').value)||undefined,code:el('proposalCode').value.trim(),name:el('proposalName').value.trim(),description:el('proposalDescription').value.trim(),status:'active'}};}
-  async function save(andSubmit){try{const id=Number(el('proposalId').value);const result=await api(id?`curriculum-proposals/${id}`:'curriculum-proposals',id?'PUT':'POST',payload());const proposal=result?.data||result;if(andSubmit)await api('curriculum-proposals-submit','POST',{proposal_id:proposal.id});bootstrap.Modal.getInstance(el('proposalModal'))?.hide();window.showNotification?.(andSubmit?'Proposal submitted for review.':'Draft saved.','success');await loadProposals();}catch(e){window.showNotification?.(e.message||'Could not save proposal.','error');}}
+  function validate(){
+    const entity=el('proposalEntity').value, action=el('proposalAction').value;
+    if(!el('proposalArea').value)return 'Choose the learning area.';
+    if(entity!=='learning_area'&&!el('proposalGrade').value)return 'Choose the grade.';
+    if(entity!=='learning_area'&&action!=='create'&&!el('proposalTarget').value)return 'Choose the item to change.';
+    if(entity==='sub_strand'&&action==='create'&&!el('proposalParentStrand').value)return 'Choose the strand the new sub-strand belongs to.';
+    if(action!=='remove'&&!el('proposalName').value.trim())return 'Enter the name.';
+    if(!el('proposalRationale').value.trim())return 'Explain the reason for this change.';
+    return '';
+  }
+
+  function payload(){return {entity_type:el('proposalEntity').value,change_action:el('proposalAction').value,target_entity_id:el('proposalEntity').value==='learning_area'?Number(el('proposalArea').value):(Number(el('proposalTarget').value)||null),learning_area_id:Number(el('proposalArea').value),grade_level:el('proposalEntity').value==='learning_area'?'All':el('proposalGrade').value,academic_year_id:Number(el('yearFilter').value),academic_year_term_id:Number(el('proposalTerm').value)||null,rationale:el('proposalRationale').value.trim(),change_source:el('proposalSource').value,source_reference:el('proposalReference').value.trim(),proposed_data:{strand_id:Number(el('proposalParentStrand').value)||undefined,code:el('proposalCode').value.trim(),name:el('proposalName').value.trim(),description:el('proposalDescription').value.trim(),status:'active'}};}
+  async function save(andSubmit){const problem=validate();if(problem){window.showNotification?.(problem,'warning');return;}try{const id=Number(el('proposalId').value);const result=await api(id?`curriculum-proposals/${id}`:'curriculum-proposals',id?'PUT':'POST',payload());const proposal=result?.data||result;if(andSubmit)await api('curriculum-proposals-submit','POST',{proposal_id:proposal.id});bootstrap.Modal.getInstance(el('proposalModal'))?.hide();window.showNotification?.(andSubmit?'Proposal submitted for review.':'Draft saved.','success');await loadProposals();}catch(e){window.showNotification?.(e.message||'Could not save proposal.','error');}}
   async function submitProposal(id){try{await api('curriculum-proposals-submit','POST',{proposal_id:id});window.showNotification?.('Proposal submitted.','success');await loadProposals();}catch(e){window.showNotification?.(e.message||'Could not submit proposal.','error');}}
   function openReview(id){const p=state.proposals.find(x=>Number(x.id)===id);el('reviewProposalId').value=id;el('reviewNotes').value='';el('reviewSummary').textContent=`${p.change_action.toUpperCase()} ${p.entity_type.replace('_',' ')}\n${diffText(p.original_snapshot||{},p.proposed_data||{},p.change_action)}\nReason: ${p.rationale}`;bootstrap.Modal.getOrCreateInstance(el('reviewModal')).show();}
   async function review(decision){try{await api('curriculum-proposals-review','POST',{proposal_id:Number(el('reviewProposalId').value),decision,review_notes:el('reviewNotes').value.trim()});bootstrap.Modal.getInstance(el('reviewModal'))?.hide();window.showNotification?.(`Proposal ${decision}.`,'success');await Promise.all([loadProposals(),loadHistory()]);}catch(e){window.showNotification?.(e.message||'Review could not be recorded.','error');}}

@@ -16,9 +16,26 @@ window.GradingScalesCtrl = {
         nationalResults: [],
     },
 
+    canManage: false,
+
+    // Only the School Administrator edits grading policy; everyone else reads.
+    applyAccess() {
+        const auth = window.AuthContext;
+        this.canManage = Boolean(auth?.hasRole?.('school_admin')
+            || (auth?.getRoles?.() || []).some(r => String(r?.name || r).trim().toLowerCase() === 'school administrator'));
+        document.getElementById('gradingScalesRoot')?.classList.toggle('gs-readonly', !this.canManage);
+        document.getElementById('gsReadOnlyNotice')?.classList.toggle('d-none', this.canManage);
+    },
+
+    denyWrite() {
+        window.showNotification?.('Only the School Administrator can change grading scales.', 'warning');
+    },
+
     async init() {
         if (this.initialized) return;
         this.initialized = true;
+        await window.AuthContext?.ready?.();
+        this.applyAccess();
         try {
             await this.loadOverview();
             await this.loadNationalResults();
@@ -181,6 +198,7 @@ window.GradingScalesCtrl = {
     },
 
     openNewSystem() {
+        if (!this.canManage) { this.denyWrite(); return false; }
         document.getElementById("gsForm").reset();
         document.getElementById("gsId").value = "";
         document.getElementById("gsModalTitle").textContent = "New grading system";
@@ -191,6 +209,7 @@ window.GradingScalesCtrl = {
     },
 
     openEditSystem(id) {
+        if (!this.canManage) { this.denyWrite(); return false; }
         const sys = (this.state.adminSystems || []).find(s => Number(s.id) === Number(id));
         if (!sys) return;
         document.getElementById("gsForm").reset();
@@ -225,6 +244,7 @@ window.GradingScalesCtrl = {
     },
 
     async saveSystem(ev) {
+        if (!this.canManage) { ev?.preventDefault?.(); this.denyWrite(); return false; }
         ev?.preventDefault?.();
         const id = document.getElementById("gsId").value;
         const bands = [...document.querySelectorAll("#gsBandsTable tbody tr")].map(tr => {
@@ -257,6 +277,7 @@ window.GradingScalesCtrl = {
     },
 
     async publishSystem(id) {
+        if (!this.canManage) { this.denyWrite(); return false; }
         const sys = (this.state.adminSystems || []).find(s => Number(s.id) === Number(id));
         const replaces = sys?.supersedes_name ? `\n\n${sys.supersedes_name} will no longer be offered for new terms and exams. Exams already graded on it keep it.` : "";
         if (!(await window.confirmAction("Publish grading system", `Publish ${sys?.name || "this grading system"}? It can then be chosen for terms and exams, and its levels lock once results are graded on it.${replaces}`, { confirmText: "Publish" }))) return;
@@ -268,6 +289,7 @@ window.GradingScalesCtrl = {
     },
 
     async copySystem(id) {
+        if (!this.canManage) { this.denyWrite(); return false; }
         try {
             const res = await window.callAPI(`/academic/grading-systems-copy/${id}`, "POST", {});
             const d = res && res.id !== undefined ? res : (res?.data ?? {});
@@ -278,6 +300,7 @@ window.GradingScalesCtrl = {
     },
 
     async deleteSystem(id) {
+        if (!this.canManage) { this.denyWrite(); return false; }
         if (!(await window.confirmAction("Delete draft grading system", "Delete this draft grading system?", { confirmText: "Delete", danger: true }))) return;
         try {
             await window.callAPI(`/academic/grading-systems/${id}`, "DELETE");
@@ -292,6 +315,7 @@ window.GradingScalesCtrl = {
     },
 
     addBand(systemId) {
+        if (!this.canManage) { this.denyWrite(); return false; }
         document.getElementById("bandModalTitle").textContent = "Add Band";
         document.getElementById("bandForm").reset();
         document.getElementById("bfId").value = "";
@@ -302,6 +326,7 @@ window.GradingScalesCtrl = {
     },
 
     editBand(systemId, bandId) {
+        if (!this.canManage) { this.denyWrite(); return false; }
         const sys = this.state.systems.find(s => s.id === systemId);
         const b = sys && sys.bands.find(x => x.id === bandId);
         if (!b) return;
@@ -321,6 +346,7 @@ window.GradingScalesCtrl = {
     },
 
     async saveBand(ev) {
+        if (!this.canManage) { ev?.preventDefault?.(); this.denyWrite(); return false; }
         ev.preventDefault();
         const payload = {
             id: document.getElementById("bfId").value || null,
@@ -351,6 +377,7 @@ window.GradingScalesCtrl = {
     },
 
     async removeBand(bandId, code) {
+        if (!this.canManage) { this.denyWrite(); return false; }
         if (!(await window.confirmAction("Delete grading band", `Delete band ${code}? Results already graded with it will lose their band mapping.`, { confirmText: "Delete", danger: true }))) return;
         try {
             await window.API.academic.deleteGradingBand(bandId);
@@ -488,6 +515,7 @@ window.GradingScalesCtrl = {
     },
 
     async saveProfile(ev) {
+        if (!this.canManage) { ev?.preventDefault?.(); this.denyWrite(); return false; }
         ev.preventDefault();
         const scope = document.getElementById("pfScope").value;
         const payload = {
@@ -516,6 +544,7 @@ window.GradingScalesCtrl = {
     },
 
     async deactivateProfile(id) {
+        if (!this.canManage) { this.denyWrite(); return false; }
         if (!(await window.confirmAction("Deactivate profile", "Deactivate this profile? The broader scope's profile will apply again.", { confirmText: "Deactivate", danger: true }))) return;
         try {
             await window.API.academic.deleteAggregationProfile(id);
@@ -614,6 +643,7 @@ window.GradingScalesCtrl = {
     },
 
     async importNational(ev) {
+        if (!this.canManage) { ev?.preventDefault?.(); this.denyWrite(); return false; }
         const fileInput = document.getElementById("nrFile");
         const yearSelect = document.getElementById("nrYear");
         const feedback = document.getElementById("nrImportFeedback");
@@ -638,6 +668,7 @@ window.GradingScalesCtrl = {
     },
 
     async reviewNational(id, decision) {
+        if (!this.canManage) { this.denyWrite(); return false; }
         try {
             await window.API.academic.reviewNationalResult(id, decision);
             showNotification("Result " + decision, "success");

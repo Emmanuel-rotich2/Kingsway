@@ -23,7 +23,7 @@
                 </div>
                 <div class="col-12 w-100 d-none d-lg-block p-0 m-0"></div>
                 <div class="col-lg-4">
-                    <label class="form-label" for="examFilter">Exam paper open for result entry</label>
+                    <label class="form-label" for="examFilter">Exam paper</label>
                     <select id="examFilter" class="form-select">
                         <option value="">Select an examination paper</option>
                     </select>
@@ -46,7 +46,7 @@
     </div>
 
     <div id="examEmptyState" class="alert alert-info">
-        Select an exam paper after the School Administrator or Headteacher opens results entry. Teachers can enter results only within their assigned teaching scope.
+        Select an exam paper. Papers whose results entry is open can be edited; earlier papers and past years open read-only. Only papers within your teaching assignment are listed.
     </div>
 
     <div id="examEntryWorkspace" class="d-none">

@@ -345,6 +345,17 @@ class AcademicManager extends BaseAPI
             if (!empty($data['subject_id']))          { $where[] = 'a.learning_area_id=:sid';   $params[':sid']  = (int) $data['subject_id']; }
             if (!empty($data['status']))              { $where[] = 'a.status=:st';        $params[':st']   = $data['status']; }
             if (!empty($data['assessment_type_classification_id'])) { $where[] = 'a.assessment_type_classification_id=:atid'; $params[':atid'] = (int) $data['assessment_type_classification_id']; }
+            if (isset($data['is_formative']) && $data['is_formative'] !== '') { $where[] = 'a.is_formative=:isf'; $params[':isf'] = (int) (bool) $data['is_formative']; }
+            if (!empty($data['teacher_scope_staff_id'])) {
+                $where[] = "EXISTS (
+                    SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope
+                    WHERE tscope.staff_id = :scope_staff
+                      AND tscope.academic_year_class_stream_id = a.academic_year_class_stream_id
+                      AND tscope.learning_area_id = a.learning_area_id
+                      AND (tscope.academic_year_term_id = a.academic_year_term_id OR tscope.academic_year_term_id IS NULL)
+                )";
+                $params[':scope_staff'] = (int) $data['teacher_scope_staff_id'];
+            }
 
             $csd = ReadReplicaService::qualifiedRef('class_stream_directory');
             $aterm = ReadReplicaService::qualifiedRef('academic_term');
@@ -519,8 +530,11 @@ class AcademicManager extends BaseAPI
                 foreach ($rubricRows as $rubric) {
                     $rubricsByAssessment[(int) $rubric['assessment_id']][] = $rubric;
                 }
+                $questionCounts = $this->questionCounts($assessmentIds);
                 foreach ($rows as &$row) {
                     $assessmentId = (int) $row['id'];
+                    $row['question_count'] = $questionCounts[$assessmentId]['n'] ?? 0;
+                    $row['question_marks'] = $questionCounts[$assessmentId]['total'] ?? 0;
                     $row['learning_outcomes'] = $outcomesByAssessment[$assessmentId] ?? [];
                     $row['learning_outcome_ids'] = array_map('intval', array_column($row['learning_outcomes'], 'id'));
                     $row['rubric_criteria'] = $rubricsByAssessment[$assessmentId] ?? [];
@@ -1819,6 +1833,205 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
         }
     }
 
+    // ==================== FORMATIVE ASSESSMENT QUESTIONS ====================
+    // A formative assessment's questions live in assessment_questions (single
+    // table, keyed by assessment). Access follows the assessment: its author,
+    // a teacher whose assignment covers its stream/learning area/term, or
+    // academic leadership. Learner marks stay on Subject Grade Entry.
+
+    private const QUESTION_TYPES = ['short_answer', 'long_answer', 'multiple_choice', 'true_false', 'practical'];
+    private const QUESTION_SOURCES = ['manual', 'upload', 'ai'];
+
+    /** The assessment row when this staff member may work on it, else null. */
+    public function formativeAssessmentForStaff(int $assessmentId, int $staffId, bool $canManageAll): ?array
+    {
+        $a = $this->dbQuery(
+            "SELECT id, assigned_by, academic_year_term_id, academic_year_class_stream_id, learning_area_id,
+                    strand_id, sub_strand_id, title, max_marks, status, assessment_date
+               FROM assessments WHERE id = :id AND is_formative = 1 LIMIT 1",
+            [':id' => $assessmentId]
+        )->fetch(PDO::FETCH_ASSOC);
+        if (!$a) return null;
+        if ($canManageAll || (int) $a['assigned_by'] === $staffId) return $a;
+        return $this->teacherHasFormativeScope(
+            $staffId,
+            (int) $a['academic_year_term_id'],
+            (int) $a['academic_year_class_stream_id'],
+            (int) $a['learning_area_id']
+        ) ? $a : null;
+    }
+
+    public function getFormativeAssessmentQuestions(int $assessmentId, int $staffId, bool $canManageAll): array
+    {
+        try {
+            $a = $this->formativeAssessmentForStaff($assessmentId, $staffId, $canManageAll);
+            if (!$a) return $this->errorResponse('This assessment is outside your teaching scope', 403);
+            $rows = $this->dbQuery(
+                "SELECT id, sort_order, question_type, question_text, options_json, answer_text, marks, source, source_ref, updated_at
+                   FROM assessment_questions WHERE assessment_id = :id ORDER BY sort_order, id",
+                [':id' => $assessmentId]
+            )->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rows as &$row) {
+                $opts = json_decode((string) ($row['options_json'] ?? ''), true);
+                $row['options'] = is_array($opts) ? array_values($opts) : [];
+                $row['marks'] = (float) $row['marks'];
+                unset($row['options_json']);
+            }
+            unset($row);
+            return $this->successResponse([
+                'assessment' => $a,
+                'questions' => $rows,
+                'total_marks' => array_sum(array_column($rows, 'marks')),
+            ]);
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::getFormativeAssessmentQuestions');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * Save the question list. mode=replace (default) makes the list exactly
+     * what was sent; mode=append adds after the existing questions.
+     * sync_max_marks=true sets the assessment's max marks to the total.
+     */
+    public function saveFormativeAssessmentQuestions(int $assessmentId, array $data, int $staffId, bool $canManageAll): array
+    {
+        try {
+            $a = $this->formativeAssessmentForStaff($assessmentId, $staffId, $canManageAll);
+            if (!$a) return $this->errorResponse('This assessment is outside your teaching scope', 403);
+            $questions = $this->normalizeQuestions((array) ($data['questions'] ?? []), (string) ($data['source'] ?? 'manual'), (string) ($data['source_ref'] ?? ''));
+            $mode = ($data['mode'] ?? 'replace') === 'append' ? 'append' : 'replace';
+            if ($mode === 'append' && !$questions) return $this->errorResponse('Add at least one question', 400);
+
+            $this->db->beginTransaction();
+            $start = 0;
+            if ($mode === 'replace') {
+                $this->dbQuery('DELETE FROM assessment_questions WHERE assessment_id = :id', [':id' => $assessmentId]);
+            } else {
+                $orders = $this->dbQuery('SELECT sort_order FROM assessment_questions WHERE assessment_id = :id', [':id' => $assessmentId])->fetchAll(PDO::FETCH_COLUMN);
+                $start = $orders ? (int) max(array_map('intval', $orders)) : 0;
+            }
+            foreach ($questions as $i => $q) {
+                $this->dbQuery(
+                    "INSERT INTO assessment_questions
+                        (assessment_id, sort_order, question_type, question_text, options_json, answer_text, marks, source, source_ref, created_by)
+                     VALUES (:aid, :sort, :type, :text, :opts, :ans, :marks, :src, :ref, :by)",
+                    [
+                        ':aid' => $assessmentId, ':sort' => $start + $i + 1, ':type' => $q['question_type'],
+                        ':text' => $q['question_text'], ':opts' => $q['options'] ? json_encode($q['options'], JSON_UNESCAPED_UNICODE) : null,
+                        ':ans' => $q['answer_text'] !== '' ? $q['answer_text'] : null, ':marks' => $q['marks'],
+                        ':src' => $q['source'], ':ref' => $q['source_ref'] !== '' ? $q['source_ref'] : null, ':by' => $staffId,
+                    ]
+                );
+            }
+            $total = (float) array_sum(array_map('floatval', $this->dbQuery('SELECT marks FROM assessment_questions WHERE assessment_id = :id', [':id' => $assessmentId])->fetchAll(PDO::FETCH_COLUMN)));
+            if (!empty($data['sync_max_marks']) && $total > 0) {
+                $this->dbQuery('UPDATE assessments SET max_marks = :m WHERE id = :id', [':m' => $total, ':id' => $assessmentId]);
+            }
+            $this->db->commit();
+            return $this->getFormativeAssessmentQuestions($assessmentId, $staffId, $canManageAll);
+        } catch (\InvalidArgumentException $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            return $this->errorResponse($e->getMessage(), 400);
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            $this->logError($e, 'AcademicManager::saveFormativeAssessmentQuestions');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    private function normalizeQuestions(array $rows, string $defaultSource, string $defaultRef): array
+    {
+        $out = [];
+        foreach (array_slice($rows, 0, 200) as $index => $row) {
+            if (!is_array($row)) continue;
+            $text = trim((string) ($row['question_text'] ?? $row['question'] ?? ''));
+            if ($text === '') continue;
+            if (mb_strlen($text) > 5000) throw new \InvalidArgumentException('Question ' . ($index + 1) . ' is too long.');
+            $type = (string) ($row['question_type'] ?? $row['type'] ?? 'short_answer');
+            if (!in_array($type, self::QUESTION_TYPES, true)) $type = 'short_answer';
+            $options = array_values(array_filter(array_map(
+                static fn($o): string => mb_substr(trim((string) $o), 0, 500),
+                array_slice((array) ($row['options'] ?? []), 0, 8)
+            ), 'strlen'));
+            if ($type === 'multiple_choice' && count($options) < 2) {
+                throw new \InvalidArgumentException('Multiple-choice question ' . ($index + 1) . ' needs at least two choices.');
+            }
+            if ($type !== 'multiple_choice') $options = [];
+            $marks = (float) ($row['marks'] ?? 1);
+            if ($marks < 0 || $marks > 1000) throw new \InvalidArgumentException('Question ' . ($index + 1) . ' has invalid marks.');
+            $source = (string) ($row['source'] ?? $defaultSource);
+            $out[] = [
+                'question_type' => $type,
+                'question_text' => $text,
+                'options' => $options,
+                'answer_text' => mb_substr(trim((string) ($row['answer_text'] ?? $row['answer'] ?? '')), 0, 2000),
+                'marks' => $marks,
+                'source' => in_array($source, self::QUESTION_SOURCES, true) ? $source : 'manual',
+                'source_ref' => mb_substr(trim((string) ($row['source_ref'] ?? $defaultRef)), 0, 160),
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Grounding for an AI question draft: the assessment's learning area,
+     * strand, sub-strands and their learning outcomes (keyed reads only).
+     */
+    public function formativeAssessmentAiContext(int $assessmentId, int $staffId, bool $canManageAll): ?array
+    {
+        $a = $this->formativeAssessmentForStaff($assessmentId, $staffId, $canManageAll);
+        if (!$a) return null;
+        $one = function (string $sql, int $id): string {
+            if ($id < 1) return '';
+            return (string) ($this->dbQuery($sql, [':id' => $id])->fetchColumn() ?: '');
+        };
+        $subIds = array_map('intval', $this->dbQuery('SELECT sub_strand_id FROM assessment_sub_strands WHERE assessment_id = :id ORDER BY sort_order', [':id' => $assessmentId])->fetchAll(PDO::FETCH_COLUMN));
+        if ((int) $a['sub_strand_id'] > 0) array_unshift($subIds, (int) $a['sub_strand_id']);
+        $subIds = array_values(array_unique(array_filter($subIds)));
+        $subNames = [];
+        $outcomes = [];
+        $outcomeIds = [];
+        foreach (array_slice($subIds, 0, 10) as $subId) {
+            $subNames[] = $one('SELECT name FROM sub_strands WHERE id = :id', $subId);
+            foreach ($this->dbQuery('SELECT id, outcome FROM learning_outcomes WHERE sub_strand_id = :id ORDER BY id', [':id' => $subId])->fetchAll(PDO::FETCH_ASSOC) as $o) {
+                $outcomeIds[] = (int) $o['id'];
+                $outcomes[] = trim((string) $o['outcome']);
+            }
+        }
+        return [
+            'assessment' => $a,
+            'learning_area' => $one('SELECT name FROM learning_areas WHERE id = :id', (int) $a['learning_area_id']),
+            'strand' => $one('SELECT name FROM strands WHERE id = :id', (int) $a['strand_id']),
+            'sub_strands' => array_values(array_filter($subNames)),
+            'learning_outcomes' => array_slice(array_values(array_filter($outcomes)), 0, 20),
+            'learning_outcome_ids' => $outcomeIds,
+        ];
+    }
+
+    /** Question counts per assessment; empty when the table is not migrated yet. */
+    private function questionCounts(array $assessmentIds): array
+    {
+        if (!$assessmentIds) return [];
+        try {
+            $in = implode(',', array_fill(0, count($assessmentIds), '?'));
+            $rows = $this->dbQuery(
+                "SELECT assessment_id, marks FROM assessment_questions WHERE assessment_id IN ($in)",
+                array_values($assessmentIds)
+            )->fetchAll(PDO::FETCH_ASSOC);
+        } catch (\Throwable $e) {
+            return [];
+        }
+        $out = [];
+        foreach ($rows as $r) {
+            $id = (int) $r['assessment_id'];
+            $out[$id] ??= ['n' => 0, 'total' => 0.0];
+            $out[$id]['n']++;
+            $out[$id]['total'] += (float) $r['marks'];
+        }
+        return $out;
+    }
+
     /**
      * GET /api/academic/conduct-grades - Conduct ratings for students in a class.
      * `class` defaults to 'self' (the logged-in teacher's class); `term` optional.
@@ -2705,7 +2918,7 @@ if ($classId) {
         try {
             $conditions = ["at.status = 'active'"];
             $params = [];
-            $this->addCurriculumScope($conditions, $params, $query, 'at.learning_area_id', 'at.grade_level', 'tool_scope');
+            $this->addCurriculumScope($conditions, $params, $query, 'at.learning_area_id', null, 'tool_scope');
             $rows = $this->dbQuery(
                 "SELECT at.id, at.tool_name, at.tool_code, at.description,
                         NULL AS assessment_type_classification_id, at.learning_area_id, at.grade_level,
@@ -2865,7 +3078,7 @@ if ($classId) {
     public function getCoreCompetenciesList(): array
     {
         try {
-            $rows = $this->dbQuery("SELECT id, code, name, description FROM core_competencies WHERE status='active' ORDER BY sort_order, id")->fetchAll(PDO::FETCH_ASSOC);
+            $rows = $this->dbQuery("SELECT id, code, name, description, grade_range, assessment_criteria FROM core_competencies WHERE status='active' ORDER BY sort_order, id")->fetchAll(PDO::FETCH_ASSOC);
             return $this->successResponse($rows);
         } catch (Exception $e) {
             $this->logError($e, 'AcademicManager::getCoreCompetenciesList');
@@ -5314,7 +5527,7 @@ if ($classId) {
             if ($id) {
                 $conditions = ['ar.id = :id'];
                 $params = [':id' => $id];
-                $this->addCurriculumScope($conditions, $params, $query, 'at.learning_area_id', 'at.grade_level', 'rubric_one_scope');
+                $this->addCurriculumScope($conditions, $params, $query, 'at.learning_area_id', null, 'rubric_one_scope');
                 $row = $this->dbQuery(
                     "SELECT ar.*, at.tool_name
                      FROM " . ReadReplicaService::qualifiedRef("assessment_rubrics") . " ar
@@ -5328,7 +5541,7 @@ if ($classId) {
             $conditions = [];
             $params = [];
             if ($toolId) { $conditions[] = 'ar.tool_id=:tid'; $params[':tid'] = $toolId; }
-            $this->addCurriculumScope($conditions, $params, $query, 'at.learning_area_id', 'at.grade_level', 'rubric_scope');
+            $this->addCurriculumScope($conditions, $params, $query, 'at.learning_area_id', null, 'rubric_scope');
             $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
             $stmt = $this->dbQuery(
                 "SELECT ar.*, at.tool_name

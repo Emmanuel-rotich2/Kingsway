@@ -1,286 +1,148 @@
 <?php
 /**
- * My Vehicle Page (Driver's vehicle management)
- * HTML structure only - logic will be in js/pages/my_vehicle.js
- * Embedded in app_layout.php
+ * My Vehicle — the driver's logbook for the vehicle assigned to them:
+ * service and insurance dates, the pre-trip check, services and repairs,
+ * fuel bought, and problems reported to the transport office.
+ * Data: /api/transport/my-logbook and my-service | my-fuel | my-check | my-problem
+ * (DriverLogbookService, scoped to the driver's own vehicle).
  */
 ?>
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/support_ops.css?v=<?= asset_version('css/pages/support_ops.css') ?>">
+<div class="kw-ops kw-ops--road container-fluid py-3" id="myVehiclePage">
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
+    <div>
+      <h1 class="ops-title">My vehicle</h1>
+      <p class="ops-lede">Check the vehicle before each trip, and keep its services, fuel and problems on record.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2 ops-actions d-print-none" id="mvActions" hidden>
+      <button class="btn btn-outline-secondary" type="button" id="mvFuelBtn"><i class="bi bi-fuel-pump me-1" aria-hidden="true"></i>Log fuel</button>
+      <button class="btn btn-outline-secondary" type="button" id="mvServiceBtn"><i class="bi bi-wrench me-1" aria-hidden="true"></i>Log a service</button>
+      <button class="btn btn-outline-danger" type="button" id="mvProblemBtn"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>Report a problem</button>
+    </div>
+  </div>
 
-<div class="card shadow-sm">
-    <div class="card-header bg-gradient bg-dark text-white">
-        <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="bi bi-bus-front"></i> My Vehicle</h4>
-            <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="logMaintenanceBtn">
-                    <i class="bi bi-wrench"></i> Log Maintenance
-                </button>
-                <button class="btn btn-outline-light btn-sm" id="reportIssueBtn">
-                    <i class="bi bi-exclamation-triangle"></i> Report Issue
-                </button>
-            </div>
+  <div id="mvState" class="ops-panel text-muted" role="status">Loading your vehicle…</div>
+
+  <div id="mvBody" hidden>
+    <div class="ops-panel mb-3">
+      <div class="d-flex flex-wrap align-items-center gap-4">
+        <span class="ops-plate" id="mvPlate" aria-label="Registration number"></span>
+        <div>
+          <div class="fw-bold" id="mvModel"></div>
+          <div class="text-muted small" id="mvMeta"></div>
         </div>
+      </div>
+      <ul class="ops-facts mt-3" id="mvFacts" aria-label="Vehicle dates and readings"></ul>
     </div>
 
-    <div class="card-body">
-        <!-- Vehicle Info Card -->
-        <div class="card bg-light mb-4">
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-8">
-                        <h4 id="vehicleReg">Loading...</h4>
-                        <div class="row mt-3">
-                            <div class="col-md-6">
-                                <p class="mb-2"><strong>Make & Model:</strong> <span id="vehicleModel"></span></p>
-                                <p class="mb-2"><strong>Capacity:</strong> <span id="capacity"></span> passengers</p>
-                                <p class="mb-2"><strong>Type:</strong> <span id="vehicleType"></span></p>
-                            </div>
-                            <div class="col-md-6">
-                                <p class="mb-2"><strong>Year:</strong> <span id="vehicleYear"></span></p>
-                                <p class="mb-2"><strong>Current Mileage:</strong> <span id="currentMileage"></span> KM
-                                </p>
-                                <p class="mb-2"><strong>Status:</strong> <span id="vehicleStatus" class="badge"></span>
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4 text-center">
-                        <img id="vehicleImage" src="/images/default-vehicle.png" class="img-fluid rounded"
-                            style="max-height: 150px;" alt="Vehicle">
-                    </div>
-                </div>
-            </div>
+    <section class="ops-panel mb-3 d-print-none" aria-labelledby="mvCheckTitle">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <h2 class="mb-0" id="mvCheckTitle">Pre-trip check</h2>
+        <div id="mvCheckToday" class="d-flex flex-wrap gap-2"></div>
+      </div>
+      <form id="mvCheckForm" novalidate>
+        <div class="row g-2 mb-2">
+          <div class="col-sm-4">
+            <label class="form-label small" for="mvCheckTrip">Trip</label>
+            <select class="form-select" id="mvCheckTrip">
+              <option value="morning_pickup">Morning pick-up</option>
+              <option value="evening_dropoff">Evening drop-off</option>
+              <option value="midday_trip">Midday trip</option>
+              <option value="special_trip">Special trip</option>
+            </select>
+          </div>
+          <div class="col-sm-4">
+            <label class="form-label small" for="mvCheckOdo">Odometer (km)</label>
+            <input class="form-control" type="number" min="0" inputmode="numeric" id="mvCheckOdo">
+          </div>
         </div>
-
-        <!-- Summary Cards -->
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="card border-primary">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Trips This Month</h6>
-                        <h3 class="text-primary mb-0" id="tripsMonth">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card border-success">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">KM This Month</h6>
-                        <h3 class="text-success mb-0" id="kmMonth">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card border-warning">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Fuel Cost (KES)</h6>
-                        <h3 class="text-warning mb-0" id="fuelCost">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card border-info">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Next Service</h6>
-                        <h3 class="text-info mb-0" id="nextService">-</h3>
-                    </div>
-                </div>
-            </div>
+        <ul class="ops-check" id="mvCheckItems"></ul>
+        <div id="mvDefectBox" class="mt-3" hidden>
+          <label class="form-label small" for="mvCheckDefects">What is wrong?</label>
+          <textarea class="form-control mb-2" id="mvCheckDefects" rows="2" maxlength="1000"></textarea>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="mvCheckFit">
+            <label class="form-check-label" for="mvCheckFit">The vehicle is still safe to drive</label>
+          </div>
+          <p class="small text-muted mb-0">If it is not safe, the transport office is told straight away.</p>
         </div>
+        <button class="btn btn-ops mt-3" type="submit" id="mvCheckSave">Save check</button>
+      </form>
+    </section>
 
-        <!-- Tabs -->
-        <ul class="nav nav-tabs" id="vehicleTabs" role="tablist">
-            <li class="nav-item">
-                <button class="nav-link active" id="maintenance-tab" data-bs-toggle="tab" data-bs-target="#maintenance"
-                    type="button">
-                    Maintenance History
-                </button>
-            </li>
-            <li class="nav-item">
-                <button class="nav-link" id="issues-tab" data-bs-toggle="tab" data-bs-target="#issues" type="button" data-year-write>
-                    Reported Issues
-                </button>
-            </li>
-            <li class="nav-item">
-                <button class="nav-link" id="fuel-tab" data-bs-toggle="tab" data-bs-target="#fuel" type="button">
-                    Fuel Logs
-                </button>
-            </li>
-            <li class="nav-item">
-                <button class="nav-link" id="documents-tab" data-bs-toggle="tab" data-bs-target="#documents"
-                    type="button">
-                    Documents
-                </button>
-            </li>
-        </ul>
-
-        <div class="tab-content" id="vehicleTabContent">
-            <!-- Maintenance Tab -->
-            <div class="tab-pane fade show active" id="maintenance" role="tabpanel">
-                <div class="table-responsive mt-3">
-                    <table class="table table-hover">
-                        <thead class="table-light">
-                            <tr>
-                                <th scope="col">Date</th>
-                                <th scope="col">Type</th>
-                                <th scope="col">Description</th>
-                                <th scope="col">Mileage (KM)</th>
-                                <th scope="col">Cost (KES)</th>
-                                <th scope="col">Garage</th>
-                            </tr>
-                        </thead>
-                        <tbody id="maintenanceBody">
-                            <!-- Dynamic content -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- Issues Tab -->
-            <div class="tab-pane fade" id="issues" role="tabpanel">
-                <div class="table-responsive mt-3">
-                    <table class="table table-hover">
-                        <thead class="table-light">
-                            <tr>
-                                <th scope="col">Date</th>
-                                <th scope="col">Issue</th>
-                                <th scope="col">Priority</th>
-                                <th scope="col">Status</th>
-                                <th scope="col">Resolved By</th>
-                            </tr>
-                        </thead>
-                        <tbody id="issuesBody">
-                            <!-- Dynamic content -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- Fuel Tab -->
-            <div class="tab-pane fade" id="fuel" role="tabpanel">
-                <div class="table-responsive mt-3">
-                    <table class="table table-hover">
-                        <thead class="table-light">
-                            <tr>
-                                <th scope="col">Date</th>
-                                <th scope="col">Liters</th>
-                                <th scope="col">Cost (KES)</th>
-                                <th scope="col">Mileage (KM)</th>
-                                <th scope="col">Station</th>
-                            </tr>
-                        </thead>
-                        <tbody id="fuelBody">
-                            <!-- Dynamic content -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- Documents Tab -->
-            <div class="tab-pane fade" id="documents" role="tabpanel">
-                <div class="mt-3">
-                    <div class="list-group list-group-flush" id="documentsBody">
-                        <div class="list-group-item text-muted text-center py-3">Loading vehicle documents…</div>
-                    </div>
-                </div>
-            </div>
+    <section class="ops-panel" aria-label="Vehicle records">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div class="ops-tabs" role="tablist" aria-label="Vehicle records" id="mvTabs">
+          <button type="button" role="tab" id="mvTabServices" aria-controls="mvServices" aria-selected="true">Services &amp; repairs</button>
+          <button type="button" role="tab" id="mvTabFuel" aria-controls="mvFuel" aria-selected="false" tabindex="-1">Fuel</button>
+          <button type="button" role="tab" id="mvTabChecks" aria-controls="mvChecks" aria-selected="false" tabindex="-1">Checks</button>
+          <button type="button" role="tab" id="mvTabProblems" aria-controls="mvProblems" aria-selected="false" tabindex="-1">Problems</button>
         </div>
-    </div>
+        <div class="d-flex gap-2 d-print-none">
+          <button class="btn btn-outline-secondary btn-sm" type="button" id="mvCsv"><i class="bi bi-download me-1" aria-hidden="true"></i>CSV</button>
+          <button class="btn btn-outline-secondary btn-sm" type="button" id="mvPrint"><i class="bi bi-printer me-1" aria-hidden="true"></i>Print</button>
+        </div>
+      </div>
+      <div role="tabpanel" id="mvServices" aria-labelledby="mvTabServices"></div>
+      <div role="tabpanel" id="mvFuel" aria-labelledby="mvTabFuel" hidden></div>
+      <div role="tabpanel" id="mvChecks" aria-labelledby="mvTabChecks" hidden></div>
+      <div role="tabpanel" id="mvProblems" aria-labelledby="mvTabProblems" hidden></div>
+    </section>
+  </div>
+
+  <!-- Log a service -->
+  <div class="modal fade" id="mvServiceModal" tabindex="-1" aria-labelledby="mvServiceTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable"><form class="modal-content" id="mvServiceForm" novalidate>
+      <div class="modal-header"><h2 class="modal-title h5" id="mvServiceTitle">Log a service or repair</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body row g-2">
+        <div class="col-6"><label class="form-label small" for="mvSvType">Work done</label>
+          <select class="form-select" id="mvSvType" required><option value="routine">Routine service</option><option value="repair">Repair</option><option value="inspection">Inspection</option><option value="emergency">Emergency repair</option></select></div>
+        <div class="col-6"><label class="form-label small" for="mvSvDate">Date</label><input class="form-control" type="date" id="mvSvDate" required></div>
+        <div class="col-12"><label class="form-label small" for="mvSvDesc">What was done</label><textarea class="form-control" id="mvSvDesc" rows="2" maxlength="2000" required></textarea></div>
+        <div class="col-6"><label class="form-label small" for="mvSvOdo">Odometer (km)</label><input class="form-control" type="number" min="0" inputmode="numeric" id="mvSvOdo"></div>
+        <div class="col-6"><label class="form-label small" for="mvSvCost">Cost (KES)</label><input class="form-control" type="number" min="0" step="0.01" inputmode="decimal" id="mvSvCost"></div>
+        <div class="col-12"><label class="form-label small" for="mvSvParts">Parts replaced</label><input class="form-control" id="mvSvParts" maxlength="1000"></div>
+        <div class="col-12"><label class="form-label small" for="mvSvGarage">Garage or mechanic</label><input class="form-control" id="mvSvGarage" maxlength="500"></div>
+        <div class="col-6"><label class="form-label small" for="mvSvNext">Next service date</label><input class="form-control" type="date" id="mvSvNext"></div>
+        <div class="col-6"><label class="form-label small" for="mvSvNextKm">Next service at (km)</label><input class="form-control" type="number" min="0" inputmode="numeric" id="mvSvNextKm"></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-ops">Save service</button></div>
+    </form></div>
+  </div>
+
+  <!-- Log fuel -->
+  <div class="modal fade" id="mvFuelModal" tabindex="-1" aria-labelledby="mvFuelTitle" aria-hidden="true">
+    <div class="modal-dialog"><form class="modal-content" id="mvFuelForm" novalidate>
+      <div class="modal-header"><h2 class="modal-title h5" id="mvFuelTitle">Log fuel</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body row g-2">
+        <div class="col-6"><label class="form-label small" for="mvFuDate">Date</label><input class="form-control" type="date" id="mvFuDate" required></div>
+        <div class="col-6"><label class="form-label small" for="mvFuOdo">Odometer (km)</label><input class="form-control" type="number" min="0" inputmode="numeric" id="mvFuOdo"></div>
+        <div class="col-6"><label class="form-label small" for="mvFuLitres">Litres</label><input class="form-control" type="number" min="0.1" step="0.01" inputmode="decimal" id="mvFuLitres" required></div>
+        <div class="col-6"><label class="form-label small" for="mvFuAmount">Amount paid (KES)</label><input class="form-control" type="number" min="1" step="0.01" inputmode="decimal" id="mvFuAmount" required></div>
+        <div class="col-6"><label class="form-label small" for="mvFuStation">Station</label><input class="form-control" id="mvFuStation" maxlength="120"></div>
+        <div class="col-6"><label class="form-label small" for="mvFuReceipt">Receipt number</label><input class="form-control" id="mvFuReceipt" maxlength="60"></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-ops">Save fuel</button></div>
+    </form></div>
+  </div>
+
+  <!-- Report a problem -->
+  <div class="modal fade" id="mvProblemModal" tabindex="-1" aria-labelledby="mvProblemTitle" aria-hidden="true">
+    <div class="modal-dialog"><form class="modal-content" id="mvProblemForm" novalidate>
+      <div class="modal-header"><h2 class="modal-title h5" id="mvProblemTitle">Report a problem</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body">
+        <label class="form-label small" for="mvPrType">What happened</label>
+        <select class="form-select mb-2" id="mvPrType"><option value="vehicle_breakdown">Breakdown or fault</option><option value="accident">Accident</option><option value="late_pickup">Late for pick-up</option><option value="late_dropoff">Late for drop-off</option><option value="other">Something else</option></select>
+        <label class="form-label small" for="mvPrDesc">Describe it</label>
+        <textarea class="form-control mb-2" id="mvPrDesc" rows="3" maxlength="2000" required></textarea>
+        <label class="form-label small" for="mvPrAction">What you have done so far</label>
+        <textarea class="form-control mb-2" id="mvPrAction" rows="2" maxlength="1000"></textarea>
+        <div class="form-check"><input class="form-check-input" type="checkbox" id="mvPrUrgent"><label class="form-check-label" for="mvPrUrgent">Urgent: the transport office must act now</label></div>
+        <p class="small text-muted mt-2 mb-0">A learner hurt or unwell? Also call the school straight away.</p>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-danger">Report problem</button></div>
+    </form></div>
+  </div>
 </div>
-
-<!-- Log Maintenance Modal -->
-<div class="modal fade" id="maintenanceModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Log Maintenance</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="maintenanceForm">
-                    <div class="mb-3">
-                        <label class="form-label">Maintenance Type*</label>
-                        <select class="form-select" id="maintenanceType" required>
-                            <option value="service">Regular Service</option>
-                            <option value="oil_change">Oil Change</option>
-                            <option value="tire">Tire Replacement</option>
-                            <option value="brake">Brake Service</option>
-                            <option value="repair">Repair</option>
-                            <option value="other">Other</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Description*</label>
-                        <textarea class="form-control" id="maintenanceDescription" rows="3" required></textarea>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Date*</label>
-                            <input type="date" class="form-control" id="maintenanceDate" required>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Mileage (KM)*</label>
-                            <input type="number" class="form-control" id="maintenanceMileage" required min="0">
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Cost (KES)*</label>
-                        <input type="number" class="form-control" id="maintenanceCost" required min="0" step="0.01">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Garage/Service Center</label>
-                        <input type="text" class="form-control" id="garage">
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveMaintenanceBtn" data-year-write>Save</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Report Issue Modal -->
-<div class="modal fade" id="issueModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header bg-warning">
-                <h5 class="modal-title">Report Vehicle Issue</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="issueForm">
-                    <div class="mb-3">
-                        <label class="form-label">Issue Description*</label>
-                        <textarea class="form-control" id="issueDescription" rows="3" required></textarea>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Priority*</label>
-                        <select class="form-select" id="issuePriority" required>
-                            <option value="low">Low - Can wait</option>
-                            <option value="medium">Medium - Needs attention</option>
-                            <option value="high">High - Urgent</option>
-                            <option value="critical">Critical - Vehicle not operational</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Category</label>
-                        <select class="form-select" id="issueCategory">
-                            <option value="mechanical">Mechanical</option>
-                            <option value="electrical">Electrical</option>
-                            <option value="body">Body/Exterior</option>
-                            <option value="safety">Safety</option>
-                            <option value="other">Other</option>
-                        </select>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-warning" id="saveIssueBtn" data-year-write>Report Issue</button>
-            </div>
-        </div>
-    </div>
-</div>
-
+<?php asset_script($appBase, 'js/pages/support_ops_common.js'); ?>
 <?php asset_script($appBase, 'js/pages/my_vehicle.js'); ?>

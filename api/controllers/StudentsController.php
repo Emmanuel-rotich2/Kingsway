@@ -216,6 +216,76 @@ class StudentsController extends BaseController
         return $this->success($result, 'Students loaded');
     }
 
+    private ?\App\API\Modules\students\StudentDataAccessService $dataAccess = null;
+
+    private function dataAccess(): \App\API\Modules\students\StudentDataAccessService
+    {
+        return $this->dataAccess ??= new \App\API\Modules\students\StudentDataAccessService($this->db->getConnection());
+    }
+
+    /** Refuse unless this viewer may see that section of this learner's record. */
+    private function studentSectionGuard($studentId, string $section)
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $studentId = (int) $studentId;
+        if ($studentId < 1) return null; // list endpoints keep their own guards
+        if (!$this->dataAccess()->allows((int) $this->getUserId(), (array) $this->getUserRoleIds(), $studentId, $section)) {
+            $messages = [
+                'finance' => 'Fee and payment details are available only to the Director, School Administrator and Accountant.',
+                'contacts' => 'Parent and guardian details are not shared with your role.',
+                'discipline' => 'Discipline records are not shared with your role.',
+            ];
+            return $this->forbidden($messages[$section] ?? 'This part of the learner record is not shared with your role.');
+        }
+        return null;
+    }
+
+    /** GET /api/students/data-access/{id} — the sections this viewer may see. */
+    public function getDataAccess($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $studentId = (int) ($id ?? ($data['student_id'] ?? 0));
+        if ($studentId < 1) return $this->badRequest('Student ID is required');
+        return $this->success($this->dataAccess()->forViewer((int) $this->getUserId(), (array) $this->getUserRoleIds(), $studentId));
+    }
+
+    /** GET /api/students/basic-profile/{id} — identity and placement only. */
+    public function getBasicProfile($id = null, $data = [], $segments = [])
+    {
+        $studentId = (int) ($id ?? ($data['student_id'] ?? 0));
+        if ($guard = $this->studentSectionGuard($studentId, 'profile')) return $guard;
+        $profile = $this->dataAccess()->basicProfile($studentId);
+        return $profile ? $this->success($profile) : $this->notFound('Student not found');
+    }
+
+    /**
+     * GET /api/students/teaching-history/{id} — the signed-in teacher's own
+     * history with this learner: learning areas taught, where and when, and
+     * how the learner performed in them.
+     */
+    public function getTeachingHistory($id = null, $data = [], $segments = [])
+    {
+        $studentId = (int) ($id ?? ($data['student_id'] ?? 0));
+        if ($guard = $this->studentSectionGuard($studentId, 'teaching_history')) return $guard;
+        return $this->success(['history' => $this->dataAccess()->teachingHistory((int) $this->getUserId(), $studentId)]);
+    }
+
+    /**
+     * GET /api/students/subject-learners?academic_year_id=&academic_year_term_id=
+     *     &academic_year_class_stream_id=&learning_area_id=&search=
+     * The learners the signed-in teacher teaches or taught, grouped by class
+     * stream and learning area. Scoped to the teacher's own assignments.
+     */
+    public function getSubjectLearners($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        $service = new \App\API\Modules\students\SubjectLearnersService($this->db->getConnection());
+        return $this->success($service->forUser((int) $this->getUserId(), $filters), 'Learners loaded');
+    }
+
     /**
      * GET /api/students/context-profile/{id}?context=welfare
      */
@@ -290,7 +360,27 @@ class StudentsController extends BaseController
         }
 
         if ($id && empty($segments)) {
-            return $this->handleResponse($this->api->get($id));
+            $access = $this->dataAccess()->forViewer((int) $this->getUserId(), (array) $this->getUserRoleIds(), (int) $id);
+            if (!$access['access']) return $this->forbidden('This learner is outside your access.');
+            $sections = $access['sections'];
+            // A teacher who only teaches the learner gets the basic profile;
+            // the full record is for pastoral, finance and leadership roles.
+            if (!array_intersect(['personal', 'contacts', 'finance', 'health'], $sections)) {
+                $profile = $this->dataAccess()->basicProfile((int) $id);
+                return $profile ? $this->success($profile + ['data_sections' => $sections]) : $this->notFound('Student not found');
+            }
+            $result = $this->api->get($id);
+            if (is_array($result) && isset($result['data']) && is_array($result['data'])) {
+                if (!in_array('finance', $sections, true)) {
+                    unset($result['data']['active_sponsorships'], $result['data']['fee_waiver'], $result['data']['financial_migration'],
+                        $result['data']['fee_balance'], $result['data']['balance']);
+                }
+                if (!in_array('contacts', $sections, true)) {
+                    unset($result['data']['parents'], $result['data']['transport_arrangements']);
+                }
+                $result['data']['data_sections'] = $sections;
+            }
+            return $this->handleResponse($result);
         }
 
         if (!empty($segments)) {
@@ -353,6 +443,12 @@ class StudentsController extends BaseController
 
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to update students')) {
             return $auth;
+        }
+        // The learner's core record is edited by the School Administrator
+        // only. Teachers and other staff may hold students_edit for narrower
+        // tasks, but they read the student record and never change it.
+        if (!in_array(4, array_map('intval', (array) $this->getUserRoleIds()), true)) {
+            return $this->forbidden('Only the School Administrator can edit a student record. You have read-only access.');
         }
 
         return $this->handleResponse($this->api->update($id, $data));
@@ -1567,6 +1663,7 @@ class StudentsController extends BaseController
      */
     public function getParentsGet($id = null, $data = [], $segments = [])
     {
+        if ($g = $this->studentSectionGuard($id ?? ($data['student_id'] ?? null), 'contacts')) return $g;
         return $this->parentService->getParentsGet($id, $data, $segments, $this);
     }
 
@@ -2095,6 +2192,7 @@ class StudentsController extends BaseController
         if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view student attendance')) {
             return $auth;
         }
+        if ($g = $this->studentSectionGuard($id ?? ($data['student_id'] ?? null), 'attendance')) return $g;
 
         $studentId = $id ?? $data['student_id'] ?? null;
         if ($studentId === null) {
@@ -2112,6 +2210,7 @@ class StudentsController extends BaseController
         if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view student performance')) {
             return $auth;
         }
+        if ($g = $this->studentSectionGuard($id ?? ($data['student_id'] ?? null), 'performance')) return $g;
 
         $studentId = $id ?? $data['student_id'] ?? null;
         if ($studentId === null) {
@@ -2129,6 +2228,7 @@ class StudentsController extends BaseController
         if ($auth = $this->authorizeStudents(self::STUDENT_FEES_PERMS, 'Insufficient permission to view student fees')) {
             return $auth;
         }
+        if ($g = $this->studentSectionGuard($id ?? ($data['student_id'] ?? null), 'finance')) return $g;
 
         $studentId = $id ?? $data['student_id'] ?? null;
         if ($studentId === null) {
@@ -2362,6 +2462,7 @@ class StudentsController extends BaseController
         if ($auth = $this->authorizeStudents(self::STUDENT_DISCIPLINE_PERMS, 'Insufficient permission to view discipline records')) {
             return $auth;
         }
+        if ($g = $this->studentSectionGuard($id ?? ($data['student_id'] ?? null), 'discipline')) return $g;
 
         $studentId = $id ?? $data['student_id'] ?? null;
         if ($studentId !== null) {

@@ -152,6 +152,10 @@ FIELDS: dict[str, list[str]] = {
     ],
     "academics.assessment_draft": [
         "learning_area",
+        "strand",
+        "sub_strand",
+        "question_count",
+        "teacher_intent",
         "learning_outcome",
         "assessment_type",
         "max_marks",

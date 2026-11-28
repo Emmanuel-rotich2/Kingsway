@@ -1,139 +1,76 @@
-/**
- * food_consumption.js — Food Consumption Controller (standalone page).
- * Food usage and waste recorded per item across a date range.
- */
-const foodConsumptionController = {
-  state: { rows: [], referenceCache: null },
+/** Daily usage: issues to the kitchen and food thrown away (ledger rows of kind 'issue' and 'spoil'). */
+(() => {
+  'use strict';
+  const root = document.getElementById('usagePage');
+  if (!root) return;
+  const O = window.OpsCommon;
+  const F = window.FoodStore;
+  const { esc, num, kes, date, data, api } = O;
+  const $ = (id) => document.getElementById(id);
+  let rows = [];
 
-  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+  const days = () => Math.max(1, Math.round((new Date(`${$('fcTo').value}T00:00:00`) - new Date(`${$('fcFrom').value}T00:00:00`)) / 86400000) + 1);
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); },
-
-  norm(r) { return Array.isArray(r) ? r : (r?.data || r?.rows || r || []); },
-
-  fmtDate(v) {
-    if (!v) return '\u2014';
-    const dt = new Date(String(v).replace(' ', 'T'));
-    if (isNaN(dt)) return this.esc(v);
-    return dt.toLocaleDateString();
-  },
-
-  defaults() {
-    const to = new Date();
-    const from = new Date();
-    from.setDate(to.getDate() - 30);
-    return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
-  },
-
-  getParams() {
-    const params = {};
-    const from = document.getElementById('fcFrom')?.value;
-    const to = document.getElementById('fcTo')?.value;
-    if (from) params.date_from = from;
-    if (to) params.date_to = to;
-    return params;
-  },
-
-  async loadReferencesComposed() {
+  async function load() {
     try {
-      const response = await window.API.nodeViews.read("catering", "food-consumption-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Food Consumption Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
-    }
-  },
+      const res = data(await api('/catering/store-ledger', 'GET', null, { from: $('fcFrom').value, to: $('fcTo').value }));
+      rows = (res.rows || []).filter((r) => r.movement === 'issue' || r.movement === 'spoil');
+    } catch (e) { $('usItemBody').innerHTML = `<tr><td colspan="5" class="text-muted p-3">${esc(e.message || 'Usage could not be loaded.')}</td></tr>`; return; }
+    render();
+  }
 
-  async load() {
-    const body = document.getElementById('fcBody');
-    body.innerHTML = '<tr><td colspan="6" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
-    try {
-      const cache = this.state.referenceCache;
-      const r = cache?.trends !== undefined ? cache.trends : await this.API('GET', '/reports/food-consumption-trends', null, this.getParams());
-      this.state.rows = this.norm(r);
-      this.render();
-    } catch (e) { body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
-  },
+  function byItem() {
+    const m = new Map();
+    rows.forEach((r) => {
+      const x = m.get(r.item_id) || { item: r.item, unit: r.unit, issued: 0, thrown: 0, cost: 0, wasteCost: 0 };
+      if (r.movement === 'issue') { x.issued += r.out; x.cost += r.value || 0; } else { x.thrown += r.out; x.wasteCost += r.value || 0; }
+      m.set(r.item_id, x);
+    });
+    return [...m.values()].sort((a, b) => (b.cost + b.wasteCost) - (a.cost + a.wasteCost));
+  }
 
-  render() {
-    const rows = this.state.rows;
-    const stats = document.getElementById('fcStats');
-    const consumed = rows.reduce((s, r) => s + Number(r.total_consumed ?? 0), 0);
-    const waste = rows.reduce((s, r) => s + Number(r.total_waste ?? 0), 0);
-    const cost = rows.reduce((s, r) => s + Number(r.total_cost ?? 0), 0);
-    stats.innerHTML = [
-      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Records</div><div class="fs-4 fw-bold">${this.esc(rows.length)}</div></div></div>`,
-      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Total Consumed</div><div class="fs-4 fw-bold">${this.esc(consumed.toLocaleString())}</div></div></div>`,
-      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Total Waste</div><div class="fs-4 fw-bold text-warning">${this.esc(waste.toLocaleString())}</div></div></div>`,
-      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Total Cost</div><div class="fs-4 fw-bold">KES ${this.esc(Math.round(cost).toLocaleString())}</div></div></div>`,
-    ].join('');
+  function render() {
+    const items = byItem();
+    const cost = items.reduce((s, x) => s + x.cost, 0);
+    const waste = items.reduce((s, x) => s + x.wasteCost, 0);
+    const n = days();
+    $('usFacts').innerHTML = [
+      ['', kes(cost), 'issued to the kitchen'],
+      ['', kes(cost / n), 'a day, on average'],
+      [waste ? 'is-stop' : '', kes(waste), 'thrown away'],
+    ].map(([t, v, l]) => `<li class="${t}"><span class="ops-fact__v">${esc(v)}</span><span class="ops-fact__l">${esc(l)}</span></li>`).join('');
+    $('usItemBody').innerHTML = items.length ? items.map((x) => `<tr><td class="fw-semibold">${esc(x.item)}</td>
+        <td class="text-nowrap">${esc(num(x.issued))} ${esc(x.unit)}</td><td>${esc(num(Math.round((x.issued / n) * 10) / 10))}</td>
+        <td>${x.thrown ? `<strong class="text-danger">${esc(num(x.thrown))} ${esc(x.unit)}</strong>` : ''}</td>
+        <td class="text-nowrap">${esc(kes(x.cost + x.wasteCost))}</td></tr>`).join('')
+      : '<tr><td colspan="5" class="text-muted p-3">No food left the store in these dates.</td></tr>';
 
-    const body = document.getElementById('fcBody');
-    if (!rows.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No consumption records for the selected range.</td></tr>'; return; }
-    body.innerHTML = rows.map(r => `<tr>
-      <td class="small">${this.fmtDate(r.consumption_date)}</td>
-      <td class="small fw-semibold">${this.esc(r.item_name || `#${r.inventory_item_id}`)}</td>
-      <td class="small text-muted">${this.esc(r.unit || '\u2014')}</td>
-      <td class="small">${this.esc(Number(r.total_consumed ?? 0).toLocaleString())}</td>
-      <td class="small ${Number(r.total_waste ?? 0) > 0 ? 'text-warning fw-semibold' : 'text-muted'}">${this.esc(Number(r.total_waste ?? 0).toLocaleString())}</td>
-      <td class="small fw-semibold">KES ${this.esc(Math.round(Number(r.total_cost ?? 0)).toLocaleString())}</td>
-    </tr>`).join('');
-  },
+    const byDay = new Map();
+    rows.forEach((r) => { if (!byDay.has(r.date)) byDay.set(r.date, []); byDay.get(r.date).push(r); });
+    $('usDayBody').innerHTML = byDay.size ? [...byDay].map(([d, list]) => `<tr class="table-active"><th scope="rowgroup" colspan="5">${esc(date(d))}
+        <span class="small text-muted fw-normal ms-2">${esc(kes(list.reduce((s, r) => s + (r.value || 0), 0)))}</span></th></tr>`
+      + list.map((r) => `<tr><td>${esc(r.item)}${r.movement === 'spoil' ? ' <span class="ops-tag is-stop">Thrown away</span>' : ''}</td>
+          <td class="text-nowrap">${esc(num(r.out))} ${esc(r.unit)}</td><td>${esc(r.meal_type ? F.MEAL[r.meal_type] : '')}</td>
+          <td>${esc(r.movement === 'spoil' ? r.notes || '' : r.issued_to || '')}</td><td class="text-nowrap">${r.value !== null ? esc(kes(r.value)) : ''}</td></tr>`).join('')).join('')
+      : '<tr><td colspan="5" class="text-muted p-3">No food left the store in these dates.</td></tr>';
+  }
 
-  setupEventListeners() {
-    const d = this.defaults();
-    document.getElementById('fcFrom').value = d.from;
-    document.getElementById('fcTo').value = d.to;
-    ['fcFrom', 'fcTo'].forEach(id => document.getElementById(id)?.addEventListener('change', () => this.load()));
-  },
-
-  defaults() {
-    const to = new Date();
-    const from = new Date();
-    from.setDate(to.getDate() - 30);
-    return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
-  },
-
-  getParams() {
-    const params = {};
-    const from = document.getElementById('fcFrom')?.value;
-    const to = document.getElementById('fcTo')?.value;
-    if (from) params.date_from = from;
-    if (to) params.date_to = to;
-    return params;
-  },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("catering", "food-consumption-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Food Consumption Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
-    }
-  },
-
-  async init() {
-    if (window.AuthContext?.ready) await window.AuthContext.ready();
-    this.setupEventListeners();
-    await this.loadReferencesComposed();
-    await this.load();
-    window.APIRealtime?.register?.("food_consumption", {
-      refresh: async () => {
-        this.state.referenceCache = null;
-        await this.loadReferencesComposed();
-        await this.load();
-      }
-    }, ["catering", "reports"]);
-  },
-};
-
-const foodConsumptionControllerInstance = foodConsumptionController;
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => foodConsumptionControllerInstance.init().catch(() => {}));
-} else {
-  foodConsumptionControllerInstance.init().catch(() => {});
-}
-
-window.foodConsumptionController = foodConsumptionControllerInstance;
+  async function init() {
+    await window.AuthContext?.ready?.();
+    F.wire();
+    $('fcTo').value = O.today();
+    const d = new Date(); d.setDate(d.getDate() - 13); $('fcFrom').value = d.toISOString().slice(0, 10);
+    ['fcFrom', 'fcTo'].forEach((id) => $(id).addEventListener('change', load));
+    O.tabs($('usTabs'));
+    F.onChange(load);
+    $('usIssue').addEventListener('click', () => F.openIssue());
+    $('usPrint').addEventListener('click', () => window.print());
+    $('usCsv').addEventListener('click', () => O.exportCsv(`food_usage_${$('fcFrom').value}_${$('fcTo').value}.csv`, ['Date', 'Item', 'Kind', 'Quantity', 'Unit', 'Meal', 'Taken by', 'Reason', 'Cost', 'Recorded by'],
+      rows.map((r) => [r.date, r.item, r.movement === 'spoil' ? 'Thrown away' : 'Issued', r.out, r.unit, r.meal_type ? F.MEAL[r.meal_type] : '', r.issued_to, r.movement === 'spoil' ? r.notes : '', r.value, r.recorded_by])));
+    if (!O.canExport()) $('usCsv').hidden = true;
+    window.APIRealtime?.register?.('food_consumption', { refresh: load }, ['inventory', 'catering']);
+    try { await F.load(); } catch { /* the report still loads */ }
+    await load();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();

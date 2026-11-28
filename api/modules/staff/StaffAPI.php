@@ -4313,8 +4313,9 @@ class StaffAPI extends BaseAPI {
             );
         }
 
+        // staff has no department column; the directory carries it.
         $profileStmt = $this->db->prepare(
-            'SELECT person_id FROM staff WHERE id = ? LIMIT 1'
+            'SELECT person_id, department_id FROM ' . \App\API\Services\ReadReplicaService::qualifiedRef('staff_directory') . ' WHERE staff_id = ? LIMIT 1'
         );
         $profileStmt->execute([(int) $staffId]);
         $profile = $profileStmt->fetch(\PDO::FETCH_ASSOC);
