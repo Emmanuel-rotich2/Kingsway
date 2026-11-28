@@ -151,6 +151,14 @@ window.studentsManagementController = window.studentsManagementController || {
     return permissions.some((permission) => AuthContext.hasPermission?.(permission));
   },
 
+  // The learner's record is edited by the School Administrator only; every
+  // other viewer of the student-details modal reads it (server enforces too).
+  canEditStudentRecord: function () {
+    const roles = window.AuthContext?.getRoles?.() || [];
+    return Boolean(window.AuthContext?.hasRole?.("school_admin"))
+      || roles.some((r) => String(r?.name || r).trim().toLowerCase() === "school administrator");
+  },
+
   canViewSensitiveInfo: function () {
     const permissionCandidates = [
       "students_view_sensitive",
@@ -804,7 +812,7 @@ window.studentsManagementController = window.studentsManagementController || {
 
         const menuActions = [];
         if (this.canPerformAction("view")) menuActions.push(`<button class="dropdown-item" type="button" data-kw-onclick="studentsManagementController.viewStudent(${Number(s.id)})"><i class="bi bi-eye me-2"></i>View</button>`);
-        if (this.canPerformAction("edit")) menuActions.push(`<button class="dropdown-item" type="button" data-kw-onclick="studentsManagementController.editStudent(${Number(s.id)})"><i class="bi bi-pencil me-2"></i>Edit</button>`);
+        if (this.canEditStudentRecord()) menuActions.push(`<button class="dropdown-item" type="button" data-kw-onclick="studentsManagementController.editStudent(${Number(s.id)})"><i class="bi bi-pencil me-2"></i>Edit</button>`);
         if (this.canPerformAction("edit") && s.status === "active") {
           menuActions.push(`<button class="dropdown-item" type="button" data-kw-onclick="studentsManagementController.deactivateStudent(${Number(s.id)})"><i class="bi bi-person-x me-2"></i>Deactivate</button>`);
           menuActions.push(`<button class="dropdown-item" type="button" data-kw-onclick="studentsManagementController.transferStudent(${Number(s.id)})"><i class="bi bi-arrow-left-right me-2"></i>Transfer</button>`);
@@ -1473,6 +1481,10 @@ window.studentsManagementController = window.studentsManagementController || {
   },
 
   editStudent: async function (id) {
+    if (!this.canEditStudentRecord()) {
+      this.showError?.("Only the School Administrator can edit a student record.");
+      return;
+    }
     // Open the modal first and fill it when the record arrives. The record
     // fetch is a slow round-trip; awaiting it before showing anything makes the
     // row action look dead and invites a second click that stacks another
@@ -1509,6 +1521,60 @@ window.studentsManagementController = window.studentsManagementController || {
     }
   },
 
+  /**
+   * The view for a teacher whose only relation to the learner is teaching
+   * them: identity, placement and the teacher's own history with the
+   * learner. No contacts, health, finance or discipline.
+   */
+  renderTeacherStudentView: async function (content, student, sections) {
+    const esc = (v) => this.escapeHtml ? this.escapeHtml(v) : String(v ?? "");
+    const name = [student.first_name, student.middle_name, student.last_name].filter(Boolean).join(" ") || student.full_name || "Learner";
+    const level = (pct) => (pct === null || pct === undefined ? "" : (window.GradingScale?.grade?.(Number(pct)) || ""));
+    const badge = (pct) => {
+      const g = level(pct);
+      const band = window.GradingScale?.band?.(g) || String(g).replace(/\d+$/, "");
+      const cls = band === "EE" ? "bg-success" : band === "ME" ? "bg-primary" : band === "AE" ? "bg-warning text-dark" : band === "BE" ? "bg-danger" : "bg-secondary";
+      return g ? `<span class="badge ${cls}">${esc(g)}</span>` : "";
+    };
+    content.innerHTML = `
+      <div class="kw-detail-intro">
+        <div class="d-flex align-items-center gap-3">
+          <img src="${this.photoUrl(student.photo_url)}" class="kw-detail-photo" style="width:96px;height:116px;" alt="Learner photo" data-kw-onerror="this.onerror=null; this.src='${this.avatarUrl()}'">
+          <div>
+            <div class="kw-detail-eyebrow">Learner</div>
+            <h4>${esc(name)}</h4>
+            <div class="kw-detail-muted">${esc(student.admission_no || "")}</div>
+            <div class="small mt-1">${esc([student.class_name, student.stream_name].filter(Boolean).join(" "))} · ${esc(student.student_type_name || student.student_type_code || "")} · ${esc(student.gender || "")}</div>
+          </div>
+        </div>
+      </div>
+      <h6 class="text-primary mt-3"><i class="bi bi-journal-bookmark me-1"></i>My teaching history with this learner</h6>
+      <div id="teacherHistoryHost"><div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Loading…</div></div>
+      <div class="small text-muted mt-2">You see the learning areas you teach or taught this learner. Contact, health, fee and discipline details are kept with the class teacher, the school office and the accounts office.</div>`;
+    const host = content.querySelector("#teacherHistoryHost");
+    if (!sections.has("teaching_history")) { host.innerHTML = '<p class="text-muted">No teaching record with this learner.</p>'; return; }
+    try {
+      await window.GradingScale?.preload?.();
+      const res = await window.API.apiCall(`/students/teaching-history/${Number(student.id || student.student_id)}`, "GET", null, {}, { checkPermission: false });
+      const history = (res?.data?.history || res?.history || []);
+      if (!history.length) { host.innerHTML = '<p class="text-muted">No teaching record with this learner.</p>'; return; }
+      const results = (list, label) => list.length ? `
+        <div class="small fw-semibold mt-2">${label}</div>
+        <table class="table table-sm mb-1"><tbody>${list.map((r) => `<tr><td>${esc(r.title)}</td><td class="text-muted">${esc(r.date || "")}</td><td>${r.score === null ? '<span class="text-muted">Not marked</span>' : `${Number(r.score)} / ${Number(r.max)}`}</td><td>${r.percentage === null ? "" : `${Number(r.percentage).toFixed(1)}%`}</td><td>${badge(r.percentage)}</td></tr>`).join("")}</tbody></table>` : "";
+      host.innerHTML = history.map((h) => `
+        <div class="border rounded p-2 mb-2">
+          <div class="d-flex flex-wrap justify-content-between gap-2">
+            <strong>${esc(h.learning_area_name)}</strong>
+            <span class="small">${esc(h.year_name)} · ${esc(h.term_name)} · ${esc([h.class_name, h.stream_name].filter(Boolean).join(" "))} · ${esc(h.role)}</span>
+          </div>
+          <div class="small">Average: ${h.average_percentage === null ? '<span class="text-muted">no marks yet</span>' : `<strong>${Number(h.average_percentage).toFixed(1)}%</strong> ${badge(h.average_percentage)}`}</div>
+          ${results(h.formative || [], "Formative assessments")}${results(h.summative || [], "Exams")}
+        </div>`).join("");
+    } catch (e) {
+      host.innerHTML = `<div class="alert alert-warning">${esc(e.message || "Your teaching history could not be loaded.")}</div>`;
+    }
+  },
+
   viewStudent: async function (id) {
     try {
       const content = document.getElementById("viewStudentContent");
@@ -1519,27 +1585,36 @@ window.studentsManagementController = window.studentsManagementController || {
       );
       modal.show();
 
-      // Load student data + parallel sub-data
-      const [
-        studentResp,
-        parentsResp,
-        feesResp,
-        attendanceResp,
-        performanceResp,
-        disciplineResp,
-      ] = await Promise.allSettled([
-        window.API.students.get(id),
-        window.API.students.getParents(id),
-        window.API.students.getFees(id),
+      // The server decides which parts of the record this viewer may see
+      // (StudentDataAccessService). Fetch the record first, then only the
+      // sections it grants: finance for Director/School Admin/Accountant,
+      // contacts and discipline for pastoral roles, teaching history for the
+      // learner's teachers.
+      const studentResp = await Promise.allSettled([window.API.students.get(id)]).then((r) => r[0]);
+      const student = this.unwrapPayload(studentResp.value) || {};
+      if (studentResp.status !== "fulfilled") {
+        content.innerHTML = `<div class="alert alert-warning m-3">${this.escapeHtml(studentResp.reason?.message || "This learner is outside your access.")}</div>`;
+        return;
+      }
+      const sections = new Set(Array.isArray(student.data_sections) ? student.data_sections : []);
+      content.dataset.studentId = (student.id || student.student_id || '').toString();
+      const editButtonEarly = document.getElementById("viewStudentEditButton");
+      if (editButtonEarly) editButtonEarly.hidden = !this.canEditStudentRecord();
+      if (!["personal", "contacts", "finance", "health"].some((x) => sections.has(x))) {
+        await this.renderTeacherStudentView(content, student, sections);
+        return;
+      }
+      const skip = Promise.resolve({ data: {} });
+      const [parentsResp, feesResp, attendanceResp, performanceResp, disciplineResp] = await Promise.allSettled([
+        sections.has("contacts") ? window.API.students.getParents(id) : skip,
+        sections.has("finance") ? window.API.students.getFees(id) : skip,
         // The selected academic year (js/core/year_scope.js adds it); the
         // current year by default. Never the calendar year.
-        window.API.students.getAttendance(id, {}),
-        window.API.students.getPerformance(id),
-        window.API.students.getDiscipline(id),
+        sections.has("attendance") ? window.API.students.getAttendance(id, {}) : skip,
+        sections.has("performance") ? window.API.students.getPerformance(id) : skip,
+        sections.has("discipline") ? window.API.students.getDiscipline(id) : skip,
       ]);
 
-      const student = this.unwrapPayload(studentResp.value) || {};
-      content.dataset.studentId = (student.id || student.student_id || '').toString();
       const payloadOrError = (result) => {
         if (result.status !== "fulfilled") {
           return {
@@ -1557,13 +1632,16 @@ window.studentsManagementController = window.studentsManagementController || {
       const performance = payloadOrError(performanceResp);
       const discipline = payloadOrError(disciplineResp);
 
-      const showSensitive = this.canViewSensitiveInfo();
-      const showContact = this.canViewContactInfo();
-      const showFinance =
-        window.RoleBasedUI?.hasAnyPermission?.(["fees_view", "finance_view"]) ||
-        showSensitive;
+      // What the server granted this viewer for this learner.
+      const showSensitive = sections.has("discipline") || sections.has("health");
+      const showContact = sections.has("contacts");
+      const showFinance = sections.has("finance");
+      const showAttendance = sections.has("attendance");
+      const showPerformance = sections.has("performance");
+      const showRecord = sections.has("record");
       const editButton = document.getElementById("viewStudentEditButton");
-      if (editButton) editButton.hidden = !this.canPerformAction("edit");
+      // Read-only for everyone except the School Administrator.
+      if (editButton) editButton.hidden = !this.canEditStudentRecord();
 
       // Build tabbed UI
       content.innerHTML = `
@@ -1592,9 +1670,9 @@ window.studentsManagementController = window.studentsManagementController || {
               <li class="nav-item" role="presentation"><a class="nav-link active" id="student-tab-personal" role="tab" aria-selected="true" data-bs-toggle="tab" href="#tabPersonal"><i class="bi bi-person" aria-hidden="true"></i> Personal</a></li>
               <li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-academic" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabAcademic"><i class="bi bi-mortarboard" aria-hidden="true"></i> Academic</a></li>
               ${showFinance ? '<li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-fees" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabFees"><i class="bi bi-cash-coin" aria-hidden="true"></i> Fees</a></li>' : ""}
-              <li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-attendance" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabAttendance"><i class="bi bi-calendar-check" aria-hidden="true"></i> Attendance</a></li>
-              <li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-performance" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabPerformance"><i class="bi bi-graph-up" aria-hidden="true"></i> Performance</a></li>
-              <li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-record" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabAcademicRecord"><i class="bi bi-journal-text" aria-hidden="true"></i> Academic record</a></li>
+              ${showAttendance ? '<li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-attendance" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabAttendance"><i class="bi bi-calendar-check" aria-hidden="true"></i> Attendance</a></li>' : ""}
+              ${showPerformance ? '<li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-performance" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabPerformance"><i class="bi bi-graph-up" aria-hidden="true"></i> Performance</a></li>' : ""}
+              ${showRecord ? '<li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-record" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabAcademicRecord"><i class="bi bi-journal-text" aria-hidden="true"></i> Academic record</a></li>' : ""}
               ${showSensitive ? '<li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-discipline" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabDiscipline"><i class="bi bi-shield-exclamation" aria-hidden="true"></i> Discipline</a></li>' : ""}
               ${showContact ? '<li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-parents" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabParents"><i class="bi bi-people" aria-hidden="true"></i> Parents</a></li>' : ""}
             </ul>
@@ -1671,7 +1749,7 @@ window.studentsManagementController = window.studentsManagementController || {
                   </div>
                   <div class="col-md-6">
                     <h6 class="text-primary">Performance Summary</h6>
-                    ${this._renderPerformanceMini(performance)}
+                    ${showPerformance ? this._renderPerformanceMini(performance) : '<p class="text-muted small">Performance is shared with the learner\'s teachers and academic leadership.</p>'}
                   </div>
                 </div>
               </div>
@@ -1686,20 +1764,23 @@ window.studentsManagementController = window.studentsManagementController || {
                   : ""
               }
 
+              ${showAttendance ? `
               <!-- Attendance Tab -->
               <div class="tab-pane fade" id="tabAttendance">
                 ${this._renderAttendanceTab(attendance)}
-              </div>
+              </div>` : ""}
 
+              ${showPerformance ? `
               <!-- Performance Tab -->
               <div class="tab-pane fade" id="tabPerformance">
                 ${this._renderPerformanceTab(performance)}
-              </div>
+              </div>` : ""}
 
+              ${showRecord ? `
               <!-- Academic record: every year in that year's class -->
               <div class="tab-pane fade" id="tabAcademicRecord">
                 <div class="text-center text-muted py-4" data-learner-record="${Number(id)}">Open this tab to load the learner's record from the year they joined.</div>
-              </div>
+              </div>` : ""}
 
               <!-- Discipline Tab -->
               ${

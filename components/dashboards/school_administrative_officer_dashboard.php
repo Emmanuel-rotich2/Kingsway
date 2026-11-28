@@ -416,7 +416,7 @@
             <ul class="dropdown-menu dropdown-menu-end mb-2">
                 <li><a class="dropdown-item" href="home.php?route=manage_students_admissions"><i class="bi bi-person-plus me-2"></i>New Admission</a></li>
                 <li><a class="dropdown-item" href="home.php?route=manage_announcements"><i class="bi bi-megaphone me-2"></i>New Announcement</a></li>
-                <li><a class="dropdown-item" href="home.php?route=mark_attendance"><i class="bi bi-clipboard-check me-2"></i>Mark Attendance</a></li>
+                <li><a class="dropdown-item" href="home.php?route=view_attendance"><i class="bi bi-clipboard-check me-2"></i>Attendance</a></li>
                 <li><hr class="dropdown-divider"></li>
                 <li><a class="dropdown-item" href="home.php?route=manage_staff"><i class="bi bi-people me-2"></i>View Staff</a></li>
             </ul>

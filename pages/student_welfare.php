@@ -8,17 +8,18 @@
 $appBase = app_base_path();
 ?>
 
-<div class="container-fluid py-4" id="studentWelfarePage">
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/chaplaincy.css?v=<?= asset_version('css/pages/chaplaincy.css') ?>">
+<div class="kw-care container-fluid py-4" id="studentWelfarePage">
 
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-header bg-warning text-dark">
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
-                    <h4 class="mb-0">
+                    <h4 class="care-title mb-0">
                         <i class="bi bi-hand-index-thumb me-2"></i>
                         Student Welfare
                     </h4>
-                    <small id="scopeSubtitle">Track student wellbeing, referrals, follow-ups, chapel support, and care interventions</small>
+                    <small id="scopeSubtitle">Track student wellbeing, referrals, follow-ups, chapel support, and care interventions</small><p class="care-seal" role="note"><i class="bi bi-lock" aria-hidden="true"></i>Confidential pastoral record. Share only with staff who need it to help the learner.</p>
                 </div>
                 <div class="btn-group">
                     <button class="btn btn-light btn-sm" id="refreshBtn">
@@ -579,3 +580,4 @@ $appBase = app_base_path();
 </div>
 
 <script src="<?php echo $appBase; ?>/js/pages/student_welfare.js?v=<?php echo asset_version('js/pages/student_welfare.js'); ?>"></script>
+<?php asset_script($appBase, 'js/components/care_ui.js'); ?>

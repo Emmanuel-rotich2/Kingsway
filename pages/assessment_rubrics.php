@@ -33,7 +33,20 @@
         </div>
     </div>
 
+    <div class="card mb-3" id="coreCompetenciesCard">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <strong><i class="bi bi-stars"></i> CBC Core Competencies</strong>
+            <small class="text-muted">Assessed across every learning area</small>
+        </div>
+        <div class="card-body">
+            <div class="row g-2" id="coreCompetenciesList">
+                <div class="col-12 text-muted small">Loading core competencies…</div>
+            </div>
+        </div>
+    </div>
+
     <div class="card">
+        <div class="card-header bg-white"><strong><i class="bi bi-grid-3x3-gap"></i> Rubric Criteria</strong> <small class="text-muted" id="rubricScopeNote"></small></div>
         <div class="card-body">
             <div class="row g-2 mb-3">
                 <div class="col-md-4">

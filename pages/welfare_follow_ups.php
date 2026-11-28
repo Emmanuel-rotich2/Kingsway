@@ -6,13 +6,14 @@
  */
 /* PARTIAL — no DOCTYPE/html/head/body */
 ?>
-<div class="container-fluid mt-3">
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/chaplaincy.css?v=<?= asset_version('css/pages/chaplaincy.css') ?>">
+<div class="kw-care container-fluid mt-3">
 
   <!-- Header -->
   <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-      <h2 class="mb-0"><i class="bi bi-clipboard2-check me-2 text-success"></i>Welfare Follow-ups</h2>
-      <small class="text-muted">Track and manage follow-up actions for at-risk students</small>
+      <h2 class="care-title mb-0"><i class="bi bi-clipboard2-check me-2 text-success"></i>Welfare Follow-ups</h2>
+      <small class="text-muted">Track and manage follow-up actions for at-risk students</small><p class="care-seal" role="note"><i class="bi bi-lock" aria-hidden="true"></i>Confidential pastoral record. Share only with staff who need it to help the learner.</p>
     </div>
     <button class="btn btn-primary" data-kw-onclick="welfareFUController.showModal()">
       <i class="bi bi-plus-circle me-1"></i> Add Follow-up
@@ -119,3 +120,4 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/welfare_follow_ups.js'); ?>
+<?php asset_script($appBase, 'js/components/care_ui.js'); ?>

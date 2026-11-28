@@ -16,7 +16,7 @@
       <section class="teacher-panel teacher-working"><header><div><span>Today</span><h2>Working progress</h2></div></header><div class="teacher-ring" id="ctWorkRing"><strong id="ctWorkRate">0%</strong><span>day complete</span></div><small id="ctNextLesson">No remaining lesson</small></section>
       <section class="teacher-panel"><header><div><span>Daily schedule</span><h2>Today's lessons</h2></div><a href="#" data-route="timetable">Full timetable</a></header><div class="teacher-list" id="ctScheduleList"></div></section>
       <section class="teacher-panel"><header><div><span>School calendar</span><h2>Upcoming events</h2></div></header><div class="teacher-list" id="ctEventsList"></div></section>
-      <nav class="teacher-actions"><a href="#" data-route="mark_attendance"><i class="bi bi-check2-square"></i>Mark attendance</a><a href="#" data-route="formative_assessments"><i class="bi bi-pencil-square"></i>Enter marks</a><a href="#" data-route="manage_lesson_plans"><i class="bi bi-journal-text"></i>Lesson plans</a></nav>
+      <nav class="teacher-actions"><a href="#" data-route="class_mark_attendance"><i class="bi bi-check2-square"></i>Mark attendance</a><a href="#" data-route="formative_assessments"><i class="bi bi-pencil-square"></i>Enter marks</a><a href="#" data-route="manage_lesson_plans"><i class="bi bi-journal-text"></i>Lesson plans</a></nav>
     </aside>
   </div>
 </div>

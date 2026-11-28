@@ -1,280 +1,122 @@
 /**
- * My Routes Page Controller
- * For bus drivers: view assigned routes, manage trips, show today's schedule.
+ * Route board. Drivers: the route they drive (/transport/my-route).
+ * Director / School Administrator: pick any route (/transport/all-routes,
+ * /transport/route-board/{id}).
  */
+(() => {
+  'use strict';
+  const root = document.getElementById('myRoutesPage');
+  if (!root) return;
+  const O = window.OpsCommon;
+  const { esc, data, api, label, date, hm, num } = O;
+  const $ = (id) => document.getElementById(id);
+  const INCIDENT = { accident: 'Accident', late_pickup: 'Late pick-up', late_dropoff: 'Late drop-off', wrong_stop: 'Wrong stop', behavior: 'Behaviour', medical: 'Medical', vehicle_breakdown: 'Breakdown', other: 'Other' };
+  let board = null;
 
-(function () {
-    "use strict";
+  // Drivers see their own route; everyone else allowed here gets the overview.
+  const isDriver = () => (window.AuthContext?.getRoles?.() || []).some((r) => String(r?.name || r).toLowerCase().includes('driver'));
 
-    function showToast(message, type = 'success') {
-        const el = document.createElement('div');
-        el.className = `alert alert-${type === 'error' ? 'danger' : type} alert-dismissible position-fixed top-0 end-0 m-3`;
-        el.style.zIndex = '9999';
-        el.innerHTML = message + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
-        document.body.appendChild(el);
-        setTimeout(() => el.remove(), 4000);
+  function state(text) {
+    $('mrState').hidden = false;
+    $('mrBody').hidden = true;
+    $('mrState').textContent = text;
+  }
+
+  /** my-route rows come flat; route-board rows carry vehicles[]. */
+  function normalise(r) {
+    if (!r.vehicles) {
+      r.vehicles = r.vehicle_id ? [{ vehicle_id: r.vehicle_id, registration_number: r.registration_number, capacity: r.vehicle_capacity, status: r.vehicle_status, direction: r.direction }] : [];
     }
+    return r;
+  }
 
-    function esc(str) {
-        return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
+  function render(r) {
+    board = normalise(r);
+    $('mrState').hidden = true;
+    $('mrBody').hidden = false;
+    const stops = r.stops || [];
+    $('mrBlind').innerHTML = `<span class="ops-blind__code">${esc(r.code || '')}</span><span class="ops-blind__name">${esc(r.name || '')}</span>
+      <span class="ops-blind__via">${esc([r.start_point, r.end_point].filter(Boolean).join(' to '))}${stops.length > 2 ? `, via ${esc(stops.slice(1, -1).slice(0, 3).map((s) => s.name).join(', '))}` : ''}</span>`;
+    const facts = [
+      [hm(r.morning_departure) || '—', 'Morning departure'],
+      [hm(r.afternoon_departure) || '—', 'Afternoon departure'],
+      [r.estimated_duration ? `${num(r.estimated_duration)} min` : '—', 'Usual journey'],
+      [r.distance ? `${num(r.distance)} km` : '—', 'Distance'],
+      [String(stops.length), stops.length === 1 ? 'Stop' : 'Stops'],
+    ];
+    if (r.passenger_count !== undefined) facts.push([num(r.passenger_count), 'Learners this month']);
+    $('mrFacts').innerHTML = facts.map(([v, l]) => `<li><span class="ops-fact__v">${esc(v)}</span><span class="ops-fact__l">${esc(l)}</span></li>`).join('');
+    renderStops();
 
-    function formatTime(ts) {
-        if (!ts) return '--';
-        return new Date(ts).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' });
-    }
+    $('mrVehicles').innerHTML = r.vehicles.length ? r.vehicles.map((v) => `
+      <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
+        <span class="ops-plate" style="font-size:1.4rem">${esc(String(v.registration_number || '').toUpperCase())}</span>
+        <div><div class="fw-semibold">${esc(v.direction === 'dropoff' ? 'Drop-off' : v.direction === 'pickup' ? 'Pick-up' : '')}${v.capacity ? `, ${esc(num(v.capacity))} seats` : ''}</div>
+        <div class="small text-muted">${esc(v.driver_name || '')}${v.driver_phone ? `, ${esc(v.driver_phone)}` : ''}</div>
+        ${v.status && v.status !== 'active' ? `<span class="ops-tag is-warn">${esc(label(v.status))}</span>` : ''}</div>
+      </div>`).join('') : '<p class="ops-empty">No vehicle is on this route.</p>';
 
-    function todayStr() {
-        return new Date().toISOString().slice(0, 10);
-    }
+    const sched = r.schedules || [];
+    $('mrSchedules').innerHTML = sched.length
+      ? `<ul class="list-unstyled mb-0">${sched.map((s) => `<li class="d-flex justify-content-between py-1 border-bottom"><span>${esc(s.date ? date(s.date) : 'Every school day')}</span><strong>${esc(hm(s.pickup_time))}</strong></li>`).join('')}</ul>`
+      : '<p class="ops-empty">The route runs on its usual times. No extra trips are scheduled.</p>';
 
-    const Controller = {
-        data: [],          // all routes for this driver
-        activeTrip: null,  // currently active trip object
-        driverId: null,
+    const inc = r.recent_incidents || [];
+    $('mrIncidents').innerHTML = inc.length
+      ? `<ul class="list-unstyled mb-0">${inc.map((i) => `<li class="py-1 border-bottom"><div class="d-flex justify-content-between gap-2"><strong>${esc(INCIDENT[i.incident_type] || label(i.incident_type))}</strong><span class="small text-muted">${esc(String(i.incident_datetime).slice(0, 16))}</span></div><div class="small">${esc(String(i.description || '').slice(0, 160))}</div>${Number(i.escalated) ? '<span class="ops-tag is-stop">Escalated</span>' : ''}</li>`).join('')}</ul>`
+      : '<p class="ops-empty">None recorded.</p>';
+  }
 
-        init: async function () {
-            await window.AuthContext?.ready();
-            if (!AuthContext.isAuthenticated()) {
-                window.location.href = (window.APP_BASE || '') + '/index.php';
-                return;
-            }
-            const user = AuthContext.getUser();
-            this.driverId = user.staff_id || user.id || null;
-            this.bindEvents();
-            await this.loadData();
-        },
+  function renderStops() {
+    const r = board;
+    const pm = root.querySelector('input[name="mrDir"]:checked')?.value === 'pm';
+    const stops = [...(r.stops || [])].sort((a, b) => Number(a.sequence) - Number(b.sequence));
+    if (!stops.length) { $('mrStops').innerHTML = '<li class="d-block ops-empty">No stops have been set for this route. The transport office adds them.</li>'; return; }
+    const list = pm ? [{ name: 'School', meta: 'Leave school', t: hm(r.afternoon_departure) }, ...stops.reverse().map((s) => ({ name: s.name, meta: s.location, t: '' }))]
+      : stops.map((s) => ({ name: s.name, meta: s.location, t: hm(s.arrival_time || s.departure_time) }));
+    $('mrStops').innerHTML = list.map((s) => `<li><span class="ops-line__t">${esc(s.t || '')}</span><span class="ops-line__dot" aria-hidden="true"></span>
+      <span><span class="ops-line__name">${esc(s.name)}</span>${s.meta && !/^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test(s.meta) ? `<span class="d-block ops-line__meta">${esc(s.meta)}</span>` : ''}</span></li>`).join('');
+  }
 
-        loadData: async function () {
-            try {
-                const [routesRes, vehiclesRes] = await Promise.all([
-                    window.API.transport.getRoutes({ driver_id: this.driverId }),
-                    window.API.transport.getVehicles()
-                ]);
-                const allRoutes = (routesRes && routesRes.data) ? routesRes.data : (Array.isArray(routesRes) ? routesRes : []);
-                // Filter routes assigned to this driver
-                this.data = allRoutes.filter(r =>
-                    !this.driverId ||
-                    String(r.driver_id) === String(this.driverId) ||
-                    String(r.staff_id)  === String(this.driverId)
-                );
-                this.vehicles = (vehiclesRes && vehiclesRes.data) ? vehiclesRes.data : (Array.isArray(vehiclesRes) ? vehiclesRes : []);
-                this.render();
-            } catch (error) {
-                console.error('My routes load error:', error);
-                showToast('Failed to load route data.', 'error');
-            }
-        },
+  async function loadOverview() {
+    $('mrTitle').textContent = 'Routes overview';
+    $('mrLede').textContent = 'Every route: its stops and times, the vehicle and driver on it, and recent incidents.';
+    $('mrPassengers').hidden = true;
+    let routes = [];
+    try { routes = data(await api('/transport/all-routes')) || []; } catch (e) { state(e.message || 'Routes could not be loaded.'); return; }
+    if (!routes.length) { state('No routes have been set up yet.'); return; }
+    $('mrPickWrap').hidden = false;
+    $('mrPick').innerHTML = routes.map((r) => `<option value="${Number(r.id)}">${esc(r.code ? `${r.code}: ${r.name}` : r.name)}</option>`).join('');
+    const wanted = new URLSearchParams(location.search).get('route_id');
+    if (wanted && routes.some((r) => String(r.id) === wanted)) $('mrPick').value = wanted;
+    $('mrPick').addEventListener('change', openBoard);
+    await openBoard();
+  }
 
-        render: function () {
-            this.renderStats();
-            this.renderRoutesTable();
-            this.renderTodaySchedule();
-        },
+  async function openBoard() {
+    try { render(data(await api(`/transport/route-board/${Number($('mrPick').value)}`))); }
+    catch (e) { state(e.message || 'The route could not be opened.'); }
+  }
 
-        renderStats: function () {
-            const routes = this.data;
-            const today = todayStr();
-            const tripsToday = routes.filter(r => {
-                const trips = r.trips || [];
-                return trips.some(t => (t.trip_date || '').startsWith(today));
-            }).length;
-            const students = routes.reduce((s, r) => s + Number(r.student_count || r.students_count || 0), 0);
-            const weekKm = routes.reduce((s, r) => s + Number(r.weekly_km || r.distance_km || 0), 0);
+  async function loadDriver() {
+    try {
+      const r = data(await api('/transport/my-route'));
+      if (!r || !r.id) { state('No route is assigned to your vehicle yet. Ask the transport office.'); return; }
+      render(r);
+    } catch (e) { state(e.message || 'Your route could not be loaded.'); }
+  }
 
-            const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-            setText('assignedRoutes',   routes.length);
-            setText('tripsToday',       tripsToday);
-            setText('studentsAssigned', students);
-            setText('kmThisWeek',       weekKm > 0 ? weekKm.toFixed(1) + ' km' : '--');
-        },
-
-        renderRoutesTable: function () {
-            const tbody = document.querySelector('#routesTable');
-            if (!tbody) return;
-
-            if (!this.data.length) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No routes assigned.</td></tr>';
-                return;
-            }
-
-            tbody.innerHTML = this.data.map(r => {
-                const typeBadge = r.route_type === 'morning' ? 'bg-info' :
-                                  r.route_type === 'evening' ? 'bg-warning text-dark' : 'bg-secondary';
-                return `<tr>
-                    <td><strong>${esc(r.route_name || r.name)}</strong></td>
-                    <td><span class="badge ${typeBadge}">${esc(r.route_type || 'N/A')}</span></td>
-                    <td>${esc(r.student_count || r.students_count || 0)}</td>
-                    <td>${esc(r.distance_km ? r.distance_km + ' km' : '--')}</td>
-                    <td>${esc(r.schedule || r.departure_time || '--')}</td>
-                    <td class="text-nowrap">
-                        <button class="btn btn-sm btn-outline-primary view-route-btn me-1" data-id="${esc(r.id)}">View</button>
-                        <button class="btn btn-sm btn-success start-trip-btn" data-id="${esc(r.id)}" data-name="${esc(r.route_name || r.name)}">Start Trip</button>
-                    </td>
-                </tr>`;
-            }).join('');
-
-            this.bindTableActions();
-        },
-
-        renderTodaySchedule: function () {
-            const tbody = document.querySelector('#scheduleBody');
-            if (!tbody) return;
-            const today = todayStr();
-            const schedule = [];
-            this.data.forEach(r => {
-                const time = r.departure_time || r.schedule || '';
-                schedule.push({
-                    time,
-                    route: r.route_name || r.name || '',
-                    type: r.route_type || '',
-                    stops: r.stops_count || (r.pickup_points || []).length || '--',
-                    students: r.student_count || r.students_count || 0
-                });
-            });
-            schedule.sort((a, b) => a.time.localeCompare(b.time));
-
-            if (!schedule.length) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">No schedule for today.</td></tr>';
-                return;
-            }
-            tbody.innerHTML = schedule.map(s => `<tr>
-                <td>${esc(s.time || '--')}</td>
-                <td>${esc(s.route)}</td>
-                <td>${esc(s.type)}</td>
-                <td>${esc(s.stops)}</td>
-                <td>${esc(s.students)}</td>
-            </tr>`).join('');
-        },
-
-        updateActiveTripUI: function () {
-            const card = document.getElementById('currentTripCard');
-            if (!card) return;
-            if (this.activeTrip) {
-                card.classList.remove('d-none');
-                const nameEl = document.getElementById('activeTripRoute');
-                const timeEl = document.getElementById('tripStartTime');
-                if (nameEl) nameEl.textContent = this.activeTrip.routeName || '';
-                if (timeEl) timeEl.textContent = formatTime(this.activeTrip.startTime);
-            } else {
-                card.classList.add('d-none');
-            }
-        },
-
-        startTrip: function (routeId, routeName) {
-            if (this.activeTrip) {
-                showToast('End your current trip before starting a new one.', 'warning');
-                return;
-            }
-            this.activeTrip = { routeId, routeName, startTime: new Date().toISOString() };
-            this.updateActiveTripUI();
-            showToast(`Trip started: ${routeName}`);
-        },
-
-        endTrip: async function () {
-            if (!this.activeTrip) return;
-            const endTime = new Date().toISOString();
-            try {
-                // Attempt to persist trip record via transport index (best-effort)
-                await window.API.transport.index({
-                    action:     'end_trip',
-                    route_id:   this.activeTrip.routeId,
-                    driver_id:  this.driverId,
-                    start_time: this.activeTrip.startTime,
-                    end_time:   endTime
-                });
-            } catch (e) {
-                console.warn('Trip record save failed (non-critical):', e);
-            }
-            showToast(`Trip ended for route: ${this.activeTrip.routeName}`);
-            this.activeTrip = null;
-            this.updateActiveTripUI();
-            await this.loadData();
-        },
-
-        viewRouteDetails: async function (routeId) {
-            const route = this.data.find(r => String(r.id) === String(routeId));
-            if (!route) return;
-            try {
-                const detail = await window.API.transport.getRoute(routeId);
-                const r = (detail && detail.data) ? detail.data : (detail || route);
-                this.populateRouteModal(r);
-                const modalEl = document.getElementById('routeDetailsModal');
-                if (modalEl && window.bootstrap) new window.bootstrap.Modal(modalEl).show();
-            } catch (err) {
-                console.error('Route detail error:', err);
-                this.populateRouteModal(route);
-                const modalEl = document.getElementById('routeDetailsModal');
-                if (modalEl && window.bootstrap) new window.bootstrap.Modal(modalEl).show();
-            }
-        },
-
-        populateRouteModal: function (r) {
-            const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '--'; };
-            setText('routeName',     r.route_name || r.name);
-            setText('routeType',     r.route_type);
-            setText('distance',      r.distance_km ? r.distance_km + ' km' : '--');
-            setText('totalStudents', r.student_count || r.students_count || 0);
-            setText('schedule',      r.schedule || r.departure_time || '--');
-
-            // Vehicle name
-            const vehicle = this.vehicles.find(v => String(v.id) === String(r.vehicle_id));
-            setText('vehicle', vehicle ? (vehicle.registration || vehicle.reg_number || vehicle.name) : (r.vehicle || '--'));
-
-            // Pickup points
-            const ppTbody = document.querySelector('#pickupPointsBody');
-            if (ppTbody) {
-                const points = r.pickup_points || [];
-                ppTbody.innerHTML = points.length
-                    ? points.map((p, i) => `<tr>
-                        <td>${i + 1}</td>
-                        <td>${esc(p.name || p.location || p)}</td>
-                        <td>${esc(p.time || '--')}</td>
-                        <td>${esc(p.students_count || '--')}</td>
-                      </tr>`).join('')
-                    : '<tr><td colspan="4" class="text-muted text-center">No pickup points recorded.</td></tr>';
-            }
-
-            // Students list
-            const stTbody = document.querySelector('#studentsListBody');
-            if (stTbody) {
-                const students = r.students || [];
-                stTbody.innerHTML = students.length
-                    ? students.map(s => `<tr>
-                        <td>${esc(s.name || s.student_name)}</td>
-                        <td>${esc(s.class || s.grade || '--')}</td>
-                        <td>${esc(s.pickup_point || '--')}</td>
-                      </tr>`).join('')
-                    : '<tr><td colspan="3" class="text-muted text-center">No students listed.</td></tr>';
-            }
-        },
-
-        bindEvents: function () {
-            const startBtn = document.getElementById('startTripBtn');
-            if (startBtn) {
-                startBtn.addEventListener('click', () => {
-                    if (this.data.length === 1) {
-                        this.startTrip(this.data[0].id, this.data[0].route_name || this.data[0].name);
-                    } else {
-                        showToast('Select a specific route from the table to start a trip.', 'warning');
-                    }
-                });
-            }
-            const endBtn = document.getElementById('endTripBtn');
-            if (endBtn) endBtn.addEventListener('click', () => this.endTrip());
-        },
-
-        bindTableActions: function () {
-            document.querySelectorAll('.view-route-btn').forEach(btn => {
-                btn.addEventListener('click', () => this.viewRouteDetails(btn.dataset.id));
-            });
-            document.querySelectorAll('.start-trip-btn').forEach(btn => {
-                btn.addEventListener('click', () => this.startTrip(btn.dataset.id, btn.dataset.name));
-            });
-        }
-    };
-
-    window.MyRoutesController = Controller;
-    window.APIRealtime?.register?.('MyRoutesController', Controller);
-    document.addEventListener('DOMContentLoaded', () => Controller.init());
+  async function init() {
+    await window.AuthContext?.ready?.();
+    root.addEventListener('change', (e) => { if (e.target.name === 'mrDir' && board) renderStops(); });
+    $('mrPrint').addEventListener('click', () => window.print());
+    $('mrStopsCsv').addEventListener('click', () => {
+      if (!board) return;
+      O.exportCsv(`route_${String(board.code || board.id).replace(/\W+/g, '_')}_stops.csv`, ['Order', 'Stop', 'Arrival', 'Departure', 'Location'],
+        (board.stops || []).map((s) => [s.sequence, s.name, hm(s.arrival_time), hm(s.departure_time), s.location]));
+    });
+    if (!O.canExport()) $('mrStopsCsv').hidden = true;
+    if (isDriver()) await loadDriver(); else await loadOverview();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

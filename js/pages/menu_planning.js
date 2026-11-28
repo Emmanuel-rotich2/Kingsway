@@ -1,85 +1,179 @@
-/** Weekly meal-plan grid using CateringController reads and the supported plan write contract. */
-const menuPlanningController = {
-  state: { plans: [], weekStart: '', request: 0 },
-  esc(value) { return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]); },
-  iso(date) { return date.toISOString().slice(0, 10); },
-  monday(value = this.iso(new Date())) { const date = new Date(`${value}T12:00:00`); date.setDate(date.getDate() - ((date.getDay() + 6) % 7)); return this.iso(date); },
-  async load() {
-    const request = ++this.state.request;
-    const start = this.monday(document.getElementById('weekSelect')?.value || this.iso(new Date()));
-    this.state.weekStart = start;
-    const endDate = new Date(`${start}T12:00:00`); endDate.setDate(endDate.getDate() + 6); const end = this.iso(endDate);
-    const cells = [...document.querySelectorAll('.menu-cell')];
-    cells.forEach((cell) => { cell.innerHTML = '<span class="spinner-border spinner-border-sm" aria-label="Loading"></span>'; });
+/** Menu planning: the kitchen's week plan and its list of dishes (KitchenService). */
+(() => {
+  'use strict';
+  const root = document.getElementById('menuPlanPage');
+  if (!root) return;
+  const O = window.OpsCommon;
+  const K = window.KitchenCommon;
+  const { esc, data, api, notify, date } = O;
+  const $ = (id) => document.getElementById(id);
+  let week = K.monday();
+  let plan = [];
+  let dishList = [];
+  let canPlan = false;
+  let slot = null; // { date, meal, row? }
+  let backToSlot = false; // reopen the meal after adding a dish from it
+
+  const modal = (id) => bootstrap.Modal.getOrCreateInstance($(id));
+
+  async function loadDishes() {
+    const res = await K.dishes();
+    dishList = res.dishes || [];
+    canPlan = Boolean(res.can_plan);
+    $('mpDishAdd').hidden = !canPlan;
+    renderDishes();
+  }
+
+  async function loadWeek() {
+    $('mpWeek').value = week;
+    $('mpRange').textContent = `Week of ${date(week)} to ${date(K.addDays(week, 6))}`;
     try {
-      const response = await window.API.catering.getMenu({ date_from: start, date_to: end });
-      if (request !== this.state.request) return;
-      const payload = response?.data?.data ?? response?.data ?? response ?? [];
-      this.state.plans = Array.isArray(payload) ? payload : [];
-      this.render();
-    } catch (error) {
-      if (request !== this.state.request) return;
-      cells.forEach((cell) => { cell.innerHTML = `<span class="text-danger">${this.esc(error?.message || 'Meal plans could not be loaded.')}</span>`; });
+      const res = await K.plans(week, K.addDays(week, 6));
+      plan = res.plans || [];
+      canPlan = Boolean(res.can_plan);
+      renderWeek();
+    } catch (e) {
+      $('mpGrid').innerHTML = `<p class="text-danger">${esc(e.message || 'The week could not be loaded.')}</p>`;
     }
-  },
-  render() {
-    const filter = document.getElementById('mealTypeFilter')?.value || '';
-    const weekStart = new Date(`${this.state.weekStart}T12:00:00`);
-    for (const cell of document.querySelectorAll('.menu-cell')) {
-      const day = cell.dataset.day; const mealType = cell.dataset.meal === 'supper' ? 'dinner' : cell.dataset.meal;
-      const date = new Date(weekStart); date.setDate(date.getDate() + ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'].indexOf(day));
-      const planDate = this.iso(date);
-      const plan = this.state.plans.find((row) => String(row.plan_date).slice(0, 10) === planDate && row.meal_type === mealType);
-      const hidden = filter && filter !== cell.dataset.meal && !(filter === 'supper' && mealType === 'dinner');
-      cell.classList.toggle('d-none', Boolean(hidden));
-      cell.innerHTML = plan ? `<div class="menu-content"><strong>${this.esc(plan.menu_item || 'Meal plan')}</strong><div class="small">Planned: ${Number(plan.planned_servings || 0).toLocaleString()}</div><div class="small text-muted">${this.esc(plan.status || 'planned')}</div>${plan.notes ? `<div class="small mt-1">${this.esc(plan.notes)}</div>` : ''}</div>` : '<small class="text-muted">No plan · click to add</small>';
-      cell.dataset.planDate = planDate;
-      cell.dataset.planMealType = mealType;
-    }
-    const range = document.getElementById('weekRange'); if (range) { const end = new Date(weekStart); end.setDate(end.getDate() + 6); range.textContent = `${this.esc(this.state.weekStart)} – ${this.esc(this.iso(end))}`; }
-  },
-  openCell(cell) {
-    const modal = document.getElementById('menuModal'); if (!modal) return;
-    const plan = this.state.plans.find((row) => String(row.plan_date).slice(0, 10) === cell.dataset.planDate && row.meal_type === cell.dataset.planMealType);
-    document.getElementById('menuId').value = plan?.id || '';
-    document.getElementById('menuDay').value = cell.dataset.planDate;
-    document.getElementById('menuMealType').value = cell.dataset.planMealType;
-    document.getElementById('dayDisplay').value = `${cell.dataset.day} · ${cell.dataset.planDate}`;
-    document.getElementById('mealDisplay').value = cell.dataset.planMealType;
-    document.getElementById('plannedServings').value = plan?.planned_servings ?? '';
-    document.getElementById('menuNotes').value = plan?.notes || '';
-    window.bootstrap?.Modal?.getOrCreateInstance(modal).show();
-  },
-  async save() {
-    const form = document.getElementById('menuForm'); if (!form?.reportValidity()) return;
-    const payload = {
-      date: document.getElementById('menuDay').value,
-      meal_type: document.getElementById('menuMealType').value,
-      expected_count: Number(document.getElementById('plannedServings').value || 0),
-      notes: document.getElementById('menuNotes').value.trim() || null,
-    };
-    try {
-      await window.callAPI('/api/students/catering-menu-plan', 'POST', payload);
-      window.showNotification?.('Meal plan saved.', 'success');
-      window.bootstrap?.Modal?.getInstance(document.getElementById('menuModal'))?.hide();
-      await this.load();
-    } catch (error) { window.showNotification?.(error?.message || 'Meal plan could not be saved.', 'error'); }
-  },
-  init() {
-    const select = document.getElementById('weekSelect');
-    if (select) {
-      const today = new Date(); const current = this.monday();
-      select.innerHTML = Array.from({ length: 16 }, (_, index) => { const date = new Date(`${current}T12:00:00`); date.setDate(date.getDate() - (8 - index) * 7); const value = this.iso(date); return `<option value="${value}" ${value === current ? 'selected' : ''}>Week of ${value}</option>`; }).join('');
-      select.addEventListener('change', () => this.load());
-    }
-    document.getElementById('mealTypeFilter')?.addEventListener('change', () => this.render());
-    document.getElementById('addMenuBtn')?.addEventListener('click', () => this.openCell(document.querySelector('.menu-cell')));
-    document.getElementById('saveMenuBtn')?.addEventListener('click', () => this.save());
-    document.querySelectorAll('.menu-cell').forEach((cell) => cell.addEventListener('click', () => this.openCell(cell)));
-    document.getElementById('printMenuBtn')?.addEventListener('click', () => { if (!window.AuthContext?.canPrint || window.AuthContext.canPrint('catering')) window.print(); });
-    if (window.AuthContext?.ready) window.AuthContext.ready().then(() => this.load()); else this.load();
-    window.APIRealtime?.register?.('menu_planning', { refresh: () => this.load() }, ['catering']);
-  },
-};
-window.menuPlanningController = menuPlanningController;
-document.addEventListener('DOMContentLoaded', () => menuPlanningController.init());
+  }
+
+  function renderWeek() {
+    $('mpCopy').hidden = !canPlan;
+    const head = `<div class="ops-week__row ops-week__headrow" aria-hidden="true"><span></span>${K.MEALS.map(([, l]) => `<span class="ops-week__head">${esc(l)}</span>`).join('')}</div>`;
+    const days = Array.from({ length: 7 }, (_, i) => K.addDays(week, i));
+    $('mpGrid').innerHTML = head + days.map((d) => `
+      <div class="ops-week__row${d === O.today() ? ' is-today' : ''}">
+        <div class="ops-week__day">${esc(K.dayName(d))}<small>${esc(date(d))}</small></div>
+        ${K.MEALS.map(([m, l]) => {
+          const rows = plan.filter((p) => p.plan_date === d && p.meal_type === m);
+          return `<div class="ops-slot" role="group" aria-label="${esc(`${K.dayName(d)} ${l}`)}"><span class="ops-slot__label">${esc(l)}</span>
+            ${rows.map((p) => `<button type="button" class="ops-dish${p.status === 'cancelled' ? ' is-cancelled' : ''}" data-plan="${Number(p.id)}" ${canPlan ? '' : 'disabled'}>
+              ${esc(p.menu_item || 'Dish not named')}<small>${esc(O.num(p.planned_servings))} servings${p.status !== 'planned' ? `, ${esc(K.STATUS[p.status]?.[0] || p.status)}` : ''}</small></button>`).join('')}
+            ${canPlan ? `<button type="button" class="ops-add" data-add="${d}|${m}" aria-label="Add a dish to ${esc(`${K.dayName(d)} ${l}`)}">+ Add</button>` : (rows.length ? '' : '<span class="small text-muted">Nothing planned</span>')}
+          </div>`;
+        }).join('')}
+      </div>`).join('');
+    const empty = !plan.length;
+    $('mpHint').textContent = empty && canPlan
+      ? (dishList.length ? 'Nothing is planned for this week yet. Use "+ Add" on a meal, or copy last week.' : 'Start by adding the dishes the kitchen cooks on the Dishes tab.')
+      : '';
+  }
+
+  function dishOptions(selected, meal) {
+    const active = dishList.filter((d) => d.status === 'active' || Number(d.id) === Number(selected));
+    const sorted = [...active].sort((a, b) => (a.meal_type === meal ? -1 : 0) - (b.meal_type === meal ? -1 : 0) || a.name.localeCompare(b.name));
+    return '<option value="">Choose a dish</option>' + sorted.map((d) => `<option value="${Number(d.id)}" ${Number(d.id) === Number(selected) ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
+  }
+
+  function openSlot(d, m, row = null) {
+    const existing = Boolean(row?.id);
+    slot = { date: d, meal: m, row: existing ? row : null };
+    $('mpPlanTitle').textContent = existing ? 'Change the dish' : 'Add a dish';
+    $('mpPlanWhen').textContent = `${K.dayName(d)} ${date(d)}, ${K.MEAL[m]}`;
+    $('mpPlanDish').innerHTML = dishOptions(row?.menu_item_id, m);
+    const sameMealBefore = plan.filter((p) => p.meal_type === m && p.planned_servings).map((p) => p.planned_servings);
+    $('mpPlanServings').value = existing ? row.planned_servings : (sameMealBefore[sameMealBefore.length - 1] || '');
+    $('mpPlanNotes').value = row?.notes || '';
+    $('mpPlanRemove').hidden = !existing;
+    modal('mpPlanModal').show();
+  }
+
+  function renderDishes() {
+    const q = $('mpDishQ').value.trim().toLowerCase();
+    const list = dishList.filter((d) => !q || d.name.toLowerCase().includes(q));
+    $('mpDishBody').innerHTML = list.length ? list.map((d) => `<tr>
+      <td class="fw-semibold">${esc(d.name)}</td><td>${esc(K.MEAL[d.meal_type] || d.meal_type)}</td><td class="small">${esc(d.description || '')}</td>
+      <td>${d.status === 'active' ? '<span class="ops-tag is-ok">Yes</span>' : '<span class="ops-tag is-muted">No</span>'}</td>
+      <td class="d-print-none text-end">${canPlan ? `<button class="btn btn-outline-secondary btn-sm" type="button" data-dish="${Number(d.id)}">Edit</button>` : ''}</td></tr>`).join('')
+      : `<tr><td colspan="5" class="text-muted p-3">${dishList.length ? 'No dish matches that search.' : 'No dishes yet. Add the dishes the kitchen cooks, then plan the week from them.'}</td></tr>`;
+  }
+
+  function openDish(d = null) {
+    $('mpDishTitle').textContent = d ? 'Edit dish' : 'Add a dish';
+    $('mpDishId').value = d?.id || '';
+    $('mpDishName').value = d?.name || '';
+    $('mpDishMeal').value = d?.meal_type || slot?.meal || 'lunch';
+    $('mpDishDesc').value = d?.description || '';
+    $('mpDishActive').checked = d ? d.status === 'active' : true;
+    modal('mpDishModal').show();
+  }
+
+  function wire() {
+    O.tabs($('mpTabs'));
+    if (/route=manage_menus/.test(location.search)) $('mpTabDishes').click();
+    $('mpPrev').addEventListener('click', () => { week = K.addDays(week, -7); loadWeek(); });
+    $('mpNext').addEventListener('click', () => { week = K.addDays(week, 7); loadWeek(); });
+    $('mpThis').addEventListener('click', () => { week = K.monday(); loadWeek(); });
+    $('mpWeek').addEventListener('change', () => { if ($('mpWeek').value) { week = K.monday($('mpWeek').value); loadWeek(); } });
+    $('mpGrid').addEventListener('click', (e) => {
+      const add = e.target.closest('[data-add]');
+      if (add) { const [d, m] = add.dataset.add.split('|'); openSlot(d, m); return; }
+      const p = e.target.closest('[data-plan]');
+      if (p) { const row = plan.find((x) => Number(x.id) === Number(p.dataset.plan)); if (row) openSlot(row.plan_date, row.meal_type, row); }
+    });
+    $('mpPlanForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!$('mpPlanDish').value) { notify('Choose a dish.', 'warning'); return; }
+      try {
+        await api('/catering/plans', 'POST', { id: slot.row?.id || null, plan_date: slot.date, meal_type: slot.meal, menu_item_id: $('mpPlanDish').value, planned_servings: $('mpPlanServings').value || 0, notes: $('mpPlanNotes').value.trim() });
+        modal('mpPlanModal').hide();
+        notify('Menu saved.', 'success');
+        loadWeek();
+      } catch (err) { notify(err.message || 'The menu could not be saved.', 'danger'); }
+    });
+    $('mpPlanRemove').addEventListener('click', async () => {
+      if (!slot?.row) return;
+      try {
+        await api(`/catering/plans-remove/${Number(slot.row.id)}`, 'POST', {});
+        modal('mpPlanModal').hide();
+        notify('Dish removed from the meal.', 'success');
+        loadWeek();
+      } catch (err) { notify(err.message || 'The dish could not be removed.', 'danger'); }
+    });
+    $('mpPlanNewDish').addEventListener('click', () => { modal('mpPlanModal').hide(); backToSlot = true; openDish(); });
+    $('mpCopy').addEventListener('click', async () => {
+      try {
+        const res = data(await api('/catering/plans-copy-week', 'POST', { from: K.addDays(week, -7), to: week }));
+        notify(res.copied ? `${res.copied} dish${res.copied === 1 ? '' : 'es'} copied from last week.` : 'Nothing to copy: last week is empty or these meals are already planned.', res.copied ? 'success' : 'info');
+        loadWeek();
+      } catch (err) { notify(err.message || 'Last week could not be copied.', 'danger'); }
+    });
+
+    $('mpDishQ').addEventListener('input', renderDishes);
+    $('mpDishAdd').addEventListener('click', () => { backToSlot = false; openDish(); });
+    $('mpDishBody').addEventListener('click', (e) => { const b = e.target.closest('[data-dish]'); if (b) openDish(dishList.find((d) => Number(d.id) === Number(b.dataset.dish))); });
+    $('mpDishForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!$('mpDishName').value.trim()) { notify('Give the dish a name.', 'warning'); return; }
+      try {
+        const saved = data(await api('/catering/dishes', 'POST', { id: $('mpDishId').value || null, name: $('mpDishName').value.trim(), meal_type: $('mpDishMeal').value, description: $('mpDishDesc').value.trim(), status: $('mpDishActive').checked ? 'active' : 'inactive' }));
+        modal('mpDishModal').hide();
+        notify('Dish saved.', 'success');
+        await loadDishes();
+        renderWeek();
+        const reopen = backToSlot; backToSlot = false;
+        if (reopen && slot) openSlot(slot.date, slot.meal, slot.row ? { ...slot.row, menu_item_id: saved.id } : { menu_item_id: saved.id, planned_servings: '', notes: '' });
+      } catch (err) { notify(err.message || 'The dish could not be saved.', 'danger'); }
+    });
+
+    $('mpPrint').addEventListener('click', () => window.print());
+    $('mpCsv').addEventListener('click', () => {
+      if ($('mpTabDishes').getAttribute('aria-selected') === 'true') {
+        O.exportCsv('kitchen_dishes.csv', ['Dish', 'Usually served at', 'Notes', 'In use'], dishList.map((d) => [d.name, K.MEAL[d.meal_type], d.description, d.status === 'active' ? 'Yes' : 'No']));
+      } else {
+        O.exportCsv(`menu_week_${week}.csv`, ['Date', 'Day', 'Meal', 'Dish', 'Servings', 'Status', 'Notes'],
+          plan.map((p) => [p.plan_date, K.dayName(p.plan_date), K.MEAL[p.meal_type], p.menu_item, p.planned_servings, K.STATUS[p.status]?.[0] || p.status, p.notes]));
+      }
+    });
+    if (!O.canExport()) $('mpCsv').hidden = true;
+  }
+
+  async function init() {
+    await window.AuthContext?.ready?.();
+    wire();
+    try { await loadDishes(); } catch (e) { notify(e.message || 'The dishes could not be loaded.', 'danger'); }
+    await loadWeek();
+    window.APIRealtime?.register?.('menu_planning', { refresh: () => loadWeek() }, ['catering']);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();

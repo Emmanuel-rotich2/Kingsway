@@ -36,6 +36,24 @@ class InventoryController extends BaseController
         return null;
     }
 
+    /**
+     * Store records with money or accountability in them (uniform sales and
+     * payments, purchase orders and reports, suppliers, stock valuation and
+     * movements, assets and depreciation): Director (3), School Administrator
+     * (4), Accountant (10), Uniform Store (14), Food Store (71). The product
+     * and stock lists stay open to all staff for the internal catalogue.
+     */
+    private function guardInventoryRecords(array $extraRoles = []): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->userHasAny(['inventory.admin'], array_merge([3, 4, 10, 14, 71], $extraRoles), ['director', 'school administrator', 'accountant', 'uniform store manager', 'food store manager'])) {
+            return $this->forbidden('Store records are kept by the stores and the accounts office.');
+        }
+        return null;
+    }
+
     private function guardInventoryWrite(string $permission = 'inventory.manage'): ?array
     {
         if (!$this->user) {
@@ -256,6 +274,7 @@ class InventoryController extends BaseController
      */
     public function getItemsStockValuation($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryRecords()) return $guard;
         $result = $this->api->getStockValuation();
         return $this->handleResponse($result);
     }
@@ -451,6 +470,7 @@ class InventoryController extends BaseController
      */
     public function getSuppliersList($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryRecords([16])  /* catering orders food */) return $guard;
         $result = $this->api->listSuppliers($data);
         return $this->handleResponse($result);
     }
@@ -533,6 +553,7 @@ class InventoryController extends BaseController
      */
     public function getPurchaseOrdersList($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryRecords([16])  /* catering orders food */) return $guard;
         $result = $this->api->listPurchaseOrders($data);
         return $this->handleResponse($result);
     }
@@ -589,6 +610,7 @@ class InventoryController extends BaseController
     /** GET /api/inventory/purchase-report — line-level purchase report */
     public function getPurchaseReport($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryRecords()) return $guard;
         return $this->handleResponse($this->api->purchaseReport($data));
     }
 
@@ -621,6 +643,7 @@ class InventoryController extends BaseController
      */
     public function getRequisitionsList($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryRecords([16])  /* catering orders food */) return $guard;
         $result = $this->api->listRequisitions($data);
         return $this->handleResponse($result);
     }
@@ -710,6 +733,7 @@ class InventoryController extends BaseController
      */
     public function getMovementsList($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryRecords()) return $guard;
         $result = $this->api->listMovements($data);
         return $this->handleResponse($result);
     }
@@ -719,6 +743,7 @@ class InventoryController extends BaseController
      */
     public function getMovementsSummary($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryRecords()) return $guard;
         $result = $this->api->getMovementSummary($data);
         return $this->handleResponse($result);
     }
@@ -1493,6 +1518,7 @@ class InventoryController extends BaseController
      */
     public function getUniformPaymentSummary($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryRecords()) return $guard;
         $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->getUniformPaymentSummary();
         return $this->handleResponse($result);
@@ -1529,11 +1555,42 @@ class InventoryController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /** Uniform store read side (UniformStoreService), on the tables the till and stock intake keep. */
+    private function uniformStore(callable $fn)
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        if (!\App\API\Modules\inventory\UniformStoreService::canView((array) $this->getUserRoleIds())) {
+            return $this->forbidden('The uniform store records are for the store, the accounts office and the school office.');
+        }
+        try {
+            return $this->success($fn(new \App\API\Modules\inventory\UniformStoreService(Database::getInstance()->getConnection())));
+        } catch (\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            \App\API\Includes\FileLogger::write('inventory', ['type' => 'uniform_store_error', 'reason' => mb_substr($e->getMessage(), 0, 200)], 'error');
+            return $this->serverError('The uniform store could not be loaded.');
+        }
+    }
+
+    /** GET /api/inventory/uniform-store-stock — stock on hand per product, colour and size. */
+    public function getUniformStoreStock($id = null, $data = [], $segments = [])
+    {
+        return $this->uniformStore(fn ($s) => $s->stock());
+    }
+
+    /** GET /api/inventory/uniform-store-sales?from&to — every sale (counter, staff and parent orders). */
+    public function getUniformStoreSales($id = null, $data = [], $segments = [])
+    {
+        $q = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->uniformStore(fn ($s) => $s->sales((string) ($q['from'] ?? ''), (string) ($q['to'] ?? '')));
+    }
+
     /**
      * GET /api/inventory/uniform-sales-list - List all uniform sales with filters
      */
     public function getUniformSalesList($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryRecords()) return $guard;
         $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->listAllUniformSales($data);
         return $this->handleResponse($result);
@@ -1567,6 +1624,7 @@ class InventoryController extends BaseController
      */
     public function getUniformSalesReport($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryRecords()) return $guard;
         $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->getUniformSalesReport($data);
         return $this->handleResponse($result);
@@ -1742,6 +1800,7 @@ class InventoryController extends BaseController
      */
     public function getUniformSalesSummary($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryRecords()) return $guard;
         $filters = [
             'from_date' => $_GET['from_date'] ?? $data['from_date'] ?? null,
             'to_date'   => $_GET['to_date']   ?? $data['to_date']   ?? null,
@@ -1765,6 +1824,7 @@ class InventoryController extends BaseController
     /** GET /api/inventory/assets — list fixed assets */
     public function getAssets($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryRecords()) return $guard;
         return $this->handleResponse($this->api->getAssets($id, $data));
     }
 
@@ -1799,6 +1859,7 @@ class InventoryController extends BaseController
     /** GET /api/inventory/depreciation — depreciation schedule for assets */
     public function getDepreciation($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryRecords()) return $guard;
         $year = $data['year'] ?? date('Y');
         $catId = $data['category_id'] ?? null;
         return $this->handleResponse($this->api->getDepreciationSchedule($year, $catId));

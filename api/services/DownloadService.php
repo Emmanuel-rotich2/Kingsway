@@ -210,6 +210,44 @@ final class DownloadService
         ];
     }
 
+    /** Signed, short-lived link to one stored learning resource (teaching material or past paper). */
+    public function learningResourceUrl(string $absolutePath, string $displayName, ?int $ttl = null): string
+    {
+        $filename = $this->assertInsideRoot($absolutePath, $this->learningResourceRoot());
+        $token = $this->encrypt([
+            'version' => 1,
+            'purpose' => 'learning_resource',
+            'filename' => basename($filename),
+            'name' => mb_substr(basename($displayName), 0, 200),
+            'expires_at' => time() + max(60, $ttl ?? 900),
+        ]);
+        return rtrim((string) BASE_URL, '/') . '/api/download/learning-resource?token=' . rawurlencode($token);
+    }
+
+    /** @return array{path:string,filename:string,mime_type:string,size:int} */
+    public function resolveLearningResource(string $token): array
+    {
+        $payload = $this->decrypt($token);
+        if ((string) ($payload['purpose'] ?? '') !== 'learning_resource') {
+            throw new RuntimeException('The file token is not valid for this operation.');
+        }
+        if ((int) ($payload['expires_at'] ?? 0) <= time()) {
+            throw new RuntimeException('This file access link has expired.');
+        }
+        $path = $this->resolveInsideRoot($this->learningResourceRoot(), (string) ($payload['filename'] ?? ''));
+        return [
+            'path' => $path,
+            'filename' => $this->downloadFilename((string) ($payload['name'] ?? ''), $path),
+            'mime_type' => $this->detectMimeType($path),
+            'size' => (int) filesize($path),
+        ];
+    }
+
+    private function learningResourceRoot(): string
+    {
+        return rtrim((string) UPLOAD_PATH, '/\\') . DIRECTORY_SEPARATOR . 'learning_resources';
+    }
+
     private function temporaryUrl(
         string $purpose,
         string $filename,

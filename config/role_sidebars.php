@@ -159,6 +159,18 @@ return [
     // =========================================================================
     3 => [
         ['label' => 'Dashboard', 'url' => 'director_owner_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+
+        // SECURITY — oversight of the gate and of security incidents.
+        [
+            'label' => 'Security',
+            'url' => null,
+            'icon' => 'fas fa-shield-alt',
+            'subitems' => [
+                ['label' => 'Gate Desk', 'url' => 'security_gate'],
+                ['label' => 'Visitor Register', 'url' => 'visitor_register'],
+                ['label' => 'Security Incidents', 'url' => 'school_security_incidents'],
+            ]
+        ],
         ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
 
         // Admissions - Director oversight only (operational handled by School Admin, HT, Deputy Academic)
@@ -395,7 +407,8 @@ return [
             'icon' => 'fas fa-boxes',
             'subitems' => [
                 ['label' => 'Inventory Overview', 'url' => 'manage_inventory'], //view stock and every asset the school has.
-                ['label' => 'Uniform Sales', 'url' => 'manage_uniform_sales'],
+                ['label' => 'Uniform Stock', 'url' => 'manage_uniform_sales'],
+                ['label' => 'Uniform Sales', 'url' => 'uniform_sales_records'],
                 ['label' => 'Catalogue Orders', 'url' => 'catalog_orders_management'],
                 ['label' => 'Unit Traceability', 'url' => 'uniform_unit_tracking'],
                 ['label' => 'Offers', 'url' => 'uniform_discounts'],
@@ -413,6 +426,43 @@ return [
     // =========================================================================
     4 => [
         ['label' => 'Dashboard', 'url' => 'school_administrative_officer_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+
+        // SECURITY — oversight of the gate and of security incidents.
+        [
+            'label' => 'Security',
+            'url' => null,
+            'icon' => 'fas fa-shield-alt',
+            'subitems' => [
+                ['label' => 'Gate Desk', 'url' => 'security_gate'],
+                ['label' => 'Visitor Register', 'url' => 'visitor_register'],
+                ['label' => 'Security Incidents', 'url' => 'school_security_incidents'],
+            ]
+        ],
+
+        // MY HR — every staff member's own payslip, leave, attendance and incident reports.
+        [
+            'label' => 'My HR',
+            'url' => null,
+            'icon' => 'fas fa-id-badge',
+            'subitems' => [
+                ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'My Attendance', 'url' => 'my_attendance'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
+            ]
+        ],
+
+        // LEARNING RESOURCES — materials and past papers; the School
+        // Administrator publishes each one internal or public (parent portal).
+        [
+            'label' => 'Learning Resources',
+            'url' => null,
+            'icon' => 'fas fa-folder-open',
+            'subitems' => [
+                ['label' => 'Teaching Materials', 'url' => 'teaching_materials'],
+                ['label' => 'Past Papers', 'url' => 'past_papers'],
+            ]
+        ],
         ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
 
         // ADMISSIONS — School Admin is the primary handler of the full workflow
@@ -498,7 +548,8 @@ return [
                 ['label' => 'KCB Reconciliation', 'url' => 'kcb_disbursement_reconciliation'],
                 ['label' => 'Unmatched Payments', 'url' => 'unmatched_payments'],
                 ['label' => 'Students with Balance', 'url' => 'students_with_balance'],
-                ['label' => 'Uniform Sales', 'url' => 'manage_uniform_sales'],
+                ['label' => 'Uniform Stock', 'url' => 'manage_uniform_sales'],
+                ['label' => 'Uniform Sales', 'url' => 'uniform_sales_records'],
                 ['label' => 'Catalogue Orders', 'url' => 'catalog_orders_management'],
                 ['label' => 'Unit Traceability', 'url' => 'uniform_unit_tracking'],
                 ['label' => 'Offers & Discounts', 'url' => 'uniform_discounts'],
@@ -703,6 +754,31 @@ return [
     // =========================================================================
     5 => [
         ['label' => 'Dashboard', 'url' => 'headteacher_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+
+        // SECURITY — oversight of the gate and of security incidents.
+        [
+            'label' => 'Security',
+            'url' => null,
+            'icon' => 'fas fa-shield-alt',
+            'subitems' => [
+                ['label' => 'Gate Desk', 'url' => 'security_gate'],
+                ['label' => 'Visitor Register', 'url' => 'visitor_register'],
+                ['label' => 'Security Incidents', 'url' => 'school_security_incidents'],
+            ]
+        ],
+
+        // MY HR — every staff member's own payslip, leave, attendance and incident reports.
+        [
+            'label' => 'My HR',
+            'url' => null,
+            'icon' => 'fas fa-id-badge',
+            'subitems' => [
+                ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'My Attendance', 'url' => 'my_attendance'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
+            ]
+        ],
         ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
 
         // ADMISSIONS — HT review, interview, decision, oversight
@@ -867,7 +943,6 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'Email', 'url' => 'manage_email'],
                 ['label' => 'SMS', 'url' => 'manage_sms'],
             ]
         ],
@@ -1058,6 +1133,7 @@ return [
             'subitems' => [
                 ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
                 ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
                 ['label' => 'My Attendance', 'url' => 'my_attendance'],
             ]
         ],
@@ -1069,7 +1145,6 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
 
@@ -1094,6 +1169,19 @@ return [
     // =========================================================================
     7 => [
         ['label' => 'Dashboard', 'url' => 'class_teacher_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+
+        // LEARNING RESOURCES — materials and past papers; the School
+        // Administrator publishes each one internal or public (parent portal).
+        [
+            'label' => 'Learning Resources',
+            'url' => null,
+            'icon' => 'fas fa-folder-open',
+            'subitems' => [
+                ['label' => 'Teaching Materials', 'url' => 'teaching_materials'],
+                ['label' => 'Upload Resource', 'url' => 'upload_teaching_resource'],
+                ['label' => 'Past Papers', 'url' => 'past_papers'],
+            ]
+        ],
         ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
 
         [
@@ -1227,6 +1315,7 @@ return [
             'subitems' => [
                 ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
                 ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
                 ['label' => 'My Attendance', 'url' => 'my_attendance'],
             ]
         ],
@@ -1238,7 +1327,6 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
@@ -1281,24 +1369,17 @@ return [
             'url' => null,
             'icon' => 'fas fa-users',
             'subitems' => [
-                ['label' => 'Subject Student List', 'url' => 'subject_students_list'],
-                ['label' => 'Subject Learners', 'url' => 'students_by_class'],
+                // Only the learners this teacher teaches, by year, term,
+                // class/stream and learning area (read-only).
+                ['label' => 'My Learners', 'url' => 'students_by_class'],
                 ['label' => 'Performance Tracking', 'url' => 'student_subject_performance'],
                 ['label' => 'Student Portfolio', 'url' => 'student_portfolio'],
                 ['label' => 'Student Leadership', 'url' => 'student_leadership'],
             ]
         ],
 
-        // ATTENDANCE — mark subject attendance
-        [
-            'label' => 'Attendance',
-            'url' => null,
-            'icon' => 'fas fa-clipboard-check',
-            'subitems' => [
-                ['label' => 'Mark Class Attendance', 'url' => 'class_mark_attendance'],
-                ['label' => 'Attendance History', 'url' => 'view_attendance'],
-            ]
-        ],
+        // No Attendance section: the daily register belongs to the class
+        // teacher, not to a lesson or period, so a subject teacher marks none.
 
         // TIMETABLE — view (deputy assigns, not subject teacher)
         ['label' => 'My Teaching Timetable', 'url' => 'timetable', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
@@ -1368,6 +1449,7 @@ return [
             'subitems' => [
                 ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
                 ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
                 ['label' => 'My Attendance', 'url' => 'my_attendance'],
             ]
         ],
@@ -1379,7 +1461,6 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
@@ -1391,6 +1472,19 @@ return [
     // =========================================================================
     9 => [
         ['label' => 'Dashboard', 'url' => 'intern_student_teacher_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+
+        // MY HR — every staff member's own payslip, leave, attendance and incident reports.
+        [
+            'label' => 'My HR',
+            'url' => null,
+            'icon' => 'fas fa-id-badge',
+            'subitems' => [
+                ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'My Attendance', 'url' => 'my_attendance'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
+            ]
+        ],
 
         [
             'label' => 'Academic',
@@ -1490,7 +1584,6 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
@@ -1506,6 +1599,19 @@ return [
     // =========================================================================
     10 => [
         ['label' => 'Dashboard', 'url' => 'school_accountant_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+
+        // MY HR — every staff member's own payslip, leave, attendance and incident reports.
+        [
+            'label' => 'My HR',
+            'url' => null,
+            'icon' => 'fas fa-id-badge',
+            'subitems' => [
+                ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'My Attendance', 'url' => 'my_attendance'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
+            ]
+        ],
 
         // FEE STRUCTURE — Accountant DRAFTS (Admin+HT review, Director approves)
         [
@@ -1634,7 +1740,6 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'Email', 'url' => 'manage_email'],
                 ['label' => 'SMS', 'url' => 'manage_sms'],
             ]
         ],
@@ -1648,6 +1753,19 @@ return [
     14 => [
         ['label' => 'Dashboard', 'url' => 'store_manager_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
 
+        // MY HR — every staff member's own payslip, leave, attendance and incident reports.
+        [
+            'label' => 'My HR',
+            'url' => null,
+            'icon' => 'fas fa-id-badge',
+            'subitems' => [
+                ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'My Attendance', 'url' => 'my_attendance'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
+            ]
+        ],
+
         [
             'label' => 'Stock & Products',
             'url' => null,
@@ -1657,7 +1775,7 @@ return [
                 ['label' => 'Manage Products', 'url' => 'products_catalog_management'],
                 ['label' => 'Stock Intake', 'url' => 'uniform_stock_intake'],
                 ['label' => 'Unit Traceability', 'url' => 'uniform_unit_tracking'],
-                ['label' => 'Stock & Sizes', 'url' => 'manage_uniform_sales'],
+                ['label' => 'Uniform Stock', 'url' => 'manage_uniform_sales'],
             ]
         ],
 
@@ -1669,7 +1787,7 @@ return [
                 ['label' => 'Point of Sale', 'url' => 'uniform_point_of_sale'],
                 ['label' => 'Orders & Dispatch', 'url' => 'catalog_orders_management'],
                 ['label' => 'Offers & Discounts', 'url' => 'uniform_discounts'],
-                ['label' => 'Sales Records', 'url' => 'uniform_sales_records'],
+                ['label' => 'Uniform Sales', 'url' => 'uniform_sales_records'],
             ]
         ],
 
@@ -1691,7 +1809,6 @@ return [
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
                 ['label' => 'Analytics Catalogue', 'url' => 'analytics_catalogue'],
-                ['label' => 'Uniform Sales Reports', 'url' => 'uniform_sales_records'],
                 ['label' => 'Purchase Reports', 'url' => 'purchase_reports'],
             ]
         ],
@@ -1703,7 +1820,6 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
@@ -1715,15 +1831,28 @@ return [
     // =========================================================================
     71 => [
         ['label' => 'Dashboard', 'url' => 'food_store_manager_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+
+        // MY HR — every staff member's own payslip, leave, attendance and incident reports.
+        [
+            'label' => 'My HR',
+            'url' => null,
+            'icon' => 'fas fa-id-badge',
+            'subitems' => [
+                ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'My Attendance', 'url' => 'my_attendance'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
+            ]
+        ],
         [
             'label' => 'Food Store',
             'url' => null,
             'icon' => 'fas fa-warehouse',
             'subitems' => [
-                ['label' => 'Food Inventory', 'url' => 'food_store'],
-                ['label' => 'Stock Levels', 'url' => 'food_stock_levels'],
-                ['label' => 'Low Stock Alerts', 'url' => 'food_low_stock'],
-                ['label' => 'Incoming Stock & Orders', 'url' => 'food_orders'],
+                ['label' => 'Food Store', 'url' => 'food_store'],
+                ['label' => 'Stock Count', 'url' => 'food_stock_levels'],
+                ['label' => 'Reorder List', 'url' => 'food_low_stock'],
+                ['label' => 'Deliveries', 'url' => 'food_orders'],
                 ['label' => 'Daily Usage', 'url' => 'food_consumption'],
             ]
         ],
@@ -1747,7 +1876,6 @@ return [
             ]
         ],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
-        ['label' => 'Email', 'url' => 'manage_email', 'icon' => 'fas fa-envelope', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
@@ -1757,6 +1885,19 @@ return [
     // =========================================================================
     72 => [
         ['label' => 'Dashboard', 'url' => 'librarian_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+
+        // MY HR — every staff member's own payslip, leave, attendance and incident reports.
+        [
+            'label' => 'My HR',
+            'url' => null,
+            'icon' => 'fas fa-id-badge',
+            'subitems' => [
+                ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'My Attendance', 'url' => 'my_attendance'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
+            ]
+        ],
         [
             'label' => 'Library',
             'url' => null,
@@ -1768,7 +1909,6 @@ return [
             ]
         ],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
-        ['label' => 'Email', 'url' => 'manage_email', 'icon' => 'fas fa-envelope', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
@@ -1779,6 +1919,19 @@ return [
     16 => [
         ['label' => 'Dashboard', 'url' => 'catering_manager_cook_lead_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
 
+        // MY HR — every staff member's own payslip, leave, attendance and incident reports.
+        [
+            'label' => 'My HR',
+            'url' => null,
+            'icon' => 'fas fa-id-badge',
+            'subitems' => [
+                ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'My Attendance', 'url' => 'my_attendance'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
+            ]
+        ],
+
         [
             'label' => 'Menu & Food',
             'url' => null,
@@ -1787,7 +1940,7 @@ return [
                 ['label' => 'Menu Planning', 'url' => 'menu_planning'],
                 ['label' => 'Today\'s Menu', 'url' => 'todays_menu'],
                 ['label' => 'Weekly Menu', 'url' => 'weekly_menu'],
-                ['label' => 'Manage Menus', 'url' => 'manage_menus'],
+                ['label' => 'Dishes', 'url' => 'manage_menus'],
             ]
         ],
 
@@ -1796,10 +1949,10 @@ return [
             'url' => null,
             'icon' => 'fas fa-warehouse',
             'subitems' => [
-                ['label' => 'Food Inventory', 'url' => 'food_store'],
-                ['label' => 'Food Stock Levels', 'url' => 'food_stock_levels'],
-                ['label' => 'Low Stock Alerts', 'url' => 'food_low_stock'],
-                ['label' => 'Food Orders', 'url' => 'food_orders'],
+                ['label' => 'Food Store', 'url' => 'food_store'],
+                ['label' => 'Stock Count', 'url' => 'food_stock_levels'],
+                ['label' => 'Reorder List', 'url' => 'food_low_stock'],
+                ['label' => 'Deliveries', 'url' => 'food_orders'],
             ]
         ],
 
@@ -1834,7 +1987,6 @@ return [
         ],
 
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
-        ['label' => 'Email', 'url' => 'manage_email', 'icon' => 'fas fa-envelope', 'subitems' => []],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
@@ -1919,6 +2071,7 @@ return [
             'subitems' => [
                 ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
                 ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
                 ['label' => 'My Attendance', 'url' => 'my_attendance'],
             ]
         ],
@@ -1930,7 +2083,6 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'Email', 'url' => 'manage_email'],
                 ['label' => 'Parent Notifications', 'url' => 'send_parent_notifications'],
             ]
         ],
@@ -1954,6 +2106,19 @@ return [
     // =========================================================================
     21 => [
         ['label' => 'Dashboard', 'url' => 'hod_talent_development_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+
+        // MY HR — every staff member's own payslip, leave, attendance and incident reports.
+        [
+            'label' => 'My HR',
+            'url' => null,
+            'icon' => 'fas fa-id-badge',
+            'subitems' => [
+                ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'My Attendance', 'url' => 'my_attendance'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
+            ]
+        ],
 
         [
             'label' => 'Activities',
@@ -1997,7 +2162,6 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
 
@@ -2037,18 +2201,10 @@ return [
             'url' => null,
             'icon' => 'fas fa-bus',
             'subitems' => [
-                ['label' => 'My Routes', 'url' => 'my_routes'],
+                // One passenger register: the run sheet marks pick-up and drop-off.
+                ['label' => "Today's Passengers", 'url' => 'transport_passengers'],
+                ['label' => 'My Route', 'url' => 'my_routes'],
                 ['label' => 'My Vehicle', 'url' => 'my_vehicle'],
-            ]
-        ],
-
-        [
-            'label' => 'Students',
-            'url' => null,
-            'icon' => 'fas fa-users',
-            'subitems' => [
-                ['label' => 'My Passengers', 'url' => 'transport_passengers'],
-                ['label' => 'Passenger Attendance', 'url' => 'mark_attendance'],
             ]
         ],
 
@@ -2060,12 +2216,12 @@ return [
             'subitems' => [
                 ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
                 ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
                 ['label' => 'My Attendance', 'url' => 'my_attendance'],
             ]
         ],
 
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
-        ['label' => 'Email', 'url' => 'manage_email'],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
@@ -2076,6 +2232,19 @@ return [
     // =========================================================================
      24 => [
         ['label' => 'Dashboard', 'url' => 'school_counselor_chaplain_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+
+        // MY HR — every staff member's own payslip, leave, attendance and incident reports.
+        [
+            'label' => 'My HR',
+            'url' => null,
+            'icon' => 'fas fa-id-badge',
+            'subitems' => [
+                ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'My Attendance', 'url' => 'my_attendance'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
+            ]
+        ],
 
         [
             'label' => 'Chaplaincy Department',
@@ -2149,7 +2318,6 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
 
@@ -2175,6 +2343,7 @@ return [
         ['label' => 'My Attendance', 'url' => 'my_attendance', 'icon' => 'fas fa-clipboard-check', 'subitems' => []],
         ['label' => 'Leave Requests', 'url' => 'staff_leave', 'icon' => 'fas fa-calendar-check', 'subitems' => []],
         ['label' => 'Payslips & P9', 'url' => 'detailed_payslip', 'icon' => 'fas fa-file-invoice', 'subitems' => []],
+        ['label' => 'Report an Incident', 'url' => 'my_incident_reports', 'icon' => 'fas fa-exclamation-triangle', 'subitems' => []],
         [
             'label' => 'Kitchen',
             'url' => null,
@@ -2186,7 +2355,6 @@ return [
             ]
         ],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
-        ['label' => 'Email', 'url' => 'manage_email'],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
@@ -2201,16 +2369,21 @@ return [
         ['label' => 'My Attendance', 'url' => 'my_attendance', 'icon' => 'fas fa-clipboard-check', 'subitems' => []],
         ['label' => 'Leave Requests', 'url' => 'staff_leave', 'icon' => 'fas fa-calendar-check', 'subitems' => []],
         ['label' => 'Payslips & P9', 'url' => 'detailed_payslip', 'icon' => 'fas fa-file-invoice', 'subitems' => []],
+        ['label' => 'Report an Incident', 'url' => 'my_incident_reports', 'icon' => 'fas fa-exclamation-triangle', 'subitems' => []],
+        // GATE — the security post: visitors, exeats at the gate, gate log
+        // and security incidents (Permissions & Exeats are approved by the
+        // office; the gate desk lets learners out against an approved one).
         [
             'label' => 'Gate Operations',
             'url' => null,
             'icon' => 'fas fa-shield-alt',
             'subitems' => [
-                ['label' => 'Permissions & Exeats', 'url' => 'permissions_exeats'],
+                ['label' => 'Gate Desk', 'url' => 'security_gate'],
+                ['label' => 'Visitor Register', 'url' => 'visitor_register'],
+                ['label' => 'Security Incidents', 'url' => 'school_security_incidents'],
             ]
         ],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
-        ['label' => 'Email', 'url' => 'manage_email'],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
@@ -2226,8 +2399,8 @@ return [
         ['label' => 'My Attendance', 'url' => 'my_attendance', 'icon' => 'fas fa-clipboard-check', 'subitems' => []],
         ['label' => 'Leave Requests', 'url' => 'staff_leave', 'icon' => 'fas fa-calendar-check', 'subitems' => []],
         ['label' => 'Payslips & P9', 'url' => 'detailed_payslip', 'icon' => 'fas fa-file-invoice', 'subitems' => []],
+        ['label' => 'Report an Incident', 'url' => 'my_incident_reports', 'icon' => 'fas fa-exclamation-triangle', 'subitems' => []],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
-        ['label' => 'Email', 'url' => 'manage_email'],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
@@ -2241,6 +2414,18 @@ return [
     // =========================================================================
     63 => [
         ['label' => 'Dashboard', 'url' => 'deputy_head_discipline_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+
+        // SECURITY — oversight of the gate and of security incidents.
+        [
+            'label' => 'Security',
+            'url' => null,
+            'icon' => 'fas fa-shield-alt',
+            'subitems' => [
+                ['label' => 'Gate Desk', 'url' => 'security_gate'],
+                ['label' => 'Visitor Register', 'url' => 'visitor_register'],
+                ['label' => 'Security Incidents', 'url' => 'school_security_incidents'],
+            ]
+        ],
         ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
 
         [
@@ -2360,6 +2545,7 @@ return [
             'subitems' => [
                 ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
                 ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'Report an Incident', 'url' => 'my_incident_reports'],
                 ['label' => 'My Attendance', 'url' => 'my_attendance'],
             ]
         ],
@@ -2371,7 +2557,6 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
 
@@ -2412,8 +2597,8 @@ return [
         ['label' => 'My Attendance', 'url' => 'my_attendance', 'icon' => 'fas fa-clipboard-check', 'subitems' => []],
         ['label' => 'Leave Requests', 'url' => 'staff_leave', 'icon' => 'fas fa-calendar-check', 'subitems' => []],
         ['label' => 'Payslips & P9', 'url' => 'detailed_payslip', 'icon' => 'fas fa-file-invoice', 'subitems' => []],
+        ['label' => 'Report an Incident', 'url' => 'my_incident_reports', 'icon' => 'fas fa-exclamation-triangle', 'subitems' => []],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
-        ['label' => 'Email', 'url' => 'manage_email'],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],

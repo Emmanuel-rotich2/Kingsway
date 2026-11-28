@@ -13,7 +13,14 @@
  *      file import with review.
  */
 ?>
-<div class="container-fluid px-3" id="gradingScalesRoot">
+<style>
+/* Read-only for everyone except the School Administrator (server enforces too). */
+#gradingScalesRoot.gs-readonly [data-curriculum-manage] { display: none !important; }
+</style>
+<div class="container-fluid px-3 gs-readonly" id="gradingScalesRoot">
+    <div class="alert alert-info py-2 small d-none" id="gsReadOnlyNotice">
+        <i class="bi bi-eye me-1"></i> You are viewing the school's grading scales in read-only mode. Only the School Administrator can change them.
+    </div>
     <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
         <div>
             <h4 class="mb-1"><i class="bi bi-toggles me-2"></i>Grading & Aggregation Management</h4>
@@ -97,7 +104,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="col-lg-5">
+                <div class="col-lg-5" data-curriculum-manage>
                     <div class="card">
                         <div class="card-body">
                             <h6 class="mb-3"><i class="bi bi-plus-circle me-1"></i> Create / Update a Profile</h6>
@@ -162,7 +169,7 @@
         <!-- ======================= TAB 4: NATIONAL RESULTS ======================= -->
         <div class="tab-pane fade" id="tabNational" role="tabpanel">
             <div class="row g-3">
-                <div class="col-lg-5">
+                <div class="col-lg-5" data-curriculum-manage>
                     <div class="card">
                         <div class="card-body">
                             <h6 class="mb-2"><i class="bi bi-file-earmark-arrow-up me-1"></i> Import KNEC Results (CSV)</h6>

@@ -14,7 +14,7 @@
             <div class="modal-footer">
                 <div class="me-auto small text-muted">Read-only profile · data shown from the school record</div>
                 <button type="button" class="btn btn-outline-secondary" data-kw-onclick="studentsManagementController.printStudentDetails()"><i class="bi bi-printer" aria-hidden="true"></i> Print profile</button>
-                <button type="button" class="btn btn-primary" id="viewStudentEditButton" data-kw-onclick="studentsManagementController.editViewedStudent()"><i class="bi bi-pencil" aria-hidden="true"></i> Edit record</button>
+                <button type="button" class="btn btn-primary" id="viewStudentEditButton" hidden data-kw-onclick="studentsManagementController.editViewedStudent()"><i class="bi bi-pencil" aria-hidden="true"></i> Edit record</button>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
 <?php asset_script($appBase, 'js/components/learner_record.js'); ?>

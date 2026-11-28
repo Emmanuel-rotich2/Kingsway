@@ -322,25 +322,25 @@ $escape = static function ($value): string {
                         <div class="col-md-3 col-lg">
                             <a href="#" data-route="my_routes" class="dash-quick-link">
                                 <i class="bi bi-signpost-split ql-icon bg-primary text-white"></i>
-                                <span>My Routes</span><i class="bi bi-chevron-right ql-arrow"></i>
+                                <span>My Route</span><i class="bi bi-chevron-right ql-arrow"></i>
                             </a>
                         </div>
                         <div class="col-md-3 col-lg">
                             <a href="#" data-route="transport_passengers" class="dash-quick-link">
                                 <i class="bi bi-people ql-icon bg-success text-white"></i>
-                                <span>Passenger Manifest</span><i class="bi bi-chevron-right ql-arrow"></i>
+                                <span>Today's Passengers</span><i class="bi bi-chevron-right ql-arrow"></i>
                             </a>
                         </div>
                         <div class="col-md-3 col-lg">
                             <a href="#" data-route="my_vehicle" class="dash-quick-link">
                                 <i class="bi bi-clipboard-check ql-icon bg-info text-white"></i>
-                                <span>Vehicle Check</span><i class="bi bi-chevron-right ql-arrow"></i>
+                                <span>Pre-trip Check</span><i class="bi bi-chevron-right ql-arrow"></i>
                             </a>
                         </div>
                         <div class="col-md-3 col-lg">
-                            <a href="#" data-route="manage_transport" class="dash-quick-link">
+                            <a href="#" data-route="my_vehicle" class="dash-quick-link">
                                 <i class="bi bi-exclamation-octagon ql-icon bg-danger text-white"></i>
-                                <span>Report Incident</span><i class="bi bi-chevron-right ql-arrow"></i>
+                                <span>Report a Problem</span><i class="bi bi-chevron-right ql-arrow"></i>
                             </a>
                         </div>
                     </div>

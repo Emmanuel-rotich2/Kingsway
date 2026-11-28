@@ -400,25 +400,6 @@ class PaymentsController extends BaseController
     }
 
     /**
-     * POST /api/payments/mpesa-exception
-     * Assign or reject an unmatched M-Pesa row without allocating money.
-     * Accepts: mpesa_id, matching_status (needs_review|duplicate|conflict|reversed), reason.
-     */
-    public function postMpesaException($id = null, $data = [], $segments = [])
-    {
-        if (!$this->userHasAny(['finance.reconcile', 'finance_reconcile'], [10], ['accountant', 'finance', 'admin'])) {
-            return $this->forbidden('Finance reconciliation permission required');
-        }
-        $mpesaId = (int) ($data['mpesa_id'] ?? $id ?? 0);
-        if ($mpesaId < 1) {
-            return $this->badRequest('mpesa_id is required');
-        }
-        $status = (string) ($data['matching_status'] ?? '');
-        $reason = (string) ($data['reason'] ?? '');
-        return $this->handleResponse($this->api->resolveMpesaException($mpesaId, $status, $reason, $this->getUserId()));
-    }
-
-    /**
      * GET /api/payments/mpesa-reconcile-history?mpesa_id=ID
      */
     public function getMpesaReconcileHistory($id = null, $data = [], $segments = [])

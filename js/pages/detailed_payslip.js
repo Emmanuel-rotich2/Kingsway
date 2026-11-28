@@ -26,6 +26,14 @@ const DetailedPayslipController = {
 
     const user = window.AuthContext.getUser?.() || {};
     this.data.staffId = user.staff_id || user.staff?.id || null;
+    // The login payload may not carry staff_id; the staff profile always does.
+    if (!this.data.staffId) {
+      try {
+        const res = await window.API.apiCall("/staff/profile-get", "GET", null, {}, { checkPermission: false });
+        const p = res?.data || res || {};
+        this.data.staffId = p._domain === "system" ? null : (Number(p.staff_id || p.id || 0) || null);
+      } catch (_) { /* the page reports the missing profile below */ }
+    }
     this.data.selectedStaffId = this.data.staffId;
 
     // Set current period and load the employee's own payroll records.

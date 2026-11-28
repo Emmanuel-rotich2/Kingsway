@@ -1,260 +1,56 @@
 <?php
 /**
- * Food Store Page (Kitchen inventory)
- * HTML structure only - logic will be in js/pages/food_store.js
- * Embedded in app_layout.php
+ * Food Store — what the store holds. Each food item with its level against
+ * the reorder mark, how long it lasts at the usual rate, its use-by date and
+ * value. The storekeeper receives deliveries, issues food to the kitchen,
+ * writes off spoilt food and opens each item's bin card from here.
+ * Data: /api/catering/store (+ store-item, store-receive, store-issue,
+ * store-spoil, store-ledger). Food categories only.
  */
 ?>
-
-<div class="card shadow-sm">
-    <div class="card-header bg-gradient bg-warning text-white">
-        <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="bi bi-building"></i> Food Store Management</h4>
-            <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="addItemBtn" data-permission="foodstore_manage" data-year-write>
-                    <i class="bi bi-plus-circle"></i> Add Item
-                </button>
-                <button class="btn btn-outline-light btn-sm" id="issueItemBtn" data-permission="foodstore_issue" data-year-write>
-                    <i class="bi bi-box-arrow-right"></i> Issue Items
-                </button>
-            </div>
-        </div>
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/support_ops.css?v=<?= asset_version('css/pages/support_ops.css') ?>">
+<div class="kw-ops kw-ops--store container-fluid py-3" id="foodStorePage">
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
+    <div>
+      <h1 class="ops-title">Food store</h1>
+      <p class="ops-lede">What the store holds today. Open an item to see its bin card.</p>
     </div>
-
-    <div class="card-body">
-        <!-- Summary Cards -->
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="card border-primary">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Total Items</h6>
-                        <h3 class="text-primary mb-0" id="totalItems">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card border-success">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">In Stock</h6>
-                        <h3 class="text-success mb-0" id="inStock">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card border-warning">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Low Stock</h6>
-                        <h3 class="text-warning mb-0" id="lowStock">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card border-danger">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Out of Stock</h6>
-                        <h3 class="text-danger mb-0" id="outOfStock">0</h3>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Filter Row -->
-        <div class="row mb-3">
-            <div class="col-md-3">
-                <input type="text" class="form-control" id="searchBox" placeholder="Search items...">
-            </div>
-            <div class="col-md-2">
-                <select class="form-select" id="categoryFilter">
-                    <option value="">All Categories</option>
-                    <option value="grains">Grains & Cereals</option>
-                    <option value="vegetables">Vegetables</option>
-                    <option value="proteins">Proteins</option>
-                    <option value="dairy">Dairy</option>
-                    <option value="spices">Spices & Condiments</option>
-                    <option value="beverages">Beverages</option>
-                    <option value="other">Other</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <select class="form-select" id="stockStatus">
-                    <option value="">All Status</option>
-                    <option value="in_stock">In Stock</option>
-                    <option value="low_stock">Low Stock</option>
-                    <option value="out_of_stock">Out of Stock</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <button class="btn btn-outline-secondary w-100" id="exportBtn">
-                    <i class="bi bi-download"></i> Export
-                </button>
-            </div>
-        </div>
-
-        <!-- Items Table -->
-        <div class="table-responsive">
-            <table class="table table-hover" id="foodStoreTable">
-                <thead class="table-light">
-                    <tr>
-                        <th scope="col">Item Name</th>
-                        <th scope="col">Category</th>
-                        <th scope="col">Quantity</th>
-                        <th scope="col">Unit</th>
-                        <th scope="col">Reorder Level</th>
-                        <th scope="col">Unit Price (KES)</th>
-                        <th scope="col">Total Value (KES)</th>
-                        <th scope="col">Status</th>
-                        <th scope="col">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <!-- Dynamic content -->
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Pagination -->
-        <nav>
-            <ul class="pagination justify-content-center" id="pagination">
-                <!-- Dynamic pagination -->
-            </ul>
-        </nav>
+    <div class="d-flex flex-wrap gap-2 d-print-none">
+      <button class="btn btn-ops" type="button" id="fsIssueBtn" data-fs-manage hidden><i class="bi bi-box-arrow-right me-1" aria-hidden="true"></i>Issue to the kitchen</button>
+      <button class="btn btn-outline-secondary" type="button" id="fsReceiveBtn" data-fs-manage hidden><i class="bi bi-truck me-1" aria-hidden="true"></i>Receive a delivery</button>
+      <button class="btn btn-outline-secondary" type="button" id="fsSpoilBtn" data-fs-manage hidden>Food thrown away</button>
+      <button class="btn btn-outline-secondary" type="button" id="fsAddBtn" data-fs-manage hidden><i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Add an item</button>
     </div>
+  </div>
+
+  <div class="ops-panel mb-3">
+    <ul class="ops-facts" id="fsFacts" aria-live="polite"></ul>
+  </div>
+
+  <div class="ops-panel">
+    <div class="d-flex flex-wrap gap-2 align-items-end mb-3 d-print-none">
+      <div class="flex-grow-1" style="max-inline-size:20rem"><label class="form-label small" for="fsSearch">Find</label><input class="form-control" type="search" id="fsSearch" placeholder="Item or code"></div>
+      <div><label class="form-label small" for="fsCat">Category</label><select class="form-select" id="fsCat"><option value="">All food</option></select></div>
+      <div class="ops-chips" role="group" aria-label="Show" id="fsShow">
+        <button type="button" class="btn btn-outline-secondary" data-show="" aria-pressed="true">Everything</button>
+        <button type="button" class="btn btn-outline-secondary" data-show="low" aria-pressed="false">Order more</button>
+        <button type="button" class="btn btn-outline-secondary" data-show="expiry" aria-pressed="false">Use soon</button>
+        <button type="button" class="btn btn-outline-secondary" data-show="inactive" aria-pressed="false">No longer kept</button>
+      </div>
+      <div class="ms-auto d-flex gap-2">
+        <button class="btn btn-outline-secondary" type="button" id="fsCsv"><i class="bi bi-download me-1" aria-hidden="true"></i>CSV</button>
+        <button class="btn btn-outline-secondary" type="button" id="fsPrint"><i class="bi bi-printer me-1" aria-hidden="true"></i>Print</button>
+      </div>
+    </div>
+    <div class="table-responsive" tabindex="0" role="region" aria-label="Food items">
+      <table class="table align-middle mb-0">
+        <thead><tr><th scope="col">Item</th><th scope="col">In the store</th><th scope="col">Lasts</th><th scope="col">Use by</th><th scope="col">Value</th><th scope="col" class="d-print-none"><span class="visually-hidden">Actions</span></th></tr></thead>
+        <tbody id="fsBody"><tr><td colspan="6" class="text-muted p-3">Loading the store…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+  <?php include __DIR__ . '/../components/modals/food_store_forms.php'; ?>
 </div>
-
-<!-- Add/Edit Item Modal -->
-<div class="modal fade" id="itemModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="itemModalTitle">Add Food Item</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="itemForm">
-                    <input type="hidden" id="itemId">
-                    <div class="mb-3">
-                        <label class="form-label">Item Name*</label>
-                        <input type="text" class="form-control" id="itemName" required>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Category*</label>
-                            <select class="form-select" id="category" required>
-                                <option value="grains">Grains & Cereals</option>
-                                <option value="vegetables">Vegetables</option>
-                                <option value="proteins">Proteins</option>
-                                <option value="dairy">Dairy</option>
-                                <option value="spices">Spices & Condiments</option>
-                                <option value="beverages">Beverages</option>
-                                <option value="other">Other</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Unit*</label>
-                            <select class="form-select" id="unit" required>
-                                <option value="kg">Kilogram (kg)</option>
-                                <option value="g">Gram (g)</option>
-                                <option value="liters">Liters (L)</option>
-                                <option value="ml">Milliliter (ml)</option>
-                                <option value="pcs">Pieces</option>
-                                <option value="bags">Bags</option>
-                                <option value="crates">Crates</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Quantity*</label>
-                            <input type="number" class="form-control" id="quantity" required min="0" step="0.01">
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Reorder Level*</label>
-                            <input type="number" class="form-control" id="reorderLevel" required min="0" step="0.01">
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Unit Price (KES)*</label>
-                        <input type="number" class="form-control" id="unitPrice" required min="0" step="0.01">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Supplier</label>
-                        <input type="text" class="form-control" id="supplier">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Storage Location</label>
-                        <select class="form-select" id="storageLocation">
-                            <option value="main_store">Main Store</option>
-                            <option value="cold_room">Cold Room</option>
-                            <option value="dry_store">Dry Store</option>
-                            <option value="kitchen">Kitchen</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Notes</label>
-                        <textarea class="form-control" id="notes" rows="2"></textarea>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveItemBtn" data-year-write>Save Item</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Issue Items Modal -->
-<div class="modal fade" id="issueModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header bg-info text-white">
-                <h5 class="modal-title">Issue Food Items</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="issueForm">
-                    <div class="mb-3">
-                        <label class="form-label">Item*</label>
-                        <select class="form-select" id="issueItem" required></select>
-                        <small class="text-muted">Available: <span id="availableQty">0</span> <span
-                                id="availableUnit"></span></small>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Quantity to Issue*</label>
-                        <input type="number" class="form-control" id="issueQuantity" required min="0.01" step="0.01">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Issued To*</label>
-                        <input type="text" class="form-control" id="issuedTo" required
-                            placeholder="e.g., Kitchen Staff">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Purpose*</label>
-                        <select class="form-select" id="purpose" required>
-                            <option value="breakfast">Breakfast Preparation</option>
-                            <option value="lunch">Lunch Preparation</option>
-                            <option value="supper">Supper Preparation</option>
-                            <option value="snacks">Snacks</option>
-                            <option value="other">Other</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Date*</label>
-                        <input type="date" class="form-control" id="issueDate" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Notes</label>
-                        <textarea class="form-control" id="issueNotes" rows="2"></textarea>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveIssueBtn" data-year-write>Issue Items</button>
-            </div>
-        </div>
-    </div>
-</div>
-
+<?php asset_script($appBase, 'js/pages/support_ops_common.js'); ?>
+<?php asset_script($appBase, 'js/pages/food_store_common.js'); ?>
 <?php asset_script($appBase, 'js/pages/food_store.js'); ?>
-</script>

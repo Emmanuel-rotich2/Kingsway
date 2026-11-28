@@ -92,7 +92,7 @@
             <i class="bi bi-journal-text me-2"></i>Lesson Plans Management
         </h2>
         <small class="opacity-75">
-            Create and monitor lesson plans generated from approved schemes of work
+            Lesson plans are classroom delivery blueprints, drafted by the assistant and reviewed by the teacher. Schemes of work are kept separately for the MoE.
         </small>
     </div>
     <button class="btn btn-light btn-sm" id="btnCreateLessonPlan" data-bs-toggle="modal" data-bs-target="#addLessonPlanModal" data-permission="lesson_plans_create" data-year-write>

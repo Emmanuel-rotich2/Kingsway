@@ -1,0 +1,399 @@
+/*
+ * Support operations (drivers, kitchen and food store, boarding).
+ * Scoped to .kw-ops. These are working screens, often used on a phone in a
+ * bus cab, a kitchen or a dormitory corridor: large targets, plain words,
+ * tabular figures, and one signature element per role:
+ *
+ *   .kw-ops--road     drivers      the yellow rear number plate and the
+ *                                  route's destination blind
+ *   .kw-ops--kitchen  catering     the chalk menu board
+ *   .kw-ops--dorm     boarding     the night roll count
+ *   .kw-ops--store    food store   the storekeeper's bin card and the
+ *                                  shelf gauge with its reorder mark
+ *   .kw-ops--shop     uniform      the size run: one tile per size, the
+ *                    store        count on the shelf in it
+ *
+ * Uses the app's --kw-theme-* surface tokens so light and dark themes work.
+ */
+.kw-ops {
+  --ops-ink: var(--kw-theme-text, #1f2529);
+  --ops-muted: var(--kw-theme-muted, #5d6870);
+  --ops-line: var(--kw-theme-border, #e1e5e8);
+  --ops-surface: var(--kw-theme-surface, #ffffff);
+  --ops-accent: #1f5f8b;
+  --ops-warn: #9a5b00;
+  --ops-ok: #2e7d4f;
+  --ops-stop: #b3261e;
+  --ops-radius: 8px;
+  --ops-condensed: "Roboto Condensed", "Arial Narrow", "Helvetica Neue Condensed", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.kw-ops--road { --ops-accent: #24313a; --ops-plate: #f5c400; --ops-blind: #15191c; --ops-led: #ffc933; }
+.kw-ops--kitchen { --ops-accent: #2f5d3a; --ops-board: #24352b; --ops-chalk: #f3f1e6; }
+.kw-ops--dorm { --ops-accent: #34406b; }
+.kw-ops--shop { --ops-accent: #075b3b; }
+.kw-ops--store { --ops-accent: #6b4a1f; --ops-card: #efe3c4; --ops-card-ink: #3b2a12; --ops-card-rule: #b99e6a; }
+
+html[data-kw-theme="dark"] .kw-ops {
+  --ops-warn: #f0b14a; --ops-ok: #7ccf9c; --ops-stop: #ff8a80; --ops-accent: #9cc2dd;
+}
+html[data-kw-theme="dark"] .kw-ops--road { --ops-accent: #b9c7d0; --ops-blind: #0c0f11; }
+html[data-kw-theme="dark"] .kw-ops--kitchen { --ops-accent: #9fd0aa; --ops-board: #1b2a21; }
+html[data-kw-theme="dark"] .kw-ops--dorm { --ops-accent: #b3bdf0; }
+html[data-kw-theme="dark"] .kw-ops--shop { --ops-accent: #7fd1a8; }
+html[data-kw-theme="dark"] .kw-ops--store { --ops-accent: #e0b878; --ops-card: #2e261a; --ops-card-ink: #f0e2c2; --ops-card-rule: #6d5a37; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-kw-theme="light"]):not([data-kw-theme="dark"]) .kw-ops {
+    --ops-warn: #f0b14a; --ops-ok: #7ccf9c; --ops-stop: #ff8a80; --ops-accent: #9cc2dd;
+  }
+}
+
+.kw-ops .ops-title {
+  font-weight: 800;
+  font-size: clamp(1.35rem, 1.1rem + 0.9vw, 1.75rem);
+  letter-spacing: -0.01em;
+  color: var(--ops-ink);
+  margin: 0;
+}
+.kw-ops .ops-lede { color: var(--ops-muted); max-inline-size: 64ch; margin: 0.15rem 0 0; }
+
+.kw-ops .ops-panel {
+  background: var(--ops-surface);
+  border: 1px solid var(--ops-line);
+  border-radius: var(--ops-radius);
+  padding: 1rem;
+}
+.kw-ops .ops-panel h2 { font-size: 1.05rem; font-weight: 700; margin: 0 0 0.75rem; color: var(--ops-ink); }
+.kw-ops .ops-panel h3 { font-size: 0.95rem; font-weight: 700; margin: 0 0 0.5rem; color: var(--ops-ink); }
+
+/* Finger-friendly controls. */
+.kw-ops :is(.btn, .form-control, .form-select) { min-block-size: 44px; }
+.kw-ops .btn-sm { min-block-size: 36px; }
+.kw-ops .btn-ops {
+  --bs-btn-bg: var(--ops-accent);
+  --bs-btn-border-color: var(--ops-accent);
+  --bs-btn-color: #fff;
+  --bs-btn-hover-bg: color-mix(in oklab, var(--ops-accent) 85%, black);
+  --bs-btn-hover-border-color: color-mix(in oklab, var(--ops-accent) 85%, black);
+  --bs-btn-hover-color: #fff;
+  --bs-btn-active-bg: color-mix(in oklab, var(--ops-accent) 75%, black);
+  --bs-btn-disabled-bg: var(--ops-accent);
+  --bs-btn-disabled-border-color: var(--ops-accent);
+  font-weight: 700;
+}
+html[data-kw-theme="dark"] .kw-ops .btn-ops { --bs-btn-color: #0b1620; --bs-btn-hover-color: #0b1620; }
+.kw-ops :is(.btn, .form-control, .form-select, .form-check-input, a, [tabindex]):focus-visible {
+  outline: 3px solid var(--ops-warn);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* Facts in a row: value large, label small, wrapping on a phone. */
+.kw-ops .ops-facts { display: flex; flex-wrap: wrap; gap: 0.75rem 2rem; margin: 0; padding: 0; list-style: none; }
+.kw-ops .ops-facts > li { display: grid; gap: 0.1rem; }
+.kw-ops .ops-facts .ops-fact__v { font-weight: 800; font-size: 1.25rem; color: var(--ops-ink); line-height: 1.1; }
+.kw-ops .ops-facts .ops-fact__l { color: var(--ops-muted); font-size: 0.85rem; }
+.kw-ops .ops-facts .is-warn .ops-fact__v { color: var(--ops-warn); }
+.kw-ops .ops-facts .is-stop .ops-fact__v { color: var(--ops-stop); }
+.kw-ops .ops-facts .is-ok .ops-fact__v { color: var(--ops-ok); }
+
+.kw-ops .ops-tag {
+  display: inline-block;
+  padding: 0.15em 0.55em;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.kw-ops .ops-tag.is-warn { color: var(--ops-warn); }
+.kw-ops .ops-tag.is-ok { color: var(--ops-ok); }
+.kw-ops .ops-tag.is-stop { color: var(--ops-stop); }
+.kw-ops .ops-tag.is-muted { color: var(--ops-muted); }
+
+.kw-ops .ops-empty { color: var(--ops-muted); padding: 1rem 0; margin: 0; }
+.kw-ops .table > thead > tr > th { color: var(--ops-muted); font-weight: 600; font-size: 0.8125rem; white-space: nowrap; }
+
+/* Tabs as a plain segmented row. */
+.kw-ops .ops-tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; border-block-end: 1px solid var(--ops-line); margin-block-end: 0.75rem; }
+.kw-ops .ops-tabs [role="tab"] {
+  border: 0;
+  background: none;
+  padding: 0.6rem 0.9rem;
+  min-block-size: 44px;
+  font-weight: 600;
+  color: var(--ops-muted);
+  border-block-end: 3px solid transparent;
+  margin-block-end: -1px;
+}
+.kw-ops .ops-tabs [role="tab"][aria-selected="true"] { color: var(--ops-ink); border-block-end-color: var(--ops-accent); }
+
+/* A real sequence (stops on a route, the day's meals): a line with stations. */
+.kw-ops .ops-line { list-style: none; margin: 0; padding: 0; position: relative; }
+.kw-ops .ops-line > li {
+  display: grid;
+  grid-template-columns: 4.25rem 1rem 1fr;
+  gap: 0 0.6rem;
+  align-items: start;
+  padding-block-end: 0.9rem;
+  position: relative;
+}
+.kw-ops .ops-line > li::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(4.25rem + 0.6rem + 0.5rem - 1px);
+  inset-block: 0.6rem 0;
+  border-inline-start: 2px solid var(--ops-line);
+}
+.kw-ops .ops-line > li:last-child::before { display: none; }
+.kw-ops .ops-line .ops-line__t { font-weight: 800; color: var(--ops-ink); text-align: end; }
+.kw-ops .ops-line .ops-line__dot {
+  inline-size: 1rem; block-size: 1rem; border-radius: 50%;
+  background: var(--ops-surface); border: 3px solid var(--ops-accent);
+  margin-block-start: 0.2rem; position: relative; z-index: 1;
+}
+.kw-ops .ops-line > li:is(:first-child, :last-child) .ops-line__dot { background: var(--ops-accent); }
+.kw-ops .ops-line .ops-line__name { font-weight: 700; color: var(--ops-ink); }
+.kw-ops .ops-line .ops-line__meta { color: var(--ops-muted); font-size: 0.875rem; }
+
+/* ---------- Drivers: the number plate and the destination blind ---------- */
+.kw-ops--road .ops-plate {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.9rem;
+  background: var(--ops-plate);
+  color: #111;
+  border: 3px solid #111;
+  border-radius: 6px;
+  font-family: var(--ops-condensed);
+  font-stretch: condensed;
+  font-weight: 800;
+  font-size: clamp(1.9rem, 1.4rem + 2.2vw, 2.75rem);
+  letter-spacing: 0.06em;
+  line-height: 1.1;
+  box-shadow: inset 0 0 0 2px var(--ops-plate), inset 0 0 0 3px #111;
+}
+.kw-ops--road .ops-blind {
+  background: var(--ops-blind);
+  color: var(--ops-led);
+  border-radius: var(--ops-radius);
+  padding: 0.85rem 1.1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+  font-family: var(--ops-condensed);
+  font-stretch: condensed;
+}
+.kw-ops--road .ops-blind__code { font-size: clamp(2rem, 1.5rem + 2.5vw, 3rem); font-weight: 800; line-height: 1; letter-spacing: 0.04em; }
+.kw-ops--road .ops-blind__name { font-size: clamp(1.15rem, 1rem + 0.8vw, 1.5rem); font-weight: 700; }
+.kw-ops--road .ops-blind__via { inline-size: 100%; color: color-mix(in oklab, var(--ops-led) 70%, var(--ops-blind)); font-family: inherit; font-size: 0.95rem; }
+
+/* Pre-trip check: each item a two-way choice, large enough for a thumb. */
+.kw-ops .ops-check { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.5rem 1rem; margin: 0; padding: 0; list-style: none; }
+.kw-ops .ops-check > li { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding-block: 0.35rem; border-block-end: 1px solid var(--ops-line); }
+.kw-ops .ops-check .btn-group .btn { min-inline-size: 4.5rem; }
+.kw-ops .ops-check .btn-check:checked + .btn-outline-danger { color: #fff; }
+
+/* ---------- Kitchen: the menu board ---------- */
+.kw-ops--kitchen .ops-board {
+  background: var(--ops-board);
+  color: var(--ops-chalk);
+  border-radius: var(--ops-radius);
+  padding: 1rem 1.25rem;
+}
+.kw-ops--kitchen .ops-board h2 { color: var(--ops-chalk); font-family: Georgia, "Times New Roman", serif; font-weight: 700; font-size: 1.35rem; margin: 0 0 0.75rem; }
+.kw-ops--kitchen .ops-board .ops-line .ops-line__t,
+.kw-ops--kitchen .ops-board .ops-line .ops-line__name { color: var(--ops-chalk); }
+.kw-ops--kitchen .ops-board .ops-line .ops-line__meta { color: color-mix(in oklab, var(--ops-chalk) 70%, var(--ops-board)); }
+.kw-ops--kitchen .ops-board .ops-line .ops-line__dot { background: var(--ops-board); border-color: var(--ops-chalk); }
+.kw-ops--kitchen .ops-board .ops-line > li::before { border-color: color-mix(in oklab, var(--ops-chalk) 35%, var(--ops-board)); }
+.kw-ops--kitchen .ops-board .ops-line > li:is(:first-child, :last-child) .ops-line__dot { background: var(--ops-chalk); }
+.kw-ops--kitchen .ops-board .ops-line .ops-line__name { font-family: Georgia, "Times New Roman", serif; font-size: 1.1rem; }
+
+/* Meal names are wider than clock times. */
+.kw-ops--kitchen .ops-board .ops-line > li { grid-template-columns: 6.25rem 1rem 1fr; }
+.kw-ops--kitchen .ops-board .ops-line > li::before { inset-inline-start: calc(6.25rem + 0.6rem + 0.5rem - 1px); }
+.kw-ops--kitchen .ops-board .ops-line .ops-line__t { font-weight: 600; text-align: start; }
+.kw-ops--kitchen .ops-board-week { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: 0.75rem; }
+.kw-ops--kitchen .ops-board-week .ops-board h2 { font-size: 1.15rem; }
+.kw-ops--kitchen .ops-board.is-today { outline: 3px solid var(--ops-warn); outline-offset: 2px; }
+
+/* Week planner: a day per row, a column per meal; stacks on a phone. */
+.kw-ops--kitchen .ops-week { display: grid; gap: 0.5rem; }
+.kw-ops--kitchen .ops-week__row {
+  display: grid;
+  grid-template-columns: 7.5rem repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  align-items: stretch;
+}
+.kw-ops--kitchen .ops-week__head { color: var(--ops-muted); font-weight: 600; font-size: 0.8125rem; }
+.kw-ops--kitchen .ops-week__day { font-weight: 700; color: var(--ops-ink); padding-block-start: 0.5rem; }
+.kw-ops--kitchen .ops-week__day small { display: block; font-weight: 400; color: var(--ops-muted); }
+.kw-ops--kitchen .ops-week__row.is-today .ops-week__day { color: var(--ops-accent); }
+.kw-ops--kitchen .ops-slot {
+  border: 1px solid var(--ops-line);
+  border-radius: var(--ops-radius);
+  padding: 0.4rem;
+  background: var(--ops-surface);
+  display: grid;
+  gap: 0.3rem;
+  align-content: start;
+  min-block-size: 4.5rem;
+}
+.kw-ops--kitchen .ops-slot__label { display: none; color: var(--ops-muted); font-size: 0.8rem; font-weight: 600; }
+.kw-ops--kitchen .ops-dish {
+  display: block;
+  inline-size: 100%;
+  text-align: start;
+  border: 0;
+  border-inline-start: 3px solid var(--ops-accent);
+  background: color-mix(in oklab, var(--ops-accent) 8%, var(--ops-surface));
+  color: var(--ops-ink);
+  border-radius: 4px;
+  padding: 0.3rem 0.45rem;
+  font-size: 0.9rem;
+  line-height: 1.25;
+}
+.kw-ops--kitchen .ops-dish small { display: block; color: var(--ops-muted); }
+.kw-ops--kitchen .ops-dish.is-cancelled { text-decoration: line-through; opacity: 0.65; }
+.kw-ops--kitchen .ops-add {
+  border: 1px dashed var(--ops-line);
+  background: none;
+  color: var(--ops-muted);
+  border-radius: 4px;
+  min-block-size: 36px;
+  font-size: 0.875rem;
+}
+.kw-ops--kitchen .ops-add:hover { color: var(--ops-ink); border-color: var(--ops-muted); }
+@media (width < 768px) {
+  .kw-ops--kitchen .ops-week__row { grid-template-columns: 1fr 1fr; }
+  .kw-ops--kitchen .ops-week__row.ops-week__headrow { display: none; }
+  .kw-ops--kitchen .ops-week__day { grid-column: 1 / -1; border-block-start: 1px solid var(--ops-line); }
+  .kw-ops--kitchen .ops-slot__label { display: block; }
+}
+@media print {
+  .kw-ops--kitchen .ops-add { display: none; }
+  .kw-ops--kitchen .ops-week__row { break-inside: avoid; }
+}
+
+/* ---------- Boarding: the roll count ---------- */
+.kw-ops--dorm .ops-count { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
+.kw-ops--dorm .ops-count__n { font-size: clamp(2.75rem, 2rem + 3.5vw, 4rem); font-weight: 800; line-height: 0.95; color: var(--ops-ink); }
+.kw-ops--dorm .ops-count__of { font-size: 1.25rem; font-weight: 700; color: var(--ops-muted); }
+
+/* ---------- Food store: the shelf gauge and the bin card ---------- */
+/* Gauge: the bar is the stock on hand against twice the reorder level; the
+   tick is the reorder level, so "below the line" reads as "order now". */
+.kw-ops--store .ops-gauge { display: grid; gap: 0.2rem; min-inline-size: 9rem; }
+.kw-ops--store .ops-gauge__q { font-weight: 800; color: var(--ops-ink); }
+.kw-ops--store .ops-gauge__q small { font-weight: 400; color: var(--ops-muted); }
+.kw-ops--store .ops-gauge__bar {
+  position: relative; block-size: 0.5rem; border-radius: 999px;
+  background: color-mix(in oklab, var(--ops-line) 70%, transparent);
+}
+.kw-ops--store .ops-gauge__fill { position: absolute; inset-block: 0; inset-inline-start: 0; border-radius: inherit; background: var(--ops-ok); }
+.kw-ops--store .ops-gauge.is-low .ops-gauge__fill { background: var(--ops-warn); }
+.kw-ops--store .ops-gauge.is-out .ops-gauge__fill { background: var(--ops-stop); }
+.kw-ops--store .ops-gauge__tick { position: absolute; inset-block: -0.2rem; inset-inline-start: 50%; inline-size: 2px; background: var(--ops-ink); }
+
+.kw-ops--store .ops-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.kw-ops--store .ops-chips .btn { border-radius: 999px; }
+
+/* The bin card: the manila stock card kept on the shelf. */
+.kw-ops--store .ops-bincard {
+  background: var(--ops-card); color: var(--ops-card-ink);
+  border: 1px solid var(--ops-card-rule); border-radius: 4px;
+  padding: 1rem 1rem 0.5rem;
+}
+.kw-ops--store .ops-bincard__head { display: flex; flex-wrap: wrap; gap: 0.25rem 1.5rem; align-items: baseline; border-block-end: 2px solid var(--ops-card-ink); padding-block-end: 0.5rem; margin-block-end: 0.25rem; }
+.kw-ops--store .ops-bincard__name { font-family: var(--ops-condensed); font-weight: 800; font-size: 1.35rem; letter-spacing: 0.01em; margin: 0; color: inherit; }
+.kw-ops--store .ops-bincard__head dl { display: flex; flex-wrap: wrap; gap: 0 1.25rem; margin: 0; font-size: 0.875rem; }
+.kw-ops--store .ops-bincard__head dt { font-weight: 400; display: inline; }
+.kw-ops--store .ops-bincard__head dd { font-weight: 700; display: inline; margin: 0 0 0 0.3rem; }
+.kw-ops--store .ops-bincard table { --bs-table-bg: transparent; --bs-table-color: var(--ops-card-ink); margin: 0; font-size: 0.9rem; }
+.kw-ops--store .ops-bincard th { color: var(--ops-card-ink) !important; font-family: var(--ops-condensed); border-block-end: 1px solid var(--ops-card-ink) !important; }
+.kw-ops--store .ops-bincard td { border-color: var(--ops-card-rule); }
+.kw-ops--store .ops-bincard :is(td, th):is(.is-in, .is-out, .is-bal) { text-align: end; inline-size: 5.5rem; }
+.kw-ops--store .ops-bincard td.is-bal { font-weight: 800; border-inline-start: 2px solid var(--ops-card-ink); }
+.kw-ops--store .ops-bincard td.is-out { color: inherit; }
+.kw-ops--store .ops-bincard .ops-bincard__what { font-size: 0.8125rem; opacity: 0.85; }
+
+/* Delivery / issue line editor. */
+.kw-ops--store .ops-lines { display: grid; gap: 0.5rem; }
+.kw-ops--store .ops-lines__row { display: grid; grid-template-columns: minmax(0, 1fr) 6.5rem 44px; gap: 0.5rem; align-items: end; }
+.kw-ops--store .ops-lines--receive .ops-lines__row { grid-template-columns: minmax(0, 1fr) 6rem 7rem 9.5rem 44px; }
+.kw-ops--store .ops-lines__row .form-label { font-size: 0.8rem; margin-block-end: 0.15rem; }
+.kw-ops--store .ops-lines__row:not(:first-child) .form-label { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); }
+.kw-ops--store .ops-lines__help { font-size: 0.8125rem; color: var(--ops-muted); grid-column: 1 / -1; margin-block-start: -0.3rem; }
+@media (width < 768px) {
+  .kw-ops--store .ops-lines--receive .ops-lines__row { grid-template-columns: 1fr 1fr 44px; }
+  .kw-ops--store .ops-lines--receive .ops-lines__row > :first-child { grid-column: 1 / -1; }
+  .kw-ops--store .ops-lines__row .form-label { position: static !important; inline-size: auto !important; block-size: auto !important; clip-path: none !important; }
+}
+
+/* Count sheet: the difference column. */
+.kw-ops--store .ops-diff { font-weight: 800; }
+.kw-ops--store .ops-diff.is-short { color: var(--ops-stop); }
+.kw-ops--store .ops-diff.is-over { color: var(--ops-ok); }
+.kw-ops--store .ops-count-input { min-inline-size: 5rem; max-inline-size: 7.5rem; }
+@media print {
+  .kw-ops--store .ops-bincard { border-color: #000; }
+  .kw-ops--store .ops-count-input { border: 0; border-block-end: 1px solid #000; border-radius: 0; }
+  .kw-ops--store.is-blank-sheet .ops-count-input { color: transparent !important; }
+  /* Printing a bin card prints only the card. */
+  body.ops-print-card * { visibility: hidden; }
+  body.ops-print-card #fsCardModal, body.ops-print-card #fsCardModal * { visibility: visible; }
+  body.ops-print-card #fsCardModal { position: absolute; inset: 0 auto auto 0; inline-size: 100%; }
+  body.ops-print-card #fsCardModal .modal-dialog { max-inline-size: none; margin: 0; }
+  body.ops-print-card #fsCardModal .modal-content { border: 0; box-shadow: none; }
+  body.ops-print-card #fsCardModal .modal-body { overflow: visible; }
+}
+
+/* ---------- Uniform store: the size run ---------- */
+.kw-ops--shop .ops-garment { display: grid; grid-template-columns: minmax(12rem, 18rem) 1fr; gap: 0.75rem 1.5rem; padding-block: 1rem; border-block-start: 1px solid var(--ops-line); }
+.kw-ops--shop .ops-garment:first-child { border-block-start: 0; padding-block-start: 0; }
+.kw-ops--shop .ops-garment__name { font-weight: 800; color: var(--ops-ink); margin: 0; font-size: 1.05rem; }
+.kw-ops--shop .ops-garment__meta { color: var(--ops-muted); font-size: 0.875rem; }
+.kw-ops--shop .ops-swatch { display: inline-block; inline-size: 0.9rem; block-size: 0.9rem; border-radius: 50%; border: 1px solid var(--ops-line); vertical-align: -0.1rem; margin-inline-end: 0.3rem; }
+.kw-ops--shop .ops-sizes { display: flex; flex-wrap: wrap; gap: 0.4rem; list-style: none; margin: 0; padding: 0; }
+.kw-ops--shop .ops-size {
+  display: grid; justify-items: center; align-content: start; gap: 0.1rem;
+  min-inline-size: 4.25rem; padding: 0.4rem 0.5rem 0.45rem;
+  border: 1px solid var(--ops-line); border-block-end: 4px solid var(--ops-ok); border-radius: 6px;
+  background: var(--ops-surface);
+}
+.kw-ops--shop .ops-size.is-low { border-block-end-color: var(--ops-warn); }
+.kw-ops--shop .ops-size.is-out { border-block-end-color: var(--ops-stop); background: color-mix(in oklab, var(--ops-stop) 6%, var(--ops-surface)); }
+.kw-ops--shop .ops-size__label { font-size: 0.78rem; color: var(--ops-muted); white-space: nowrap; }
+.kw-ops--shop .ops-size__n { font-family: var(--ops-condensed); font-size: 1.5rem; font-weight: 800; line-height: 1; color: var(--ops-ink); }
+.kw-ops--shop .ops-size.is-out .ops-size__n { color: var(--ops-stop); }
+.kw-ops--shop .ops-size__held { font-size: 0.72rem; color: var(--ops-muted); }
+.kw-ops--shop .ops-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.kw-ops--shop .ops-chips .btn { border-radius: 999px; }
+.kw-ops--shop .ops-sale-lines { margin: 0; padding: 0; list-style: none; font-size: 0.875rem; }
+@media (width < 768px) {
+  .kw-ops--shop .ops-garment { grid-template-columns: 1fr; }
+}
+@media print {
+  .kw-ops--shop .ops-garment { break-inside: avoid; }
+  .kw-ops--shop .ops-size { border-color: #000; }
+}
+
+@media (width < 576px) {
+  .kw-ops .ops-line > li { grid-template-columns: 3.5rem 1rem 1fr; }
+  .kw-ops .ops-line > li::before { inset-inline-start: calc(3.5rem + 0.6rem + 0.5rem - 1px); }
+  .kw-ops .ops-actions > .btn { flex: 1 1 100%; }
+}
+@media (forced-colors: active) {
+  .kw-ops .ops-tag { border-color: CanvasText; }
+  .kw-ops--road :is(.ops-plate, .ops-blind), .kw-ops--kitchen .ops-board { forced-color-adjust: none; }
+  .kw-ops--store .ops-gauge__fill { background: Highlight !important; }
+  .kw-ops--store .ops-gauge__tick { background: CanvasText; }
+}
+@media print {
+  .kw-ops .d-print-none { display: none !important; }
+  .kw-ops .ops-panel { border: 0; padding: 0; }
+  .kw-ops [role="tabpanel"][hidden] { display: block !important; }
+}

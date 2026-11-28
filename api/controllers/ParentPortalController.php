@@ -350,6 +350,23 @@ class ParentPortalController extends BaseController
         return $this->handleApiResponse($this->parent->getStudentLearning((int)$id));
     }
 
+    /** GET /api/parent-portal/learning-resources/{studentId} — published public materials and past papers. */
+    public function getLearningResources($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('student_id required');
+        return $this->handleApiResponse($this->parent->getLearningResources((int) $id));
+    }
+
+    /** GET /api/parent-portal/learning-resource-open/{studentId}?kind=&resource_id=&scheme=1 */
+    public function getLearningResourceOpen($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('student_id required');
+        $q = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleApiResponse($this->parent->openLearningResource(
+            (int) $id, (string) ($q['kind'] ?? 'material'), (int) ($q['resource_id'] ?? 0), !empty($q['scheme'])
+        ));
+    }
+
     /** GET /api/parent-portal/student-coverage/{id} */
     public function getStudentCoverage($id = null, $data = [], $segments = [])
     {

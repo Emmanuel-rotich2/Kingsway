@@ -7,7 +7,7 @@
 (function () {
   'use strict';
   var P = window.ParentCommon;
-  var _state = { reportCards: [], transport: [], uniform: null, payments: [] };
+  var _state = { reportCards: [], transport: [], uniform: null, payments: [], resources: [] };
 
   function renderReportCards(el) {
     var cards = _state.reportCards;
@@ -65,8 +65,28 @@
       '<div class="alert alert-success small mt-2">Receipts are available for confirmed payments only.</div>';
   }
 
+  var EXAM = { opener: 'Opener', mid_term: 'Mid-term', end_term: 'End-term', mock: 'Mock', kpsea: 'KPSEA', kjsea: 'KJSEA', keya: 'KEYA', internal: 'Internal', other: 'Other' };
+
+  // Teaching materials and past papers the school published for parents.
+  function renderResources() {
+    var rows = _state.resources;
+    if (!rows.length) return '';
+    var section = function (kind, heading) {
+      var list = rows.filter(function (r) { return r.kind === kind; });
+      if (!list.length) return '';
+      return '<h6 class="text-muted mb-2 mt-3">' + heading + '</h6><div class="table-responsive"><table class="pp-table table-sm"><thead><tr><th>Title</th><th>Learning area</th><th>' + (kind === 'past_paper' ? 'Paper' : 'Type') + '</th><th></th></tr></thead><tbody>' +
+        list.map(function (r) {
+          var detail = kind === 'past_paper' ? P.esc((EXAM[r.exam_type] || r.exam_type || '') + ' ' + (r.exam_year || '') + (r.term_number ? ' · Term ' + r.term_number : '')) : P.esc(r.media_kind || '');
+          return '<tr><td><strong>' + P.esc(r.title) + '</strong>' + (r.description ? '<div class="small text-muted">' + P.esc(String(r.description).slice(0, 140)) + '</div>' : '') + '</td><td>' + P.esc(r.learning_area_name || 'General') + '</td><td>' + detail + '</td>' +
+            '<td class="text-nowrap"><button class="btn btn-outline-primary btn-sm res-open" data-kind="' + kind + '" data-id="' + Number(r.id) + '"><i class="bi bi-box-arrow-up-right me-1"></i>Open</button>' +
+            (r.has_marking_scheme ? ' <button class="btn btn-outline-secondary btn-sm res-open" data-scheme="1" data-kind="' + kind + '" data-id="' + Number(r.id) + '">Marking scheme</button>' : '') + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    };
+    return section('material', 'Learning materials') + section('past_paper', 'Past papers for revision');
+  }
+
   function renderAll(el) {
-    el.innerHTML = renderReportCards(el) + renderStatement(el) + renderReceipts(el) + renderTransport(el) + renderUniform(el) +
+    el.innerHTML = renderResources() + renderReportCards(el) + renderStatement(el) + renderReceipts(el) + renderTransport(el) + renderUniform(el) +
       '<div class="alert alert-info small mt-3"><i class="bi bi-info-circle me-2"></i>Files are short-lived download links generated on demand.</div>';
     // Statement PDF action
     var stmtBtn = document.getElementById('btnStmtPdf');
@@ -82,6 +102,20 @@
         })
         .catch(function (e) { P.showError(el, e.message); })
         .finally(function () { btn.disabled = false; btn.innerHTML = '<i class="bi bi-file-earmark-pdf me-1"></i>Download fee statement (PDF)'; });
+    });
+    // Learning resources open through short-lived links.
+    el.querySelectorAll('.res-open').forEach(function (b) {
+      b.addEventListener('click', function () {
+        b.disabled = true;
+        P.apiFetch('/learning-resource-open/' + _state.studentId + '?kind=' + encodeURIComponent(b.dataset.kind) + '&resource_id=' + Number(b.dataset.id) + (b.dataset.scheme ? '&scheme=1' : ''), 'GET')
+          .then(function (resp) {
+            var d = resp.data !== undefined ? resp.data : resp;
+            if (d.url) window.open(d.url, '_blank', 'noopener,noreferrer');
+            else P.showError(el, d.message || 'This resource could not be opened.');
+          })
+          .catch(function (e) { P.showError(el, e.message); })
+          .finally(function () { b.disabled = false; });
+      });
     });
     // Receipt actions
     el.querySelectorAll('.receipt-btn').forEach(function (b) {
@@ -113,7 +147,11 @@
         })
         .catch(function () { _state.payments = []; });
 
-      P.apiFetch('/downloads/' + child.id, 'GET')
+      var resourcesReady = P.apiFetch('/learning-resources/' + child.id, 'GET')
+        .then(function (r) { var d = r.data !== undefined ? r.data : r; _state.resources = (d && d.items) || []; })
+        .catch(function () { _state.resources = []; });
+
+      Promise.resolve(resourcesReady).then(function () { return P.apiFetch('/downloads/' + child.id, 'GET'); })
         .then(function (resp) {
           var d = resp.data !== undefined ? resp.data : resp;
           _state.reportCards = d.report_cards || [];

@@ -127,6 +127,12 @@ const subjectGradeEntryCtrl = (() => {
                     select.appendChild(option);
                 });
             }
+            // Deep link from Formative Assessments: ?assessment_id=N opens it.
+            const linked = Number(new URLSearchParams(window.location.search).get('assessment_id')) || 0;
+            if (select && linked && state.assessments.some(a => Number(a.id) === linked) && !state.currentAssessment) {
+                select.value = String(linked);
+                await loadStudentsForAssessment(linked);
+            }
         } catch (error) {
             console.error('Failed to load assessments:', error);
             toast('Failed to load assessments', 'error');

@@ -1,454 +1,60 @@
 <?php
 /**
- * Transport Passengers Page
- * Driver's passenger list and route dashboard
- * Embedded in app_layout.php
+ * Today's Passengers — the driver's run sheet. Learners grouped by stop in
+ * route order; one tap marks each learner on the bus / absent (morning) or
+ * dropped off / not riding (evening). Problems with a passenger go to the
+ * route's transport incidents.
+ * Data: /api/transport/driver-manifest, POST /api/transport/attendance,
+ * POST /api/transport/my-problem. Scoped to the driver's assigned routes.
  */
-
-$appBase = app_base_path();
 ?>
-
-<div class="container-fluid py-4" id="transportPassengersPage">
-
-    <div class="card shadow-sm border-0 mb-4">
-        <div class="card-header bg-primary text-white">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <div>
-                    <h4 class="mb-0">
-                        <i class="bi bi-bus-front me-2"></i>
-                        My Passengers
-                    </h4>
-                    <small id="scopeSubtitle">View assigned route passengers, pickup/drop-off points, and transport status</small>
-                </div>
-                <div class="btn-group">
-                    <button class="btn btn-light btn-sm" id="refreshBtn">
-                        <i class="bi bi-arrow-clockwise"></i> Refresh
-                    </button>
-                    <button class="btn btn-outline-light btn-sm" id="printListBtn">
-                        <i class="bi bi-printer me-1"></i> Print List
-                    </button>
-                    <button class="btn btn-light btn-sm" id="exportSheetBtn">
-                        <i class="bi bi-download me-1"></i> Export Sheet
-                    </button>
-                    <button class="btn btn-outline-light btn-sm" id="reportIncidentBtn">
-                        <i class="bi bi-exclamation-triangle me-1"></i> Report Incident
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <div class="card-body">
-
-            <!-- Filters -->
-            <div class="row g-3 mb-4">
-                <div class="col-xl-2 col-md-4">
-                    <label class="form-label fw-semibold">Date</label>
-                    <input type="date" class="form-control" id="dateFilter">
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <label class="form-label fw-semibold">Route</label>
-                    <select class="form-select" id="routeFilter">
-                        <option value="">All Routes</option>
-                    </select>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <label class="form-label fw-semibold">Vehicle</label>
-                    <select class="form-select" id="vehicleFilter">
-                        <option value="">All Vehicles</option>
-                    </select>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <label class="form-label fw-semibold">Trip Session</label>
-                    <select class="form-select" id="tripSessionFilter">
-                        <option value="">All Sessions</option>
-                        <option value="morning_pickup">Morning Pickup</option>
-                        <option value="evening_dropoff">Evening Drop-off</option>
-                        <option value="midday_trip">Midday Trip</option>
-                        <option value="special_trip">Special Trip</option>
-                    </select>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <label class="form-label fw-semibold">Class</label>
-                    <select class="form-select" id="classFilter">
-                        <option value="">All Classes</option>
-                    </select>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <label class="form-label fw-semibold">Stream</label>
-                    <select class="form-select" id="streamFilter">
-                        <option value="">All Streams</option>
-                    </select>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <label class="form-label fw-semibold">Gender</label>
-                    <select class="form-select" id="genderFilter">
-                        <option value="">All</option>
-                        <option value="male">Male</option>
-                        <option value="female">Female</option>
-                    </select>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <label class="form-label fw-semibold">Transport Status</label>
-                    <select class="form-select" id="transportStatusFilter">
-                        <option value="">All Status</option>
-                        <option value="active">Active</option>
-                        <option value="suspended">Suspended</option>
-                        <option value="not_riding">Not Riding</option>
-                        <option value="transferred">Transferred</option>
-                    </select>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <label class="form-label fw-semibold">Attendance Status</label>
-                    <select class="form-select" id="attendanceStatusFilter">
-                        <option value="">All</option>
-                        <option value="pending">Pending</option>
-                        <option value="picked_up">Picked Up</option>
-                        <option value="dropped_off">Dropped Off</option>
-                        <option value="absent">Absent</option>
-                        <option value="excused">Excused</option>
-                        <option value="not_riding">Not Riding</option>
-                    </select>
-                </div>
-
-                <div class="col-xl-3 col-md-6">
-                    <label class="form-label fw-semibold">Search</label>
-                    <div class="input-group">
-                        <span class="input-group-text">
-                            <i class="bi bi-search"></i>
-                        </span>
-                        <input type="text" class="form-control" id="searchBox"
-                               placeholder="Search by name, admission number, pickup point, guardian phone">
-                    </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4 d-flex align-items-end">
-                    <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
-                        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
-                    </button>
-                </div>
-            </div>
-
-            <!-- Summary cards -->
-            <div class="row g-3 mb-4">
-                <div class="col-xl-2 col-md-4">
-                    <div class="card border-0 bg-light h-100">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="rounded-circle bg-primary text-white p-3">
-                                    <i class="bi bi-people"></i>
-                                </div>
-                                <div>
-                                    <small class="text-muted">Total Passengers</small>
-                                    <h4 class="mb-0" id="totalPassengers">0</h4>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <div class="card border-0 bg-light h-100">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="rounded-circle bg-success text-white p-3">
-                                    <i class="bi bi-calendar-check"></i>
-                                </div>
-                                <div>
-                                    <small class="text-muted">Expected Today</small>
-                                    <h4 class="mb-0" id="expectedToday">0</h4>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <div class="card border-0 bg-light h-100">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="rounded-circle bg-info text-white p-3">
-                                    <i class="bi bi-arrow-up"></i>
-                                </div>
-                                <div>
-                                    <small class="text-muted">Picked Up</small>
-                                    <h4 class="mb-0" id="pickedUp">0</h4>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <div class="card border-0 bg-light h-100">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="rounded-circle bg-warning text-dark p-3">
-                                    <i class="bi bi-arrow-down"></i>
-                                </div>
-                                <div>
-                                    <small class="text-muted">Dropped Off</small>
-                                    <h4 class="mb-0" id="droppedOff">0</h4>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <div class="card border-0 bg-light h-100">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="bi bi-person-times"></i>
-                                </div>
-                                <div>
-                                    <small class="text-muted">Absent / Not Riding</small>
-                                    <h4 class="mb-0" id="absentNotRiding">0</h4>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <div class="card border-0 bg-light h-100">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="rounded-circle bg-secondary text-white p-3">
-                                    <i class="bi bi-clock"></i>
-                                </div>
-                                <div>
-                                    <small class="text-muted">Pending Pickup</small>
-                                    <h4 class="mb-0" id="pendingPickup">0</h4>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <div class="card border-0 bg-light h-100">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="bi bi-exclamation-triangle"></i>
-                                </div>
-                                <div>
-                                    <small class="text-muted">Emergency Alerts</small>
-                                    <h4 class="mb-0" id="emergencyAlerts">0</h4>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <div class="card border-0 bg-light h-100">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="rounded-circle bg-dark text-white p-3">
-                                    <i class="bi bi-signpost"></i>
-                                </div>
-                                <div>
-                                    <small class="text-muted">Route / Vehicle</small>
-                                    <h4 class="mb-0" id="routeVehicle">-</h4>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- States -->
-            <div id="passengersLoading" class="alert alert-info d-none">
-                <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading passengers...
-            </div>
-
-            <div id="passengersError" class="alert alert-danger d-none"></div>
-
-            <div id="passengersForbidden" class="alert alert-warning d-none">
-                <i class="bi bi-exclamation-triangle me-2"></i> You do not have permission to access transport data.
-            </div>
-
-            <div id="passengersEmpty" class="alert alert-warning d-none">
-                <i class="bi bi-info-circle me-2"></i> No passengers found for the selected filters.
-            </div>
-
-            <!-- Main Table -->
-            <div class="card border-0 shadow-sm" id="passengersCard">
-                <div class="card-header bg-white">
-                    <strong>
-                        <i class="bi bi-list-ul me-2 text-primary"></i>
-                        Passengers
-                    </strong>
-                </div>
-
-                <div class="card-body table-responsive">
-                    <table class="table table-hover align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th scope="col">Adm No</th>
-                                <th scope="col">Student Name</th>
-                                <th scope="col">Class</th>
-                                <th scope="col">Stream</th>
-                                <th scope="col">Gender</th>
-                                <th scope="col">Route</th>
-                                <th scope="col">Vehicle</th>
-                                <th scope="col">Pickup Point</th>
-                                <th scope="col">Drop-off Point</th>
-                                <th scope="col">Guardian Contact</th>
-                                <th scope="col">Today Status</th>
-                                <th scope="col">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="passengersTableBody">
-                            <tr>
-                                <td class="text-center text-muted">Loading...</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-        </div>
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/support_ops.css?v=<?= asset_version('css/pages/support_ops.css') ?>">
+<div class="kw-ops kw-ops--road container-fluid py-3" id="runSheetPage">
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
+    <div>
+      <h1 class="ops-title">Today's passengers</h1>
+      <p class="ops-lede">Stop by stop. Tap as each learner gets on or off the bus.</p>
     </div>
-</div>
-
-<!-- Passenger Profile Modal -->
-<div class="modal fade" id="passengerModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-scrollable modal-xl">
-        <div class="modal-content border-0 shadow">
-
-            <div class="modal-header bg-primary text-white">
-                <div>
-                    <h5 class="modal-title mb-0">
-                        <i class="bi bi-person me-2"></i>
-                        Passenger Profile
-                    </h5>
-                    <small id="modalSubtitle">Transport passenger details</small>
-                </div>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-
-            <div class="modal-body">
-                <div id="modalLoading" class="alert alert-info d-none">
-                    <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading passenger profile...
-                </div>
-
-                <div id="modalError" class="alert alert-danger d-none"></div>
-
-                <div id="modalPassengerContent">
-                    <!-- Passenger profile details will be rendered here -->
-                </div>
-            </div>
-
-            <div class="modal-footer">
-                <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-                <button class="btn btn-success" id="markPickedUpBtn" data-year-write>
-                    <i class="bi bi-arrow-up me-1"></i> Mark Picked Up
-                </button>
-                <button class="btn btn-warning" id="markDroppedOffBtn" data-year-write>
-                    <i class="bi bi-arrow-down me-1"></i> Mark Dropped Off
-                </button>
-                <button class="btn btn-danger" id="markAbsentBtn" data-year-write>
-                    <i class="bi bi-x-circle me-1"></i> Mark Absent
-                </button>
-            </div>
-
-        </div>
+    <div class="d-flex flex-wrap gap-2 d-print-none">
+      <button class="btn btn-outline-danger" type="button" id="rsProblemBtn"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>Report a problem</button>
+      <button class="btn btn-outline-secondary" type="button" id="rsCsv"><i class="bi bi-download me-1" aria-hidden="true"></i>CSV</button>
+      <button class="btn btn-outline-secondary" type="button" id="rsPrint"><i class="bi bi-printer me-1" aria-hidden="true"></i>Print</button>
     </div>
+  </div>
+
+  <div class="row g-2 mb-3 d-print-none">
+    <div class="col-6 col-md-3"><label class="form-label small" for="rsTrip">Trip</label>
+      <select class="form-select" id="rsTrip"><option value="morning_pickup">Morning pick-up</option><option value="evening_dropoff">Evening drop-off</option><option value="midday_trip">Midday trip</option><option value="special_trip">Special trip</option></select></div>
+    <div class="col-6 col-md-2"><label class="form-label small" for="rsDate">Date</label><input class="form-control" type="date" id="rsDate"></div>
+    <div class="col-6 col-md-3" id="rsRouteWrap" hidden><label class="form-label small" for="rsRoute">Route</label><select class="form-select" id="rsRoute"></select></div>
+    <div class="col-6 col-md-4"><label class="form-label small" for="rsSearch">Find a learner</label><input class="form-control" type="search" id="rsSearch" placeholder="Name or admission number"></div>
+  </div>
+
+  <div class="ops-panel mb-3">
+    <ul class="ops-facts" id="rsFacts" aria-live="polite" aria-label="Trip progress"></ul>
+  </div>
+
+  <div id="rsState" class="ops-panel text-muted" role="status">Loading today's passengers…</div>
+  <div id="rsStops" class="d-grid gap-3"></div>
+
+  <div class="modal fade" id="rsProblemModal" tabindex="-1" aria-labelledby="rsProblemTitle" aria-hidden="true">
+    <div class="modal-dialog"><form class="modal-content" id="rsProblemForm" novalidate>
+      <div class="modal-header"><h2 class="modal-title h5" id="rsProblemTitle">Report a problem</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body">
+        <label class="form-label small" for="rsPrStudent">Learner (if it is about one)</label>
+        <select class="form-select mb-2" id="rsPrStudent"></select>
+        <label class="form-label small" for="rsPrType">What happened</label>
+        <select class="form-select mb-2" id="rsPrType"><option value="behavior">Behaviour on the bus</option><option value="medical">Unwell or hurt</option><option value="wrong_stop">Wrong stop / not collected</option><option value="late_pickup">Late for pick-up</option><option value="late_dropoff">Late for drop-off</option><option value="accident">Accident</option><option value="vehicle_breakdown">Breakdown</option><option value="other">Something else</option></select>
+        <label class="form-label small" for="rsPrDesc">Describe it</label>
+        <textarea class="form-control mb-2" id="rsPrDesc" rows="3" maxlength="2000" required></textarea>
+        <label class="form-label small" for="rsPrAction">What you have done so far</label>
+        <textarea class="form-control mb-2" id="rsPrAction" rows="2" maxlength="1000"></textarea>
+        <div class="form-check"><input class="form-check-input" type="checkbox" id="rsPrUrgent"><label class="form-check-label" for="rsPrUrgent">Urgent: the transport office must act now</label></div>
+        <p class="small text-muted mt-2 mb-0">Unwell, hurt or an accident is always sent as urgent. Call the school as well.</p>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-danger">Report problem</button></div>
+    </form></div>
+  </div>
 </div>
-
-<!-- Incident Modal -->
-<div class="modal fade" id="incidentModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-scrollable">
-        <div class="modal-content border-0 shadow">
-
-            <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title mb-0">
-                    <i class="bi bi-exclamation-triangle me-2"></i>
-                    Report Transport Incident
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-
-            <div class="modal-body">
-                <form id="incidentForm">
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Student</label>
-                        <select class="form-select" id="incidentStudent">
-                            <option value="">Select Student (Optional)</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Date/Time</label>
-                        <input type="datetime-local" class="form-control" id="incidentDateTime" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Route</label>
-                        <select class="form-select" id="incidentRoute">
-                            <option value="">Select Route</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Vehicle</label>
-                        <select class="form-select" id="incidentVehicle">
-                            <option value="">Select Vehicle</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Incident Type</label>
-                        <select class="form-select" id="incidentType" required>
-                            <option value="">Select Type</option>
-                            <option value="accident">Accident</option>
-                            <option value="late_pickup">Late Pickup</option>
-                            <option value="late_dropoff">Late Drop-off</option>
-                            <option value="wrong_stop">Wrong Stop</option>
-                            <option value="behavior">Behavior Issue</option>
-                            <option value="medical">Medical Emergency</option>
-                            <option value="vehicle_breakdown">Vehicle Breakdown</option>
-                            <option value="other">Other</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Description</label>
-                        <textarea class="form-control" id="incidentDescription" rows="3" required></textarea>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Action Taken</label>
-                        <textarea class="form-control" id="incidentActionTaken" rows="2"></textarea>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Escalate to Admin</label>
-                        <select class="form-select" id="incidentEscalate">
-                            <option value="0">No</option>
-                            <option value="1">Yes</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Notes</label>
-                        <textarea class="form-control" id="incidentNotes" rows="2"></textarea>
-                    </div>
-                </form>
-            </div>
-
-            <div class="modal-footer">
-                <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-danger" id="saveIncidentBtn" data-year-write>
-                    <i class="bi bi-exclamation-triangle me-1"></i> Submit Report
-                </button>
-            </div>
-
-        </div>
-    </div>
-</div>
-
-<script src="<?php echo $appBase; ?>/js/pages/transport_passengers.js?v=<?php echo asset_version('js/pages/transport_passengers.js'); ?>"></script>
+<?php asset_script($appBase, 'js/pages/support_ops_common.js'); ?>
+<?php asset_script($appBase, 'js/pages/transport_passengers.js'); ?>

@@ -16,12 +16,17 @@ $escape = static function ($value): string {
 };
 ?>
 
-<div class="container-fluid py-4 role-dashboard dashboard-surface dashboard-wellbeing" id="<?= $escape($rootId) ?>">
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/chaplaincy.css?v=<?= asset_version('css/pages/chaplaincy.css') ?>">
+<div class="kw-care container-fluid py-4 role-dashboard dashboard-surface dashboard-wellbeing" id="<?= $escape($rootId) ?>">
+    <header class="mb-3">
+        <h2 class="care-title">Pastoral care</h2>
+        <p class="text-muted mb-0">The learners in your care, today's sessions and follow-ups, and the chapel programme.</p>
+    </header>
     <?php require __DIR__ . '/partials/period_selector.php'; ?>
 
     <!-- Meta Bar -->
     <div class="dash-meta-bar mb-4 d-flex align-items-center justify-content-end gap-3 flex-wrap">
-        <span class="dash-badge bg-danger" id="<?= $escape($rootId) ?>RoleBadge">Counseling</span>
+        <span class="dash-badge bg-secondary" id="<?= $escape($rootId) ?>RoleBadge">Counselling</span>
         <span class="dash-badge bg-info" id="<?= $escape($rootId) ?>TermBadge">—</span>
         <span class="small text-muted">Updated: <span id="<?= $escape($rootId) ?>LastUpdated">—</span></span>
         <button class="btn btn-sm btn-outline-success" id="<?= $escape($rootId) ?>Refresh">
@@ -428,3 +433,4 @@ $escape = static function ($value): string {
 
 <?php asset_script($appBase, 'js/dashboards/dashboard_base_controller.js'); ?>
 <?php asset_script($appBase, 'js/dashboards/school_counselor_chaplain_dashboard.js'); ?>
+<?php asset_script($appBase, 'js/components/care_ui.js'); ?>

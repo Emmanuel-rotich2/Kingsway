@@ -17,7 +17,7 @@
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <h4 class="mb-0"><i class="bi bi-calendar-check"></i> View Attendance</h4>
             <div class="btn-group">
-                <a href="<?= $appBase ?>/home.php?route=mark_attendance" class="btn btn-light btn-sm" id="markAttendanceLink" data-permission="attendance_create">
+                <a href="<?= $appBase ?>/home.php?route=class_mark_attendance" class="btn btn-light btn-sm" id="markAttendanceLink" data-permission="attendance_create">
                     <i class="bi bi-check2-square"></i> Mark Attendance
                 </a>
                 <a href="<?= $appBase ?>/home.php?route=boarding_roll_call" class="btn btn-outline-light btn-sm" id="boardingRollCallLink" data-permission="boarding_edit">

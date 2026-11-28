@@ -3,11 +3,12 @@
 
 ?>
 
-<div class="container-fluid px-4 py-4">
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/css/pages/chaplaincy.css?v=<?= asset_version('css/pages/chaplaincy.css') ?>">
+<div class="kw-care container-fluid px-4 py-4">
 
   <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
     <div>
-      <h4 class="fw-bold mb-0"><i class="bi bi-heart-pulse text-danger me-2"></i>Welfare Summary</h4>
+      <h4 class="care-title fw-bold mb-0"><i class="bi bi-heart-pulse text-danger me-2"></i>Welfare Summary</h4>
       <p class="text-muted small mb-0 mt-1">Student welfare case analytics by category, priority and status.</p>
     </div>
     <button class="btn btn-outline-danger btn-sm" data-kw-onclick="welfareSummaryController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
@@ -48,3 +49,4 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/welfare_summary.js'); ?>
+<?php asset_script($appBase, 'js/components/care_ui.js'); ?>
